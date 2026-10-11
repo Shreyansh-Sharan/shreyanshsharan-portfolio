@@ -284,15 +284,17 @@ export const REGIONS: Region[] = [
   },
 ]
 
-/** Hub missions that are not regions of their own. */
-export const HUB_MISSIONS: { tile: string; name: string; at: [number, number] }[] = [
+/** Extra missions that are not regions of their own (placed in the hub unless a region is given). */
+export const HUB_MISSIONS: { tile: string; name: string; at: [number, number]; region?: string }[] = [
   { tile: 'trophies', name: 'Visit the trophy hall', at: [-10, 7] },
   { tile: 'skill-tree', name: 'Read the signpost of skills', at: [9, 8] },
+  { tile: 'volt-riot', name: 'Start the VOLT RIOT', at: [-14, 4], region: 'speedway' },
 ]
 
 /** Which region a portfolio tile (or page) lives in. */
 export function regionForTile(tile: string): Region {
-  return REGIONS.find((r) => r.tile === tile) ?? REGIONS[0]
+  const extra = HUB_MISSIONS.find((m) => m.tile === tile)?.region
+  return REGIONS.find((r) => r.tile === tile || r.id === extra) ?? REGIONS[0]
 }
 
 export const ISLAND_RADIUS = 250

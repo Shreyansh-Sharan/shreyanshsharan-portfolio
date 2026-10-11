@@ -10,6 +10,7 @@ export type Route =
   | { name: 'profile' }
   | { name: 'resume' }
   | { name: 'arena'; join?: string }
+  | { name: 'racer'; auto?: 'race' | 'combat' }
 
 export function parse(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?')
@@ -17,6 +18,8 @@ export function parse(hash: string): Route {
   switch (parts[0]) {
     case 'arena':
       return { name: 'arena', join: new URLSearchParams(query).get('join') ?? undefined }
+    case 'racer':
+      return { name: 'racer', auto: (['race', 'combat'] as const).find((m) => m === new URLSearchParams(query).get('auto')) }
     case 'home':
       return { name: 'home', tile: parts[1] }
     case 'game':

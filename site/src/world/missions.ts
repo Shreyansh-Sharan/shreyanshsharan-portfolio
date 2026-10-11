@@ -21,7 +21,7 @@ export const MISSIONS: Mission[] = [
     return { tile: tileById(r.tile), name: r.mission, region: r.id, regionName: r.name, accent: r.accent, x, z, y: heightAt(x, z) }
   }),
   ...HUB_MISSIONS.map((m) => {
-    const hub = REGIONS[0]
+    const hub = REGIONS.find((r) => r.id === m.region) ?? REGIONS[0]
     const x = hub.center[0] + m.at[0], z = hub.center[1] + m.at[1]
     return { tile: tileById(m.tile), name: m.name, region: hub.id, regionName: hub.name, accent: hub.accent, x, z, y: heightAt(x, z) }
   }),

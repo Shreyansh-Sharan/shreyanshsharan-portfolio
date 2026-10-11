@@ -35,6 +35,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Power-ups', detail: 'Health, shield cells, Overdrive (double damage) and Haste.' },
         { title: 'Map', detail: 'Dunes: long lane to A, catwalk from mid, tunnels to B, mid doors.' },
       ]
+    case 'volt-riot':
+      return [
+        { title: 'Power-ups', detail: 'Shunt, Barge, Bolt, Mine, Shock, Nitro, Shield and Repair, each with a forward and backward mode.' },
+        { title: 'Modes', detail: 'A 3-lap Race against 7 AI rivals, or a 3-track Combat Points series scored on wrecks.' },
+        { title: 'Progression', detail: 'Fan Points, Fan Runs and up to 5 Lights per event, saved in your browser.' },
+        { title: 'Assets', detail: 'Eight cars, street lamps, billboards, towers, cranes and textures generated with Higgsfield.' },
+      ]
     case 'sports-complex':
       return [
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },

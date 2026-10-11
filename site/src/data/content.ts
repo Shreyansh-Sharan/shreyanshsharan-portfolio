@@ -1,6 +1,7 @@
 // All portfolio content lives here. Edit this file to change what the site shows.
 import type { LucideIcon } from 'lucide-react'
 import {
+  CarFront,
   Award,
   Crosshair,
   Database,
@@ -349,6 +350,22 @@ export const tiles: Tile[] = [
     icon: Crosshair,
     accent: ['#9a3412', '#fdba74'],
     action: { kind: 'route', to: '#/arena', label: 'Play' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'volt-riot',
+    tab: 'extras',
+    title: 'VOLT RIOT',
+    tagline: 'Combat Racer',
+    org: 'Three.js · Higgsfield-generated cars & props',
+    period: 'Play now',
+    genre: 'Racing',
+    blurb:
+      'A neon street racer with weapons. Eight colour-coded power-ups, a three-slot bay, ten segments of health, drift handling, seven AI rivals and a Combat Points series. Win fans, earn Lights.',
+    icon: CarFront,
+    accent: ['#831843', '#f0abfc'],
+    action: { kind: 'route', to: '#/racer', label: 'Race' },
     stats: [],
     activities: [],
   },
