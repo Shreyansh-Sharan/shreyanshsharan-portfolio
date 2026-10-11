@@ -28,6 +28,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Education', detail: 'B.Tech, NIT Jalandhar' },
         { title: 'Based in', detail: profile.location },
       ]
+    case 'arena':
+      return [
+        { title: 'Modes', detail: 'Solo vs up to 9 AI bots, or host an online match and invite friends with a code.' },
+        { title: 'Powers', detail: 'Dash, double jump, overshield and a pulse scan that sees through walls.' },
+        { title: 'Power-ups', detail: 'Health, shield cells, Overdrive (double damage) and Haste.' },
+        { title: 'Map', detail: 'Dunes: long lane to A, catwalk from mid, tunnels to B, mid doors.' },
+      ]
     case 'sports-complex':
       return [
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },
@@ -48,7 +55,7 @@ function useClock() {
   return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent: (a: [string, string]) => void }) {
+export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent: (a: [string, string], emblem: string) => void }) {
   const start = tiles.find((t) => t.id === initialTile) ?? tiles[0]
   const [tab, setTab] = useState<Tab>(start.tab)
   const [indexByTab, setIndexByTab] = useState<Record<Tab, number>>(() => ({
@@ -60,6 +67,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
   const [cardIdx, setCardIdx] = useState(0)
   const [muted, setMutedState] = useState(isMuted)
   const [toast, setToast] = useState<string | null>(null)
+  const [launching, setLaunching] = useState(false)
   const clock = useClock()
 
   const list = useMemo(() => tiles.filter((t) => t.tab === tab), [tab])
@@ -73,7 +81,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   useEffect(() => {
-    onAccent(tile.accent)
+    onAccent(tile.accent, tile.id)
     window.history.replaceState(null, '', `#/home/${tile.id}`)
   }, [tile, onAccent])
 
@@ -111,8 +119,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
     const a = t.action
     switch (a.kind) {
       case 'hub':
-        play('select')
-        navigate(`#/game/${t.id}`)
+        launch(`#/game/${t.id}`)
         break
       case 'route':
         play('select')
@@ -128,16 +135,23 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
     }
   }
 
+  // Game-launch feel: the emblem rushes at the camera and the UI zooms away before the route changes.
+  const launch = (to: string) => {
+    if (launching) return
+    play('select')
+    setLaunching(true)
+    window.dispatchEvent(new Event('emblem-launch'))
+    window.setTimeout(() => navigate(to), 420)
+  }
+
   const openQuickView = () => {
     play('select')
     navigate('#/resume')
   }
 
   const openCard = () => {
-    if (tile.action.kind === 'hub') {
-      play('select')
-      navigate(`#/game/${tile.id}`)
-    } else runPrimary()
+    if (tile.action.kind === 'hub') launch(`#/game/${tile.id}`)
+    else runPrimary()
   }
 
   const step = (n: number, len: number, dir: 1 | -1) => Math.max(0, Math.min(len - 1, n + dir))
@@ -193,7 +207,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
   const primaryLabel = tile.action.kind === 'hub' ? 'Play' : tile.action.label
 
   return (
-    <div className="home" style={accentVars(tile.accent)}>
+    <div className={`home ${launching ? 'is-launching' : ''}`} style={accentVars(tile.accent)}>
       <header className="topbar">
         <nav className="tabs" aria-label="Sections">
           {TABS.map((t, i) => (
@@ -316,7 +330,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
             </button>
           </div>
         </div>
-        <div className="hero-key">
+        <div className="hero-key" data-emblem-anchor>
           <TileArt tile={tile} variant="key" />
         </div>
       </section>
@@ -328,6 +342,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
             {cards.map((c, i) => (
               <button
                 key={c.title}
+                style={{ animationDelay: `${120 + i * 70}ms` }}
                 ref={(el) => {
                   cardRefs.current[i] = el
                 }}

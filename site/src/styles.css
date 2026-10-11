@@ -1204,3 +1204,416 @@ p {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- 3D layer ---------- */
+
+.scene-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+
+.scene-layer.is-ready {
+  opacity: 1;
+}
+
+.scene3d {
+  width: 100%;
+  height: 100%;
+}
+
+/* With the 3D layer running, the emblem replaces the flat key art (the element stays as the anchor). */
+.has-3d .hero-key .art {
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.has-3d .hub-key .art-icon {
+  display: none;
+}
+
+.has-3d .hub-key .art {
+  background:
+    radial-gradient(90% 80% at 50% 45%, color-mix(in srgb, var(--b) 22%, transparent), transparent 70%),
+    linear-gradient(145deg, color-mix(in srgb, var(--a) 45%, transparent), rgba(5, 6, 15, 0.35));
+  backdrop-filter: blur(2px);
+}
+
+.has-3d .boot-logo {
+  width: 170px;
+  height: 170px;
+  margin-bottom: 4px;
+  background: none;
+  box-shadow: none;
+  color: transparent;
+  animation: none;
+}
+
+/* ---------- Motion ---------- */
+
+.tile-row {
+  perspective: 900px;
+}
+
+.tile {
+  transform-style: preserve-3d;
+  transition: width 0.3s var(--ease), height 0.3s var(--ease), box-shadow 0.25s, transform 0.35s var(--ease);
+}
+
+.tile:hover {
+  transform: translateY(-3px) rotateX(6deg);
+}
+
+.tile.is-selected {
+  transform: translateY(-4px) rotateX(8deg) rotateY(-6deg);
+}
+
+.tile.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.35) 48%, transparent 62%);
+  transform: translateX(-120%);
+  animation: shine 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.tile-row .tile:nth-child(n) {
+  animation: tile-in 0.6s var(--ease) both;
+}
+
+.tile-row > :nth-child(2) { animation-delay: 40ms; }
+.tile-row > :nth-child(3) { animation-delay: 80ms; }
+.tile-row > :nth-child(4) { animation-delay: 120ms; }
+.tile-row > :nth-child(5) { animation-delay: 160ms; }
+.tile-row > :nth-child(6) { animation-delay: 200ms; }
+.tile-row > :nth-child(7) { animation-delay: 240ms; }
+.tile-row > :nth-child(8) { animation-delay: 280ms; }
+
+.hero-title {
+  animation: title-in 0.7s var(--ease) both;
+}
+
+.hero-tagline {
+  animation: fade-up 0.6s 0.15s var(--ease) both;
+}
+
+.hero-blurb,
+.hero-org {
+  animation: fade-up 0.6s 0.22s var(--ease) both;
+}
+
+.hero-actions {
+  animation: fade-up 0.6s 0.3s var(--ease) both;
+}
+
+.card {
+  animation: card-in 0.55s var(--ease) both;
+}
+
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary.is-focused::after,
+.btn-primary:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.85) 50%, transparent 65%);
+  animation: shine 1.6s ease-in-out infinite;
+  mix-blend-mode: overlay;
+}
+
+.home.is-launching {
+  animation: launch-out 0.42s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  pointer-events: none;
+}
+
+.page {
+  animation: page-in 0.55s var(--ease);
+}
+
+.stat,
+.activity,
+.trophy,
+.branch {
+  animation: card-in 0.5s var(--ease) both;
+}
+
+.stat:nth-child(2), .activity:nth-child(2), .trophy:nth-child(2), .branch:nth-child(2) { animation-delay: 60ms; }
+.stat:nth-child(3), .activity:nth-child(3), .trophy:nth-child(3), .branch:nth-child(3) { animation-delay: 120ms; }
+.stat:nth-child(4), .activity:nth-child(4), .trophy:nth-child(4), .branch:nth-child(4) { animation-delay: 180ms; }
+.activity:nth-child(n + 5), .trophy:nth-child(n + 5), .branch:nth-child(n + 5) { animation-delay: 240ms; }
+
+.stat {
+  transition: transform 0.3s var(--ease), border-color 0.3s;
+}
+
+.stat:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes shine {
+  0% { transform: translateX(-120%); }
+  55%, 100% { transform: translateX(120%); }
+}
+
+@keyframes tile-in {
+  from { opacity: 0; transform: translateY(24px) rotateX(-30deg); }
+}
+
+@keyframes title-in {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); filter: blur(8px); transform: translateX(-12px); }
+  to { opacity: 1; clip-path: inset(0 -10% 0 0); filter: none; transform: none; }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+}
+
+@keyframes launch-out {
+  to { opacity: 0; transform: scale(1.08); filter: blur(6px); }
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: scale(0.97) translateY(12px); }
+}
+
+@media (max-width: 860px) {
+  .hero-key {
+    display: block;
+    order: -1;
+    height: 190px;
+    aspect-ratio: auto;
+    max-height: none;
+    transform: none;
+    justify-self: stretch;
+  }
+
+  .has-3d .hero-key {
+    height: 170px;
+  }
+}
+
+/* ---------- Arena ---------- */
+
+.arena-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 18px;
+}
+
+.arena-panel {
+  padding: 24px;
+  border-radius: 18px;
+  background: rgba(10, 12, 26, 0.65);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: card-in 0.5s var(--ease) both;
+}
+
+.arena-info {
+  gap: 10px;
+  animation-delay: 80ms;
+}
+
+.arena-info .section-title {
+  margin: 8px 0 2px;
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+}
+
+.seg-btn {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background 0.2s, color 0.2s;
+}
+
+.seg-btn.is-active {
+  background: #fff;
+  color: #0a0b14;
+}
+
+.seg-sm .seg-btn {
+  min-height: 34px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.field strong {
+  color: var(--text);
+  margin-left: 6px;
+}
+
+.field input:not([type='range']) {
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.field input:focus-visible {
+  outline: 2px solid #fdba74;
+  outline-offset: 1px;
+}
+
+.field input[type='range'] {
+  accent-color: #fb923c;
+}
+
+.code-input {
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.arena-start {
+  min-height: 52px;
+  font-size: 16px;
+}
+
+.arena-start:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  color: #fed7aa;
+}
+
+.notice code {
+  font-size: 13px;
+}
+
+.small {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mobile-only {
+  display: none;
+}
+
+.keys {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.keys kbd {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 7px;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.arena-player {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #05060f;
+  display: flex;
+  flex-direction: column;
+  animation: page-in 0.4s var(--ease);
+}
+
+.arena-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 12, 26, 0.9);
+  flex-wrap: wrap;
+}
+
+.arena-bar .icon-btn {
+  margin-left: auto;
+}
+
+.invite {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.invite strong {
+  letter-spacing: 0.2em;
+  color: #fdba74;
+}
+
+.arena-error {
+  color: #fca5a5;
+  font-size: 14px;
+}
+
+.arena-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #05060f;
+}
+
+@media (max-width: 860px) {
+  .arena-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+}

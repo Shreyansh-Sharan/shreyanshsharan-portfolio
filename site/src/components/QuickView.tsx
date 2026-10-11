@@ -8,8 +8,8 @@ const roles = tiles.filter((t) => t.tab === 'career' && t.id !== 'nit-academy')
 const accent: [string, string] = ['#1e293b', '#64748b']
 
 /** Plain, scannable resume for people who don't want to play. */
-export function QuickView({ onAccent }: { onAccent: (a: [string, string]) => void }) {
-  useEffect(() => onAccent(accent), [onAccent])
+export function QuickView({ onAccent }: { onAccent: (a: [string, string], emblem: string) => void }) {
+  useEffect(() => onAccent(accent, 'resume'), [onAccent])
 
   return (
     <Page onBack={() => navigate('#/home')} backLabel="Game mode" className="quick">

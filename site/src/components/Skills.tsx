@@ -5,8 +5,8 @@ import { Page } from './Page'
 
 const accent = tiles.find((t) => t.id === 'skill-tree')!.accent
 
-export function Skills({ onAccent }: { onAccent: (a: [string, string]) => void }) {
-  useEffect(() => onAccent(accent), [onAccent])
+export function Skills({ onAccent }: { onAccent: (a: [string, string], emblem: string) => void }) {
+  useEffect(() => onAccent(accent, 'skill-tree'), [onAccent])
 
   return (
     <Page onBack={() => navigate('#/home/skill-tree')}>

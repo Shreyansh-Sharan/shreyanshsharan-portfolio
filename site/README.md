@@ -26,9 +26,24 @@ Everything the site shows lives in [`src/data/content.ts`](src/data/content.ts):
 
 Mouse and touch work too: tap a tile to select it, tap again to open.
 
+## 3D layer
+
+`src/three/Scene3D.tsx` is a React Three Fiber scene behind the UI: the ribbon backdrop, a glowing grid floor,
+particles, bloom and a 3D emblem per tile (`src/three/Emblems.tsx`, built from primitives so nothing is downloaded).
+The emblem lands on whichever element carries `data-emblem-anchor`. The scene is a separate chunk that loads after
+the first paint; it is skipped for `prefers-reduced-motion`, browsers without WebGL2, or `?lite` in the URL, and the
+2D shader background is used instead.
+
+## Dunes Arena (Extras)
+
+`src/components/Arena.tsx` is the lobby for the Unity WebGL shooter in `../unity/ArenaShooter`. It loads the build from
+`public/games/arena/` in an iframe with launch options in the URL (`?mode=solo|host|join&bots=&diff=&name=&code=`),
+listens for `postMessage` events from the game (join code, errors), and turns a join code into an invite link
+(`#/arena?join=CODE`). Until a build is published the page says so. See `../unity/ArenaShooter/README.md` to build it.
+
 ## Structure
 
-- `src/components/Background.tsx`: animated ribbon background as a single WebGL fragment shader (no 3D library)
+- `src/components/Background.tsx`: 2D ribbon background (single WebGL fragment shader), used as fallback
 - `src/components/Home.tsx`: the home screen (tabs, tile row, hero, activity cards)
 - `src/components/GameHub.tsx`: per-role detail page
 - `src/lib/input.ts`: unified keyboard + gamepad input

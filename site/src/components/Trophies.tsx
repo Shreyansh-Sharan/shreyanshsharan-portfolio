@@ -7,8 +7,8 @@ import { Page } from './Page'
 const TIERS: TrophyTier[] = ['platinum', 'gold', 'silver', 'bronze']
 const accent = tiles.find((t) => t.id === 'trophies')!.accent
 
-export function Trophies({ onAccent }: { onAccent: (a: [string, string]) => void }) {
-  useEffect(() => onAccent(accent), [onAccent])
+export function Trophies({ onAccent }: { onAccent: (a: [string, string], emblem: string) => void }) {
+  useEffect(() => onAccent(accent, 'trophies'), [onAccent])
   const certs = trophies.filter((t) => t.kind === 'Certification').length
 
   return (

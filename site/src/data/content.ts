@@ -2,6 +2,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Award,
+  Crosshair,
   Database,
   FileDown,
   Flag,
@@ -334,6 +335,22 @@ export const tiles: Tile[] = [
     action: { kind: 'hub' },
     stats: [{ value: 'B.Tech', label: 'Degree' }],
     activities: [{ title: 'Bachelor of Technology', detail: 'NIT Jalandhar, Punjab, India.' }],
+  },
+  {
+    id: 'arena',
+    tab: 'extras',
+    title: 'Dunes Arena',
+    tagline: 'Multiplayer FPS',
+    org: 'Built in Unity 6 · Netcode for GameObjects',
+    period: 'Play now',
+    genre: 'Shooter',
+    blurb:
+      'A lightweight browser shooter on an original desert map with the classic two-site flow. Fight AI bots or invite friends with a code, and use dash, double jump, overshield and pulse scan.',
+    icon: Crosshair,
+    accent: ['#9a3412', '#fdba74'],
+    action: { kind: 'route', to: '#/arena', label: 'Play' },
+    stats: [],
+    activities: [],
   },
   {
     id: 'trophies',

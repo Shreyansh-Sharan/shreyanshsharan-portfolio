@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Gamepad2 } from 'lucide-react'
-import { profile } from '../data/content'
+import { profile, tiles } from '../data/content'
 import { useActions } from '../lib/input'
 import { play } from '../lib/sound'
 import { navigate } from '../lib/router'
@@ -11,7 +11,8 @@ const choices = [
   { id: 'recruiter', label: 'Recruiter', sub: 'Quick view', icon: FileText, to: '#/resume' },
 ] as const
 
-export function Boot() {
+export function Boot({ onAccent }: { onAccent: (a: [string, string], emblem: string) => void }) {
+  useEffect(() => onAccent(tiles[0].accent, 'boot'), [onAccent])
   const [index, setIndex] = useState(0)
   const refs = useRef<(HTMLButtonElement | null)[]>([])
 
@@ -39,7 +40,7 @@ export function Boot() {
 
   return (
     <div className="boot">
-      <div className="boot-logo" aria-hidden="true">
+      <div className="boot-logo" aria-hidden="true" data-emblem-anchor>
         {profile.initials}
       </div>
       <h1 className="boot-title">Who's playing?</h1>

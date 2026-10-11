@@ -9,12 +9,12 @@ import { accentVars } from '../lib/style'
 
 const games = tiles.filter((t) => t.action.kind === 'hub')
 
-export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, string]) => void }) {
+export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, string], emblem: string) => void }) {
   const index = games.findIndex((t) => t.id === id)
   const tile = games[index]
 
   useEffect(() => {
-    if (tile) onAccent(tile.accent)
+    if (tile) onAccent(tile.accent, tile.id)
     else navigate('#/home')
   }, [tile, onAccent])
 
@@ -26,7 +26,7 @@ export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, s
     // key resets scroll position when moving between games
     <Page key={tile.id} onBack={() => navigate(`#/home/${tile.id}`)} className="hub">
       <header className="hub-hero" style={accentVars(tile.accent)}>
-        <div className="hub-key">
+        <div className="hub-key" data-emblem-anchor>
           <TileArt tile={tile} variant="key" />
         </div>
         <div className="hub-info">

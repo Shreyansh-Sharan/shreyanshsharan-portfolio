@@ -6,8 +6,8 @@ import { Page } from './Page'
 
 const accent = tiles.find((t) => t.id === 'profile')!.accent
 
-export function Profile({ onAccent }: { onAccent: (a: [string, string]) => void }) {
-  useEffect(() => onAccent(accent), [onAccent])
+export function Profile({ onAccent }: { onAccent: (a: [string, string], emblem: string) => void }) {
+  useEffect(() => onAccent(accent, 'profile'), [onAccent])
 
   return (
     <Page onBack={() => navigate('#/home/profile')}>

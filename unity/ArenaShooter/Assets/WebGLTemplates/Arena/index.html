@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{{ PRODUCT_NAME }}}</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+      #unity-canvas { width: 100%; height: 100%; display: block; background: #05060f; }
+      #loader { position: fixed; inset: 0; display: grid; place-items: center; color: #f4f6fb;
+        font: 600 15px ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: .08em; }
+      #loader .box { width: min(320px, 70vw); text-align: center; }
+      #loader .bar { height: 4px; margin-top: 14px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
+      #loader .fill { height: 100%; width: 0; background: linear-gradient(90deg, #f97316, #fbbf24); transition: width .2s; }
+      #error { color: #fca5a5; margin-top: 14px; font-weight: 400; letter-spacing: 0; }
+    </style>
+  </head>
+  <body>
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="loader"><div class="box">LOADING DUNES ARENA<div class="bar"><div class="fill" id="fill"></div></div><div id="error"></div></div></div>
+    <script src="Build/{{{ LOADER_FILENAME }}}"></script>
+    <script>
+      var canvas = document.getElementById('unity-canvas');
+      var config = {
+        dataUrl: 'Build/{{{ DATA_FILENAME }}}',
+        frameworkUrl: 'Build/{{{ FRAMEWORK_FILENAME }}}',
+#if USE_THREADS
+        workerUrl: 'Build/{{{ WORKER_FILENAME }}}',
+#endif
+#if USE_WASM
+        codeUrl: 'Build/{{{ CODE_FILENAME }}}',
+#endif
+#if SYMBOLS_FILENAME
+        symbolsUrl: 'Build/{{{ SYMBOLS_FILENAME }}}',
+#endif
+        streamingAssetsUrl: 'StreamingAssets',
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+      };
+      createUnityInstance(canvas, config, function (p) {
+        document.getElementById('fill').style.width = Math.round(p * 100) + '%';
+      }).then(function () {
+        document.getElementById('loader').remove();
+        canvas.focus();
+      }).catch(function (e) {
+        document.getElementById('error').textContent = String(e);
+      });
+    </script>
+  </body>
+</html>
