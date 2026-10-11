@@ -2,7 +2,7 @@
 // mesh → Meshy rig) rendered flat-shaded, with a move set of Meshy animations all on the same skeleton.
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { ContactShadows, OrbitControls, useGLTF } from '@react-three/drei'
+import { OrbitControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
 const base = import.meta.env.BASE_URL
@@ -187,7 +187,7 @@ export default function LowPolyAvatar({ move, nonce, onDone }: { move: Move; non
   const ref = useRef<HTMLDivElement>(null)
   return (
     <div className="profile-3d" ref={ref}>
-      <Canvas shadows dpr={[1, 1.75]} camera={{ position: [1.2, 1.4, 3.6], fov: 32 }} gl={{ antialias: true }}>
+      <Canvas shadows dpr={[1, 1.5]} camera={{ position: [1.2, 1.4, 3.6], fov: 32 }} gl={{ antialias: true }}>
         <color attach="background" args={['#0d1222']} />
         <fog attach="fog" args={['#0d1222', 4.5, 9]} />
         <hemisphereLight args={['#e0e7ff', '#2a2233', 1.1]} />
@@ -196,7 +196,11 @@ export default function LowPolyAvatar({ move, nonce, onDone }: { move: Move; non
         <Suspense fallback={null}>
           <Avatar move={move} nonce={nonce} onDone={onDone} />
         </Suspense>
-        <ContactShadows position={[0, 0, 0]} opacity={0.5} scale={4} blur={2.4} far={2} />
+        {/* Catches the key light's shadow (cheaper than a contact-shadow pass re-rendering the scene each frame). */}
+        <mesh rotation-x={-Math.PI / 2} receiveShadow>
+          <planeGeometry args={[8, 8]} />
+          <shadowMaterial opacity={0.35} />
+        </mesh>
         <OrbitControls target={[0, 0.95, 0]} enablePan={false} minDistance={1.6} maxDistance={6} minPolarAngle={0.4} maxPolarAngle={1.7} autoRotate={!SNAP} autoRotateSpeed={0.5} />
       </Canvas>
     </div>

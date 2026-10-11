@@ -10,12 +10,17 @@ export const lookTarget = new THREE.Vector3()
 
 export const SUN_DIR = new THREE.Vector3(0.62, 0.3, -0.42).normalize()
 
-export function Lighting({ shadows }: { shadows: boolean }) {
+export function Lighting({ shadows, live = true }: { shadows: boolean; live?: boolean }) {
   const sun = useRef<THREE.DirectionalLight>(null)
   const target = useMemo(() => new THREE.Object3D(), [])
-  useFrame(() => {
+  const frame = useRef(0)
+  useFrame(({ gl }) => {
     const s = sun.current
     if (!s) return
+    // The 2048 px soft shadow map is the costliest pass: redraw it every frame only while exploring;
+    // during the fly-over a few refreshes a second look the same.
+    gl.shadowMap.autoUpdate = live
+    if (!live && frame.current++ % 15 === 0) gl.shadowMap.needsUpdate = true
     // Snap to a coarse grid so shadows don't shimmer as the box follows the camera.
     const snap = 2
     const tx = Math.round(lookTarget.x / snap) * snap, tz = Math.round(lookTarget.z / snap) * snap

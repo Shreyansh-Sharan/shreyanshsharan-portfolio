@@ -273,7 +273,7 @@ export class Game {
 
     // Renderer and post-processing: bloom does the neon, tone mapping happens at the end of the chain.
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, depth: true })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.domElement.className = 'racer-canvas'
     container.appendChild(this.renderer.domElement)

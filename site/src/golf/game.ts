@@ -162,7 +162,7 @@ export class Game {
     this.holeTime = this.course.hole.par <= 3 ? CONFIG.hole_time_par3 : this.course.hole.par === 4 ? CONFIG.hole_time_par4 : CONFIG.hole_time_par5
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
