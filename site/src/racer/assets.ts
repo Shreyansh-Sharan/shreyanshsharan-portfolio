@@ -1,11 +1,11 @@
 // Loads the generated cars, track props and textures. Anything that fails falls back to procedural meshes.
-// The Dust Bowl borrows a few small props from the open world (public/world/models).
+// The Dust Bowl and the location circuits borrow a few small props from the open world (public/world/models).
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { CARS } from './cars'
 
-export type PropName = 'lamp' | 'billboard' | 'tower' | 'crane' | 'gantry' | 'barrels' | 'cactus' | 'ruins' | 'tractor'
+export type PropName = 'lamp' | 'billboard' | 'tower' | 'crane' | 'gantry' | 'barrels' | 'cactus' | 'ruins' | 'tractor' | 'palm' | 'clock-tower'
 export type TextureName = 'asphalt' | 'facade' | 'metal' | 'concrete'
 
 export interface RacerAssets {
@@ -16,7 +16,7 @@ export interface RacerAssets {
 
 const base = `${import.meta.env.BASE_URL}racer/`
 const worldBase = `${import.meta.env.BASE_URL}world/models/`
-const WORLD_PROPS: PropName[] = ['barrels', 'cactus', 'ruins', 'tractor']
+const WORLD_PROPS: PropName[] = ['barrels', 'cactus', 'ruins', 'tractor', 'palm', 'clock-tower']
 let pending: Promise<RacerAssets> | null = null
 
 export function loadRacerAssets(onProgress?: (done: number, total: number) => void): Promise<RacerAssets> {

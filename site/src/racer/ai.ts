@@ -19,13 +19,15 @@ const PREFS: Record<string, PowerType[]> = {
 
 const tmp = new THREE.Vector3()
 const aimAt = new THREE.Vector3()
+const aimPt = new THREE.Vector3()
 
 export function aiDrive(game: Game, car: Car, dt: number) {
   if (game.track.arena) return arenaDrive(game, car, dt)
   const track = game.track
   const ai = car.ai
   const speed = Math.max(0, car.forwardSpeed)
-  const half = track.half - 2
+  const br = shortcut(game, car)
+  const half = (br ? track.branches[br].half : track.halfAt(car.s + 10)) - 2
 
   // Hazard avoidance: Mines and Shock domes within range ahead.
   let avoid = 0
@@ -47,17 +49,32 @@ export function aiDrive(game: Game, car: Car, dt: number) {
   ai.swerve *= Math.max(0, 1 - dt * 1.5)
   if (Math.abs(ai.swerve) < 0.2) ai.swerve = 0
 
-  // Steer towards a look-ahead point on the spline.
+  // Steer towards a look-ahead point on the spline (or along the shortcut being taken).
   const lat = THREE.MathUtils.clamp(ai.laneOffset + ai.pickupLat + ai.avoid + ai.swerve, -half, half)
   const look = 9 + speed * 0.5
-  const aim = track.point(car.s + look, lat)
+  const span = 25 + speed * 1.3
+  let aim: THREE.Vector3
+  let k: number
+  if (br !== null) {
+    const b = track.branches[br]
+    // Distance along the shortcut: from its own samples once on it, from the main road while still in the overlap.
+    const u = car.branch === br && car.bi >= 0 ? b.s[car.bi] : car.s - b.sFrom
+    const bl = THREE.MathUtils.clamp(ai.laneOffset * 0.4 + ai.swerve * 0.5, -half, half)
+    const ua = u + look
+    if (ua < 0) aim = track.point(car.s + look, lat, aimPt)
+    else if (ua > b.length) aim = track.point(b.sTo + ua - b.length, lat * 0.5, aimPt)
+    else aim = track.branchPoint(b, ua, bl, aimPt)
+    k = Math.max(u + span > 0 ? track.branchCurvatureAhead(b, Math.max(0, u + 4), span) : 0, u < 0 ? track.curvatureAhead(car.s + 4, -u) : 0)
+  } else {
+    aim = track.point(car.s + look, lat, aimPt)
+    k = track.curvatureAhead(car.s + 4, span)
+  }
   const want = Math.atan2(aim.x - car.pos.x, aim.z - car.pos.z)
   let err = want - car.yaw
   err = Math.atan2(Math.sin(err), Math.cos(err))
   car.input.steer = THREE.MathUtils.clamp(-err * 2.4, -1, 1)
 
   // Corner speed from the curvature ahead; skill scales how close to the limit it drives.
-  const k = track.curvatureAhead(car.s + 4, 25 + speed * 1.3)
   const latAcc = car.latMax * (0.72 + 0.26 * car.skill)
   const vCorner = Math.sqrt(latAcc / Math.max(k, 1e-4))
   const target = Math.min(car.top * 1.05, vCorner)
@@ -83,6 +100,46 @@ export function aiDrive(game: Game, car: Car, dt: number) {
   ai.think = Math.max(0.08, 0.55 - car.skill * 0.45) * (game.armed ? 0.5 : 1) * (0.7 + Math.random() * 0.6)
   pickupLane(game, car)
   chooseWeapon(game, car, threat)
+}
+
+/** The shortcut this driver is taking, if any. Each one is rolled for once a lap on the approach. */
+function shortcut(game: Game, car: Car): number | null {
+  const track = game.track
+  const ai = car.ai
+  // Already on a shortcut (planned or not, say after a shove): follow it out.
+  if (car.branch >= 0 && ai.branch !== car.branch) {
+    ai.branch = car.branch
+    ai.entered = true
+  }
+  if (ai.branch >= 0) {
+    const b = track.branches[ai.branch]
+    if (car.branch === ai.branch) ai.entered = true
+    // Missed the way in: still on the main road but already clear of the shortcut's lane. Carry on round.
+    let missed = false
+    if (!ai.entered && car.branch < 0 && car.s > b.sFrom + 20) {
+      const p = track.branchPoint(b, car.s - b.sFrom, 0, aimAt)
+      // (Or wedged against the barrier at the split: give up rather than keep pushing.)
+      missed = Math.hypot(p.x - car.pos.x, p.z - car.pos.z) > b.half + 2 || car.speed < 5
+    }
+    // Done once back on the main road (or if it never made it in).
+    if (missed || (car.branch !== ai.branch && (ai.entered || car.s > b.sFrom + 120 || car.s < b.sFrom - 200))) ai.branch = -1
+    else return ai.branch
+  }
+  for (let k = 0; k < track.branches.length; k++) {
+    const b = track.branches[k]
+    const key = car.lap * 16 + k
+    const ds = b.sFrom - car.s
+    if (ds > 40 && ds < 160 && ai.decided !== key) {
+      ai.decided = key
+      if (Math.random() < b.ai * (0.6 + car.skill * 0.6)) {
+        ai.branch = k
+        ai.entered = false
+        ai.shortcuts++
+        return k
+      }
+    }
+  }
+  return null
 }
 
 function hazardOf(game: Game, p: THREE.Vector3) {
@@ -459,6 +516,6 @@ function chooseWeapon(game: Game, car: Car, threat: ReturnType<typeof incomingSh
   // Brawlers ram: steer into a car alongside.
   if (pers === 'Brawler' && !game.track.arena) {
     const side = game.cars.find((o) => o !== car && o.alive && o.pos.distanceTo(car.pos) < 6)
-    if (side) car.ai.laneOffset = THREE.MathUtils.clamp(side.lateral, -game.track.half + 2, game.track.half - 2)
+    if (side && car.branch < 0) car.ai.laneOffset = THREE.MathUtils.clamp(side.lateral, -game.track.halfAt(car.s) + 2, game.track.halfAt(car.s) - 2)
   }
 }

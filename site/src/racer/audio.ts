@@ -16,6 +16,8 @@ export class RacerAudio {
   private engineGain: GainNode | null = null
   private engineFilter: BiquadFilterNode | null = null
   private noise: AudioBuffer | null = null
+  private windGain: GainNode | null = null
+  private windFilter: BiquadFilterNode | null = null
   private musicOn = true
   private nextBeat = 0
   private beat = 0
@@ -61,6 +63,18 @@ export class RacerAudio {
     this.engineFilter.connect(this.engineGain).connect(this.sfx)
     this.engineOsc.start()
     this.engineOsc2.start()
+    // Wind rush: looped noise through a band-pass that opens up and gets louder with speed.
+    this.windFilter = ctx.createBiquadFilter()
+    this.windFilter.type = 'bandpass'
+    this.windFilter.frequency.value = 500
+    this.windFilter.Q.value = 0.7
+    this.windGain = ctx.createGain()
+    this.windGain.gain.value = 0
+    const wind = ctx.createBufferSource()
+    wind.buffer = this.noise
+    wind.loop = true
+    wind.connect(this.windFilter).connect(this.windGain).connect(this.sfx)
+    wind.start()
     this.nextBeat = ctx.currentTime + 0.1
   }
 
@@ -94,6 +108,11 @@ export class RacerAudio {
     this.engineOsc2.frequency.setTargetAtTime(f * 0.501, t, 0.05)
     this.engineFilter.frequency.setTargetAtTime(400 + rpm * 1400 + (nitro ? 900 : 0), t, 0.08)
     this.engineGain.gain.setTargetAtTime(running ? 0.06 + throttle * 0.05 : 0, t, 0.1)
+    if (this.windGain && this.windFilter) {
+      const w = Math.min(1.3, speedFrac)
+      this.windGain.gain.setTargetAtTime(running ? w * w * 0.16 + (nitro ? 0.05 : 0) : 0, t, 0.15)
+      this.windFilter.frequency.setTargetAtTime(380 + w * 2600 + (nitro ? 800 : 0), t, 0.15)
+    }
     if (this.lockTimer > 0) this.lockTimer -= dt
     this.scheduleMusic()
   }

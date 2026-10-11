@@ -82,7 +82,7 @@ export const CONFIG = {
 
   // Combat Points mode
   combat_laps: 2,
-  combat_tracks: 3,
+  combat_tracks: 4, // the series visits every circuit once, starting from the chosen one
   combat_track_time_limit: 240, // s
   combat_pickup_respawn: 5, // s
   combat_wreck: 100,
@@ -167,6 +167,9 @@ export const CONFIG = {
   ai_arena_pickup_range: 70, // m: bots detour for a pickup this close while the bay has room
   ai_arena_unstuck: 1.0, // s reversing out after getting stuck on the rim or an obstacle
   ai_arena_stuck_time: 0.7, // s nearly stationary before reversing out
+
+  // Circuits with hills and jumps (visual: the physics stays flat)
+  jump_gravity: 24, // m/s² pulling an airborne car back down to the road
 
   // Multiplayer
   max_players: 8, // humans + AI on the grid
