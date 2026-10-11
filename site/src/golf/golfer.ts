@@ -6,8 +6,11 @@ import type { BallState } from './ball'
 import type { Ground } from './ball'
 import type { Course } from './course'
 import type { GolferRig } from './assets'
+import type { Cart } from './cart'
 
-export type ItemType = 'rocket' | 'pistol' | 'landmine' | 'laser' | 'airhorn' | 'cart' | 'coffee' | 'springboots' | 'elephant' | 'shield' | 'driver' | 'freeze'
+export type ItemType =
+  | 'rocket' | 'pistol' | 'landmine' | 'laser' | 'airhorn' | 'cart' | 'coffee' | 'springboots' | 'elephant' | 'shield' | 'driver' | 'freeze'
+  | 'tornado' | 'swap' | 'banana' | 'bouncy' | 'meteor'
 
 export interface MoveInput {
   x: number // strafe -1..1
@@ -16,7 +19,12 @@ export interface MoveInput {
   jump: boolean
   dive: boolean
   creep: boolean
+  /** Driving: the handbrake is held. */
+  brake?: boolean
 }
+
+const want = new THREE.Vector3()
+const stepV = new THREE.Vector3()
 
 export type Personality = 'Golfer' | 'Griefer' | 'Sniper' | 'Rammer'
 
@@ -61,6 +69,10 @@ export class Golfer {
   frozen = 0 // Freeze Bomb: stuck in ice (also stunned)
   leap = 0 // Spring Boots: seconds of flight left
   readonly leapVel = new THREE.Vector3()
+  spin = 0 // Banana Peel: spinning on your back
+  /** Riding a golf cart (seat 0 drives, seat 1 is the passenger). */
+  cart: Cart | null = null
+  seat = 0
   finished = false
   finishPlace = 0
   knockedBy: { by: Golfer; at: number } | null = null
@@ -77,6 +89,10 @@ export class Golfer {
   inventory: (ItemType | null)[] = [null, null, null]
   active = 0
   mineCharges = 0 // landmines left in the pack in hand
+  peelCharges = 0 // banana peels left in the bunch
+  driverArmed = false // Rocket Driver: the next full swing goes off at double power
+  bouncyArmed = false // Bouncy Ball: the next shot is rubber
+  ballFire = 0 // seconds of fire trail left on the ball
 
   // Hole stats for scoring.
   knockouts = 0
@@ -87,7 +103,22 @@ export class Golfer {
   points = 0
 
   // AI scratch.
-  ai = { plan: null as null | { dir: number; power: number; loft: number }, think: 0, target: null as THREE.Vector3 | null, aimT: 0, itemT: 0, meleeT: 0 }
+  ai = {
+    plan: null as null | { dir: number; power: number; loft: number },
+    think: 0,
+    target: null as THREE.Vector3 | null,
+    aimT: 0,
+    itemT: 0,
+    meleeT: 0,
+    cartId: -1, // the parked cart this bot is walking to
+    cartT: 0, // seconds until it next considers a cart
+    stuck: 0,
+    reverse: 0,
+    driveT: 0,
+    chase: null as Golfer | null,
+    chaseT: 0,
+    avoid: 0,
+  }
 
   constructor(id: number, name: string, color: string, human: boolean, skill: number, personality: Personality, rig: GolferRig, ballMesh: THREE.Mesh, tee: THREE.Vector3) {
     this.id = id
@@ -138,7 +169,19 @@ export class Golfer {
 
   /** Movement and the physical states. `move` is ignored while stunned, charging or respawning. */
   update(dt: number, move: MoveInput | null, ground: Ground, course: Course, others: Golfer[]) {
-    for (const k of ['stun', 'boost', 'shield', 'protect', 'dive', 'diveCooldown', 'swing', 'cooldown', 'frozen'] as const) this[k] = Math.max(0, this[k] - dt)
+    for (const k of ['stun', 'boost', 'shield', 'protect', 'dive', 'diveCooldown', 'swing', 'cooldown', 'frozen', 'spin'] as const) this[k] = Math.max(0, this[k] - dt)
+    // In a cart: the cart carries you (the game seats you every frame).
+    if (this.cart) {
+      this.vel.set(0, 0, 0)
+      this.kb.set(0, 0, 0)
+      this.vy = 0
+      this.leap = 0
+      this.grounded = true
+      this.air = 0
+      return
+    }
+    // Ice: hard to start, hard to stop.
+    const icy = this.grounded && ground.surface(this.pos.x, this.pos.z) === 'ice'
 
     const canMove = this.canAct && this.charging <= 0
     if (move && canMove) {
@@ -159,18 +202,20 @@ export class Golfer {
         const rx = -fz, rz = fx // right of the heading
         const dx = fx * move.y + rx * move.x, dz = fz * move.y + rz * move.x
         const dl = Math.hypot(dx, dz) || 1
-        const want = new THREE.Vector3(dx / dl, 0, dz / dl).multiplyScalar(this.speed * len)
-        this.vel.lerp(want, Math.min(1, dt * 12))
+        want.set(dx / dl, 0, dz / dl).multiplyScalar(this.speed * len)
+        this.vel.lerp(want, Math.min(1, dt * (icy ? 1.6 : 12)))
         const targetYaw = Math.atan2(dx, dz)
         let d = targetYaw - this.yaw
         d = Math.atan2(Math.sin(d), Math.cos(d))
         this.yaw += d * Math.min(1, dt * 14)
-      } else this.vel.multiplyScalar(Math.max(0, 1 - dt * 14))
-    } else if (this.dive <= 0) this.vel.multiplyScalar(Math.max(0, 1 - dt * 10))
+      } else this.vel.multiplyScalar(Math.max(0, 1 - dt * (icy ? 0.6 : 14)))
+    } else if (this.dive <= 0) this.vel.multiplyScalar(Math.max(0, 1 - dt * (icy ? 0.6 : 10)))
+    // Slipped on a banana: spin on the spot while you slide.
+    if (this.spin > 0) this.yaw += dt * 14
 
     // Knockback decays over a short time.
-    this.kb.multiplyScalar(Math.max(0, 1 - dt / CONFIG.stun_knockback_time * 1.4))
-    const step = this.vel.clone().add(this.kb).multiplyScalar(dt)
+    this.kb.multiplyScalar(Math.max(0, 1 - (dt / CONFIG.stun_knockback_time) * (icy ? 0.5 : 1.4)))
+    const step = stepV.copy(this.vel).add(this.kb).multiplyScalar(dt)
     // Spring Boots: a long arcing leap that ignores steering until you land.
     if (this.leap > 0) {
       this.leap -= dt
@@ -191,7 +236,7 @@ export class Golfer {
       }
     }
     for (const o of others) {
-      if (o === this || o.respawn > 0) continue
+      if (o === this || o.respawn > 0 || o.cart) continue
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z
       const r = CONFIG.player_radius * 2
       const d2 = dx * dx + dz * dz
@@ -204,7 +249,7 @@ export class Golfer {
 
     // Vertical: jumping and falling off ledges.
     const gy = ground.y(this.pos.x, this.pos.z)
-    this.vy -= CONFIG.jump_gravity * dt
+    this.vy -= CONFIG.jump_gravity * course.gravity * dt
     this.pos.y += this.vy * dt
     if (this.pos.y <= gy) {
       this.pos.y = gy

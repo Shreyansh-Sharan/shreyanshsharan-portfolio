@@ -48,10 +48,10 @@ function previewCards(tile: Tile): Activity[] {
       ]
     case 'bogey-brawl':
       return [
-        { title: 'Hole', detail: 'Lakeside Bend, a par-4 dogleg around a lake in the Greenmeadow biome, with bunkers, checkpoints and a 3-minute clock.' },
-        { title: 'Combat', detail: 'Club rivals mid-swing, dive, and grab briefcases for a Rocket Launcher, Dueling Pistol or Electromagnet shield.' },
+        { title: 'Holes', detail: 'Lakeside Bend (par 4), Rattlesnake Canyon (par 5, ramps and cactus), Frostbite Fjord (par 4, ice and wind) and Magma Isle (par 3, lava at night), or all four as a Tour.' },
+        { title: 'Chaos', detail: 'Drive golf carts over rivals and their balls, and grab 17 items from briefcases: Orbital Laser, Tornado, Ball Swap, Banana Peel, Meteor and more. Random chaos events every 30 s.' },
         { title: 'Scoring', detail: 'First to hole out scores 100, plus par bonuses and knockouts. Unfinished at the end of overtime costs 50.' },
-        { title: 'Assets', detail: 'A rigged golfer with run, idle and swing animations, plus carts, a clubhouse, windmills and balloons.' },
+        { title: 'Assets', detail: 'A rigged golfer with run, idle and swing animations, plus rideable carts, cactus, neon towers, snowmen and a volcano.' },
       ]
     case 'sports-complex':
       return [

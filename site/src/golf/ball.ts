@@ -10,6 +10,9 @@ export interface BallState {
   pos: THREE.Vector3
   vel: THREE.Vector3
   mode: BallMode
+  /** Bouncy Ball: rubbery for this shot (bounces high, skips off water). */
+  bouncy?: boolean
+  skips?: number
 }
 
 const n = new THREE.Vector3()
@@ -50,7 +53,7 @@ export class Ground {
   }
 
   surface(x: number, z: number) {
-    return this.course.surfaceAt(x, z)
+    return this.course.surfaceAt(x, z, this.y(x, z))
   }
 
   inBounds(x: number, z: number) {
@@ -80,9 +83,15 @@ export function stepBall(b: BallState, dt: number, ground: Ground, course: Cours
   const r = CONFIG.ball_radius
   const p = b.pos, v = b.vel
   if (b.mode === 'air') {
-    v.y -= CONFIG.gravity * dt
+    v.y -= CONFIG.gravity * course.gravity * dt
     const sp = v.length()
     v.multiplyScalar(Math.max(0, 1 - CONFIG.air_drag * sp * dt))
+    // Wind pushes the ball towards its own speed.
+    const w = course.wind
+    if (w.x !== 0 || w.z !== 0) {
+      v.x += w.x * CONFIG.wind_ball_accel * dt
+      v.z += w.z * CONFIG.wind_ball_accel * dt
+    }
     p.addScaledVector(v, dt)
   } else {
     // Rolling: follow the ground, slope accelerates, friction decelerates.
@@ -104,7 +113,10 @@ export function stepBall(b: BallState, dt: number, ground: Ground, course: Cours
       b.mode = 'rest'
     }
     p.addScaledVector(v, dt)
-    p.y = ground.y(p.x, p.z) + r
+    const gr = ground.y(p.x, p.z) + r
+    // Off a ramp lip (or a crest at speed): the ground falls away faster than the ball, so it takes off.
+    if (v.y > 1.5 && p.y > gr + 0.06) b.mode = 'air'
+    else p.y = gr
   }
 
   // Trees (trunks) reflect the ball.
@@ -128,6 +140,17 @@ export function stepBall(b: BallState, dt: number, ground: Ground, course: Cours
   const gy = ground.y(p.x, p.z)
   // Water or off the map.
   if (gy < 0.05 && p.y < 0.2) {
+    // A bouncy ball skips off the surface like a stone while it's still fast.
+    if (b.bouncy && (b.skips ?? 0) < CONFIG.bouncy_skips && Math.hypot(v.x, v.z) > 6) {
+      b.skips = (b.skips ?? 0) + 1
+      p.y = 0.2
+      v.y = Math.max(Math.abs(v.y) * 0.6, 3)
+      v.x *= 0.8
+      v.z *= 0.8
+      b.mode = 'air'
+      ev.bounced = true
+      return ev
+    }
     b.mode = 'water'
     v.set(0, 0, 0)
     ev.water = true
@@ -146,10 +169,10 @@ export function stepBall(b: BallState, dt: number, ground: Ground, course: Cours
     const s = ground.surface(p.x, p.z)
     const vn = v.dot(n)
     if (vn < 0) {
-      const e = CONFIG.bounce[s] ?? 0.3
+      const e = b.bouncy ? CONFIG.bouncy_restitution : (CONFIG.bounce[s] ?? 0.3)
       v.addScaledVector(n, -(1 + e) * vn)
       // Tangential loss on impact (sand grabs the ball).
-      const keep = s === 'sand' ? 0.35 : s === 'rough' ? 0.7 : 0.82
+      const keep = b.bouncy ? 0.92 : s === 'sand' ? 0.35 : s === 'rough' ? 0.7 : 0.82
       tmp.copy(n).multiplyScalar(v.dot(n))
       v.sub(tmp).multiplyScalar(keep).add(tmp)
       ev.bounced = true
@@ -178,8 +201,8 @@ export function stepBall(b: BallState, dt: number, ground: Ground, course: Cours
 }
 
 /** Simulate a shot without touching the scene (AI shot selection). Returns where the ball ends up. */
-export function simulateShot(start: THREE.Vector3, vel: THREE.Vector3, seconds: number, ground: Ground, course: Course) {
-  const b: BallState = { pos: start.clone(), vel: vel.clone(), mode: 'air' }
+export function simulateShot(start: THREE.Vector3, vel: THREE.Vector3, seconds: number, ground: Ground, course: Course, bouncy = false) {
+  const b: BallState = { pos: start.clone(), vel: vel.clone(), mode: 'air', bouncy }
   const dt = 1 / 30
   let t = 0
   let water = false

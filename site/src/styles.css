@@ -4607,3 +4607,139 @@ p {
     min-width: 0;
   }
 }
+
+/* BOGEY BRAWL: hole picker, Tour standings, cart prompt, wind and chaos */
+.bb-holes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.bb-holecard {
+  --bb-hole: #bef264;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.bb-holecard:hover:not(:disabled) {
+  border-color: var(--bb-hole);
+}
+
+.bb-holecard.is-active {
+  border-color: var(--bb-hole);
+  background: color-mix(in srgb, var(--bb-hole) 12%, transparent);
+  box-shadow: 0 0 0 1px var(--bb-hole) inset;
+}
+
+.bb-holecard:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bb-tourcard {
+  --bb-hole: #facc15;
+}
+
+.bb-holeblurb {
+  opacity: 0.8;
+  line-height: 1.35;
+}
+
+.bb-conditions {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.bb-wind,
+.bb-chaos {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: rgba(10, 20, 35, 0.55);
+  font-size: 13px;
+}
+
+.bb-wind {
+  color: #bae6fd;
+}
+
+.bb-wind svg {
+  transition: transform 0.3s;
+}
+
+.bb-chaos {
+  border: 1px solid;
+  letter-spacing: 0.05em;
+  animation: bb-pulse 0.6s ease-in-out infinite alternate;
+}
+
+.bb-prompt {
+  position: absolute;
+  top: 64%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 99px;
+  background: rgba(10, 20, 15, 0.7);
+  border: 1px solid rgba(190, 242, 100, 0.6);
+  color: #ecfccb;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.bb-speed {
+  font-size: 20px;
+  color: #fde047;
+}
+
+.bb-armed {
+  color: #f9a8d4;
+}
+
+.bb-tourtitle {
+  margin-top: 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bb-standings th.is-now {
+  color: #facc15;
+}
+
+@media (max-width: 640px) {
+  .bb-holes {
+    grid-template-columns: 1fr;
+  }
+  .bb-conditions {
+    top: 50px;
+  }
+}
+
+/* BOGEY BRAWL item names are longer than VOLT RIOT's power names. */
+.golf-page .vr-powers li {
+  grid-template-columns: 28px 120px 1fr;
+}
+
+.golf-page .vr-powers strong {
+  overflow-wrap: anywhere;
+}

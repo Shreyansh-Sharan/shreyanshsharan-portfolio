@@ -17,6 +17,7 @@ export interface GolfNet {
   link: Link
   role: 'host' | 'client'
   slots: GolfSlot[]
+  setup?: GolfSetup
 }
 
 export interface LobbyGolfer {
@@ -24,9 +25,19 @@ export interface LobbyGolfer {
   name: string
 }
 
+/** A Tour plays every hole in order, points carried over. */
+export interface GolfTour {
+  holes: string[]
+  idx: number
+}
+
 export interface GolfSetup {
   slots: GolfSlot[]
   difficulty: number
+  /** Hole id: every screen builds the same hole from it. */
+  hole: string
+  chaos: boolean
+  tour: GolfTour | null
 }
 
 /**
@@ -35,7 +46,7 @@ export interface GolfSetup {
  */
 export type GolfMsg =
   | { t: 'g-hello'; name: string }
-  | { t: 'g-lobby'; players: LobbyGolfer[]; bots: number; difficulty: number }
+  | { t: 'g-lobby'; players: LobbyGolfer[]; bots: number; difficulty: number; hole: string; chaos: boolean; tour: boolean }
   | { t: 'g-start'; setup: GolfSetup }
   | { t: 'g-in'; p: number[]; a: string[] }
   | { t: 'g-snap'; s: unknown; e: unknown[] }

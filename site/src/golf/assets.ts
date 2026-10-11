@@ -8,7 +8,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 // Generated for this game.
 const OWN = ['briefcase', 'flag', 'tree', 'pine', 'rocket', 'pistol', 'magnet', 'cart', 'clubhouse', 'bench', 'rocks', 'bush', 'windmill', 'balloon'] as const
 // Reused from the portfolio's open world.
-const WORLD = ['autumn-tree', 'palm', 'sheep', 'tractor', 'signpost', 'barrels', 'trophy', 'podium'] as const
+const WORLD = ['autumn-tree', 'palm', 'sheep', 'tractor', 'signpost', 'barrels', 'trophy', 'podium', 'cactus', 'ruins', 'crystals', 'neon-tower', 'observatory'] as const
 export type PropName = (typeof OWN)[number] | (typeof WORLD)[number]
 
 export interface GolfAssets {
