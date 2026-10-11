@@ -18,12 +18,15 @@ import {
   ChartColumn,
   Network,
   Wine,
+  Boxes,
+  ShieldCheck,
+  Workflow,
 } from 'lucide-react'
 
 export const profile = {
   name: 'Shreyansh Sharan',
   initials: 'SS',
-  headline: 'Solution Architect · Data & AI Platforms',
+  headline: 'Solution Architect & Engineering Manager · Data & AI Platforms',
   location: 'India',
   // Replace these placeholders with your real details.
   email: 'your.email@example.com',
@@ -31,11 +34,13 @@ export const profile = {
   github: 'https://github.com/your-handle',
   resumePdf: 'Shreyansh_Sharan_Resume.pdf',
   summary:
-    'Solution Architect with 8+ years across analytics, data engineering, DevOps and Generative AI. ' +
-    'Designed and delivered solutions for 30+ enterprise clients in Pharma, CPG/FMCG, Financial Services, ' +
-    'Agriculture and Construction. Architected an enterprise DevOps framework for Diageo now used by ' +
-    '1,000–2,000 developers across 7 business verticals, and built Omni Studio, a five-studio AI data ' +
-    'platform on Databricks, end to end.',
+    'Solution Architect and Engineering Manager with 8+ years across analytics, data engineering, DevOps and ' +
+    'Generative AI, delivering for 30+ enterprise clients in healthcare, beverages, CPG/FMCG, retail, pharma, ' +
+    'agrochemicals, aviation, financial services and construction materials. Shipped an ML platform to GA, built an ' +
+    'Agent Registry solo after two years of stalled attempts, and delivered a two-phase data governance product for a ' +
+    'Fortune 500 US healthcare insurer. DevOps lead and sole company member of the core platform team for the ' +
+    "world's largest spirits company, whose DevOps framework serves 1,000–2,000 developers. Quarterly Impact Award " +
+    'in all four quarters and seven certifications this year.',
   hobbies: ['Soccer', 'Formula 1', 'Video games', 'Badminton', 'Table tennis'],
 }
 
@@ -139,10 +144,10 @@ export const tiles: Tile[] = [
   {
     id: 'diageo-devops',
     tab: 'career',
-    title: 'Diageo',
+    title: 'Spirits Major',
     tagline: 'The DevOps Saga',
-    org: 'Polestar Analytics · Solution Architect',
-    period: '2025 – Present',
+    org: 'Polestar Analytics · DevOps Lead & Solution Architect',
+    period: '2023 – Present',
     genre: 'Enterprise DevOps',
     blurb:
       "An enterprise Azure DevOps framework for the world's largest spirits and whisky company, standardising how data workloads are built, tested and released across the business.",
@@ -175,8 +180,136 @@ export const tiles: Tile[] = [
         detail:
           'Pipeline templates, quality gates and automated environment set-up cut onboarding a new project from 2 weeks to 2 days.',
       },
+      {
+        title: 'Turnaround',
+        detail:
+          'Took over the programme during escalations, stabilised it and delivered on schedule; the engagement grew from a 3-month contract to a multi-year partnership.',
+      },
+      {
+        title: "Inside the client's platform team",
+        detail:
+          "The company's sole member of the client's DevOps and core platform teams: proposes and builds solutions under their security and change-management processes, with zero violations and zero escalations.",
+      },
     ],
     stack: ['Azure DevOps', 'YAML pipelines', 'CI/CD', 'Git branching', 'Databricks', 'Azure Data Factory'],
+  },
+  {
+    id: 'platform-suite',
+    tab: 'career',
+    title: 'Platform Suite',
+    tagline: 'Four Products, One Bar',
+    org: 'Polestar Analytics · Solution Architect & Engineering Manager',
+    period: '2025 – Present',
+    genre: 'Product Engineering',
+    blurb:
+      "Architect and engineering manager for the company's platform products: an ML platform shipped to GA, an Agent Registry " +
+      'built solo after two years of stalled attempts, the User Management System every product runs on, and a self-service ' +
+      'Insight Portal sold to clients as POCs. Every committed timeline met.',
+    icon: Boxes,
+    accent: ['#1e3a8a', '#60a5fa'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: 'GA', label: 'MLOrion ML platform' },
+      { value: 'Solo', label: 'Agent Registry, end to end' },
+      { value: '100%', label: 'Timelines met' },
+      { value: 'Weekly', label: '1:1s with every developer' },
+    ],
+    activities: [
+      {
+        title: 'MLOrion',
+        detail: 'A reusable ML platform taken to general availability on plan and running real workloads; onboarded the data science team.',
+      },
+      {
+        title: 'Agent Registry',
+        detail:
+          'Stuck in planning for two years; built solo and delivered on schedule. Every domain and platform team now uses it to add and govern LLMs, agents, tokens and agentic systems.',
+      },
+      {
+        title: 'User Management System',
+        detail: 'The enterprise-wide identity and access layer adopted by every product under development, without rework.',
+      },
+      {
+        title: 'Insight Portal',
+        detail:
+          'Self-service BI that bypasses the reporting layer by connecting directly to Power BI semantic models and data sources: POCs for several clients and an internal CRM Insight Portal.',
+      },
+      {
+        title: 'Engineering management',
+        detail:
+          'Weekly 1:1s with every developer, quality reviews before anything reaches production, and technical interviews for data engineering, architecture and DevOps roles.',
+      },
+    ],
+    stack: ['Databricks', 'Azure', 'MLflow', 'LLM agents', 'Power BI semantic models', 'FastAPI'],
+  },
+  {
+    id: 'connected-governance',
+    tab: 'career',
+    title: 'Connected Governance',
+    tagline: 'Lineage to Lake Insight',
+    org: 'Polestar Analytics · Solution Architect',
+    period: '2024 – Present',
+    genre: 'Data Governance',
+    blurb:
+      'A productised lineage, FinOps and audit-balance-control platform for a Fortune 500 US healthcare insurer: won through a ' +
+      'presales lineage demo, then delivered on time in two phases, from estate-wide Databricks lineage to the full Lake Insight platform.',
+    icon: ShieldCheck,
+    accent: ['#0f766e', '#5eead4'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '2', label: 'Phases sold' },
+      { value: 'On time', label: 'Both phases' },
+      { value: '3', label: 'Pillars: lineage · FinOps · ABC' },
+    ],
+    activities: [
+      { title: 'Presales win', detail: 'An API-driven lineage demo materially helped win the engagement.' },
+      { title: 'Phase 1 · Lineage', detail: "Lineage across the client's entire Databricks estate." },
+      {
+        title: 'Phase 2 · Lake Insight',
+        detail: 'The client bought a second phase after the first: lineage, FinOps cost visibility and audit-balance-control in one platform.',
+      },
+      { title: 'Reusable product', detail: 'Packaged as a governance accelerator ready for other clients; knowledge transfer delivered to the client team.' },
+    ],
+    stack: ['Databricks', 'Unity Catalog', 'Lineage APIs', 'FinOps', 'Audit-balance-control'],
+  },
+  {
+    id: 'datanexus',
+    tab: 'career',
+    title: 'Datanexus',
+    tagline: 'Platform Modernization',
+    org: 'Polestar Analytics · Lead Architect, 1Platform',
+    period: '2023 – 2025',
+    genre: 'Data Platform',
+    blurb:
+      'Drove the 1Platform portfolio: the Datanexus platform on both Microsoft Fabric and Databricks, Transformation V2 on ' +
+      'microservices, reusable ingestion and lineage frameworks, and the Agenthood architecture with Agentbricks on Databricks.',
+    icon: Workflow,
+    accent: ['#7c2d12', '#fdba74'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '≈50×', label: 'Faster ingestion (300+ min → 6 min)' },
+      { value: '2', label: 'Engines: Fabric · Databricks' },
+      { value: '4', label: 'Reusable accelerators' },
+      { value: '0', label: 'Critical production defects' },
+    ],
+    activities: [
+      {
+        title: 'Datanexus & Transformation V2',
+        detail: 'Built Datanexus for Fabric and Databricks and introduced microservices for Transformation V2, with LLDs designed to shrink the defect surface.',
+      },
+      {
+        title: 'Ingestion at speed',
+        detail:
+          'Re-architected ingestion for a global footwear and fashion retailer: 500 files in 6 minutes instead of 300+, about 50× faster, ending repeated SLA breaches.',
+      },
+      {
+        title: 'Accelerators',
+        detail:
+          'Lineage API, ingestion framework, Power BI DevOps automation (reports and data moved between workspaces with compliance controls) and modular integration flows; integrated the platform with MDM and OCR.',
+      },
+      { title: 'Agenthood', detail: 'Proposed the architecture and led the LLD for Agenthood, and built Agentbricks components on Databricks.' },
+      { title: 'Backend lead', detail: 'Led the 1Platform backend team on Microsoft Fabric and FastAPI; ran Databricks, MLOps, data science and streaming trainings.' },
+    ],
+    stack: ['Microsoft Fabric', 'Databricks', 'FastAPI', 'Microservices', 'Power BI', 'LLM agents'],
   },
   {
     id: 'architect-mode',
@@ -208,6 +341,15 @@ export const tiles: Tile[] = [
       {
         title: 'Migrations',
         detail: 'Moved on-premises systems and legacy BI to Azure and the Databricks Lakehouse.',
+      },
+      {
+        title: 'Presales demos',
+        detail:
+          'A reusable lineage demo helped win a Fortune 500 US healthcare insurer; demos and proposals for wealth management, confectionery, automotive aftermarket, pharma services and retail prospects.',
+      },
+      {
+        title: 'Partner audits',
+        detail: 'Led documentation for the Microsoft Analytics Specialization audit to a gap-free review, and the infrastructure and database migration audit.',
       },
     ],
     stack: ['Solution architecture', 'Azure', 'Databricks Lakehouse', 'Estimation', 'Demos'],
@@ -257,11 +399,12 @@ export const tiles: Tile[] = [
     tab: 'career',
     title: 'Qlik Legends',
     tagline: '30 Clients Campaign',
-    org: 'Polestar Analytics · Qlik Developer → Architect → Admin',
+    org: 'Polestar Analytics · Qlik & Azure Solution Architect',
     period: '2021 – 2024',
     genre: 'Business Intelligence',
     blurb:
-      'Delivered Qlik solutions for 25–30 clients across domains as developer, solution architect and platform administrator.',
+      'Delivered Qlik and Azure solutions for 25–30 clients in agrochemicals, aviation, biotech, automotive, fintech, cement, ' +
+      'fuel retail and logistics automation, as developer, solution architect and platform administrator.',
     icon: ChartColumn,
     accent: ['#115e59', '#2dd4bf'],
     action: { kind: 'hub' },
@@ -288,8 +431,22 @@ export const tiles: Tile[] = [
         title: 'Migrations & mentoring',
         detail: 'Led QlikView to Qlik Sense migrations and mentored junior developers.',
       },
+      {
+        title: 'Long engagements',
+        detail:
+          "A Qlik Sense engagement with one of the world's largest agrochemical companies grew from a 3-month contract to 1.8 years and into a full BI, data platform and governance SOW; merged two regional estates (48 extractors and apps) in one weekend without an incident.",
+      },
+      {
+        title: 'Risks caught early',
+        detail: "Flagged a Qlik version issue before anyone else on a national airline's programme, bringing UAT forward; rebalanced a global automaker's Qlik consumer nodes.",
+      },
+      {
+        title: 'Azure & DevOps',
+        detail:
+          'Azure architectures and CI/CD for Data Factory and Synapse, reusable Terraform templates and Docker hosting for fuel-retail, logistics and SaaS clients; trained the first DevOps team and a graduate batch.',
+      },
     ],
-    stack: ['Qlik Sense', 'QlikView', 'QMC / QRS', 'Data modelling', 'Set analysis'],
+    stack: ['Qlik Sense', 'QlikView', 'QMC / QRS', 'NPrinting', 'Azure', 'Azure DevOps', 'Terraform'],
   },
   {
     id: 'wipro-origins',
@@ -513,12 +670,19 @@ export interface TrophyItem {
 export const trophies: TrophyItem[] = [
   { name: 'Claude Certified Solutions Architect', issuer: 'Anthropic', tier: 'platinum', kind: 'Certification', icon: Award },
   { name: 'Azure Solutions Architect Expert', issuer: 'Microsoft', tier: 'platinum', kind: 'Certification', icon: Award },
+  { name: 'Azure DevOps Engineer Expert', issuer: 'Microsoft', tier: 'platinum', kind: 'Certification', icon: Award },
+  { name: 'Databricks Certified Data Engineer Professional', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Database },
   { name: 'Databricks Certified Generative AI Engineer Associate', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Award },
   { name: 'Databricks Solutions Architect', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Award },
-  { name: 'Databricks Certified Data Engineer', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Database },
+  { name: 'Fabric Analytics Engineer Associate', issuer: 'Microsoft', tier: 'gold', kind: 'Certification', icon: Award },
   { name: 'Azure AI Engineer Associate', issuer: 'Microsoft', tier: 'gold', kind: 'Certification', icon: Award },
+  { name: 'Azure Administrator Associate', issuer: 'Microsoft', tier: 'silver', kind: 'Certification', icon: Award },
   { name: 'Qlik Certified Solution Architect', issuer: 'Qlik', tier: 'silver', kind: 'Certification', icon: Award },
   { name: 'Qlik Certified Developer', issuer: 'Qlik', tier: 'silver', kind: 'Certification', icon: Award },
+  { name: 'Azure, Data & AI Fundamentals', issuer: 'Microsoft', tier: 'bronze', kind: 'Certification', icon: Award },
+  { name: 'Quarterly Impact Award · all four quarters (FY25–26)', issuer: 'Polestar Analytics', tier: 'platinum', kind: 'Award', icon: Trophy },
+  { name: 'Above & Beyond Award · every quarter (FY24–25)', issuer: 'Polestar Analytics', tier: 'gold', kind: 'Award', icon: Trophy },
+  { name: 'Recognised by the CEO and CTO', issuer: 'Polestar Analytics', tier: 'gold', kind: 'Award', icon: Trophy },
   { name: 'Most Innovative Award', issuer: 'Wipro', tier: 'gold', kind: 'Award', icon: Trophy },
   { name: 'Key Player, Pharmaceutical Vertical', issuer: 'Wipro', tier: 'silver', kind: 'Award', icon: Trophy },
   { name: 'Best New Recruit 2018', issuer: 'Wipro', tier: 'bronze', kind: 'Award', icon: Trophy },
@@ -527,11 +691,11 @@ export const trophies: TrophyItem[] = [
 export const skillTree: { branch: string; skills: string[] }[] = [
   {
     branch: 'Data & Cloud',
-    skills: ['Databricks Lakehouse', 'Unity Catalog', 'Delta Lake', 'PySpark', 'Azure Data Factory', 'ADLS Gen2', 'Azure Synapse', 'SAP integration'],
+    skills: ['Databricks Lakehouse', 'Unity Catalog', 'Delta Lake', 'PySpark', 'Microsoft Fabric', 'Azure Data Factory', 'ADLS Gen2', 'Azure Synapse', 'SAP integration'],
   },
   {
     branch: 'DevOps',
-    skills: ['Azure DevOps', 'YAML pipelines', 'CI/CD', 'Git branching strategy', 'Release governance', 'Environment promotion'],
+    skills: ['Azure DevOps', 'YAML pipelines', 'CI/CD', 'Git branching strategy', 'Release governance', 'Environment promotion', 'Terraform', 'Docker', 'Power BI DevOps'],
   },
   {
     branch: 'Generative AI',
@@ -539,5 +703,6 @@ export const skillTree: { branch: string; skills: string[] }[] = [
   },
   { branch: 'Machine Learning', skills: ['Feature engineering', 'scikit-learn', 'Optuna', 'MLflow', 'Forecasting', 'Recommenders'] },
   { branch: 'BI & Analytics', skills: ['Qlik Sense', 'QlikView', 'Qlik administration', 'Power BI', 'Semantic layers'] },
-  { branch: 'Languages & Apps', skills: ['Python', 'SQL', 'Spark SQL', 'REST APIs', 'Full-stack web', 'Selenium'] },
+  { branch: 'Languages & Apps', skills: ['Python', 'SQL', 'Spark SQL', 'FastAPI', 'Microservices', 'REST APIs', 'Full-stack web', 'Selenium'] },
+  { branch: 'Leadership', skills: ['Engineering management', 'Weekly 1:1s', 'Technical interviews', 'Presales', 'Training & enablement', 'Partner audits'] },
 ]
