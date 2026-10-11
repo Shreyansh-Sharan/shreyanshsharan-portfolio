@@ -4,6 +4,7 @@ import { CircleCheck, Compass, Crosshair, Footprints, Map as MapIcon, X } from '
 import { MISSIONS, type Mission } from './missions'
 import { ISLAND_RADIUS, REGIONS } from './regions'
 import { controls } from './controls'
+import { lastCast } from './spells'
 import { world, useWorld } from './store'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
@@ -220,6 +221,25 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
   const done = useWorld((s) => s.done)
   const touch = useMemo(() => matchMedia('(pointer: coarse)').matches, [])
 
+  // Show a brief toast naming the last spell cast at the creature.
+  const [spellToast, setSpellToast] = useState<{ n: number; label: string } | null>(null)
+  useEffect(() => {
+    let seen = 0
+    const id = window.setInterval(() => {
+      const c = lastCast()
+      if (c && c.n !== seen) {
+        seen = c.n
+        setSpellToast({ n: c.n, label: `${c.spell.icon} ${c.spell.name}` })
+      }
+    }, 120)
+    return () => window.clearInterval(id)
+  }, [])
+  useEffect(() => {
+    if (!spellToast) return
+    const id = window.setTimeout(() => setSpellToast(null), 1600)
+    return () => window.clearTimeout(id)
+  }, [spellToast])
+
   const nextMission = useMemo(() => {
     let best: Mission | null = null
     let bestD = Infinity
@@ -336,8 +356,14 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </>
       ) : (
         <p className="play-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump · drag to look · <kbd>E</kbd> interact · <kbd>⌘K</kbd> back to site
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump · drag to look · <kbd>E</kbd> interact · click / <kbd>F</kbd> cast spell · <kbd>⌘K</kbd> back to site
         </p>
+      )}
+
+      {spellToast && (
+        <div className="spell-toast" role="status" key={spellToast.n}>
+          {spellToast.label}
+        </div>
       )}
     </div>
   )

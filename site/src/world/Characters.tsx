@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { REGIONS, ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
+import { neonBlocks } from './Ambient'
 import { controls, moveAxes } from './controls'
 import { MISSIONS, INTERACT_DISTANCE } from './missions'
 import { world } from './store'
@@ -76,9 +77,12 @@ export function Guide() {
 
 // Solid landmarks (buildings): a radius roughly matching each landmark's footprint so the player
 // can't walk through them. Scaled up from the old 0.62 factor which let the player clip into buildings.
-const COLLIDERS = REGIONS.flatMap((r) =>
+const CIRCLE_COLLIDERS = REGIONS.flatMap((r) =>
   r.landmarks.map((l) => ({ x: r.center[0] + l.at[0], z: r.center[1] + l.at[1], r: (l.pad ?? 4) * 0.95 })),
 )
+
+// Neon skyline towers are rectangular; collide against their footprints so the player can't walk through.
+const BOX_COLLIDERS = neonBlocks().map((b) => ({ x: b.x, z: b.z, hw: b.w / 2 + 0.4, hd: b.d / 2 + 0.4 }))
 
 export function Player() {
   const walk = useGLTF(modelUrl('explorer'), false, true)
@@ -97,6 +101,13 @@ export function Player() {
 
   useEffect(() => {
     state.current.teleportN = world.get().teleport?.n ?? 0
+    // Bouncing on the critter launches the player upward (Mario-style).
+    const onBounce = () => {
+      state.current.vy = 10
+      state.current.grounded = false
+    }
+    window.addEventListener('critter-bounce', onBounce)
+    return () => window.removeEventListener('critter-bounce', onBounce)
   }, [])
 
   const fadeTo = (name: string) => {
@@ -141,13 +152,24 @@ export function Player() {
       d = Math.atan2(Math.sin(d), Math.cos(d))
       player.yaw += d * Math.min(1, dt * 12)
     }
-    // Push out of buildings.
-    for (const c of COLLIDERS) {
+    // Push out of circular landmark footprints.
+    for (const c of CIRCLE_COLLIDERS) {
       const dx = player.pos.x - c.x, dz = player.pos.z - c.z
       const d = Math.hypot(dx, dz)
       if (d < c.r && d > 1e-3) {
         player.pos.x = c.x + (dx / d) * c.r
         player.pos.z = c.z + (dz / d) * c.r
+      }
+    }
+    // Push out of rectangular neon-tower footprints (resolve along the shallower axis).
+    const pr = 0.4 // player radius padding
+    for (const b of BOX_COLLIDERS) {
+      const dx = player.pos.x - b.x, dz = player.pos.z - b.z
+      const px = b.hw + pr - Math.abs(dx)
+      const pz = b.hd + pr - Math.abs(dz)
+      if (px > 0 && pz > 0) {
+        if (px < pz) player.pos.x = b.x + Math.sign(dx || 1) * (b.hw + pr)
+        else player.pos.z = b.z + Math.sign(dz || 1) * (b.hd + pr)
       }
     }
 

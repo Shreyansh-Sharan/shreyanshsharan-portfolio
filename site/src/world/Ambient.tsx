@@ -11,6 +11,26 @@ import { useWorld } from './store'
 
 const region = (id: string) => REGIONS.find((r) => r.id === id)!
 
+/**
+ * The neon skyline's building footprints, generated deterministically so both the renderer and the
+ * player's collision code (Characters.tsx) agree on where the towers are.
+ */
+export function neonBlocks(): { x: number; z: number; w: number; d: number; h: number }[] {
+  const r = region('neon')
+  const rnd = mulberry32(77)
+  const out: { x: number; z: number; w: number; d: number; h: number }[] = []
+  for (let i = 0; i < 46; i++) {
+    const a = rnd() * Math.PI * 2,
+      d = 14 + rnd() * 30
+    const x = r.center[0] + Math.cos(a) * d,
+      z = r.center[1] + Math.sin(a) * d
+    const near = (bx: number, bz: number) => Math.hypot(x - bx, z - bz)
+    if (near(r.center[0] - 14, r.center[1] + 10) < 7 || near(r.center[0] - 6, r.center[1] + 16) < 6) continue
+    out.push({ x, z, w: 4 + rnd() * 5, d: 4 + rnd() * 5, h: 8 + rnd() * 26 })
+  }
+  return out
+}
+
 /* ---------- Mission beacons ---------- */
 
 const BEAM_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`
@@ -118,18 +138,7 @@ export function NeonDistrict() {
   const tex = useMemo(windowTexture, [])
   const uniforms = useMemo(() => ({ uTime: { value: 0 } }), [])
   const rings = useRef<THREE.Group>(null)
-  const blocks = useMemo(() => {
-    const rnd = mulberry32(77)
-    const out: { x: number; z: number; w: number; d: number; h: number }[] = []
-    for (let i = 0; i < 46; i++) {
-      const a = rnd() * Math.PI * 2, d = 14 + rnd() * 30
-      const x = r.center[0] + Math.cos(a) * d, z = r.center[1] + Math.sin(a) * d
-      const near = (bx: number, bz: number) => Math.hypot(x - bx, z - bz)
-      if (near(r.center[0] - 14, r.center[1] + 10) < 7 || near(r.center[0] - 6, r.center[1] + 16) < 6) continue
-      out.push({ x, z, w: 4 + rnd() * 5, d: 4 + rnd() * 5, h: 8 + rnd() * 26 })
-    }
-    return out
-  }, [r])
+  const blocks = useMemo(() => neonBlocks(), [])
   const materials = useMemo(
     () =>
       blocks.map((b) => {

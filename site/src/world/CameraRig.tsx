@@ -34,17 +34,18 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       controls.look.x = controls.look.y = 0
 
       // When the player isn't actively dragging to look, ease the camera back behind the player's
-      // heading so it auto-follows. Only kicks in after a short idle and while the player is moving.
+      // heading so it auto-follows. Kicks in shortly after the last drag; stronger while moving.
       if (dragged) s.lookIdle = 0
       else s.lookIdle += dt
-      if (s.lookIdle > 0.6 && player.speed > 0.2) {
+      if (s.lookIdle > 0.35 && player.speed > 0.05) {
         // Behind the player: camYaw such that the camera sits opposite the facing direction.
         const desired = player.yaw + Math.PI
         let d = desired - player.camYaw
         d = Math.atan2(Math.sin(d), Math.cos(d))
-        player.camYaw += d * Math.min(1, dt * 2.2)
-        // Ease the pitch back to a comfortable default too.
-        player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 1.5))
+        // Faster recenter so it clearly follows; scales a little with how long the player has been idle.
+        const rate = THREE.MathUtils.clamp(dt * (3.2 + s.lookIdle), 0, 1)
+        player.camYaw += d * rate
+        player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 2))
       }
       const dist = 7.5
       tmpTarget.set(player.pos.x, player.pos.y + 1.6, player.pos.z)

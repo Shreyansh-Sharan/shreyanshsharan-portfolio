@@ -7,6 +7,8 @@ export const controls = {
   jump: false,
   /** Accumulated look deltas in pixels, consumed by the camera each frame. */
   look: { x: 0, y: 0 },
+  /** A spell cast was requested (quick click or the cast key); consumed per frame. */
+  cast: false,
 }
 
 let attached = false
@@ -22,6 +24,7 @@ export function attachControls() {
       controls.jump = true
       e.preventDefault()
     }
+    if (e.code === 'KeyF') controls.cast = true
     if (e.code.startsWith('Arrow')) e.preventDefault()
   }
   const up = (e: KeyboardEvent) => controls.keys.delete(e.code)
@@ -29,11 +32,16 @@ export function attachControls() {
 
   let dragging = false
   let last = { x: 0, y: 0 }
+  let start = { x: 0, y: 0 }
+  let moved = 0
   const pd = (e: PointerEvent) => {
     const t = e.target as HTMLElement
-    if (!t.closest('canvas')) return
+    // Ignore presses on HUD buttons/links so casting only happens over the world.
+    if (!t.closest('canvas') || t.closest('button, a, .play-hud .prompt, .play-hud .objective')) return
     dragging = true
     last = { x: e.clientX, y: e.clientY }
+    start = { x: e.clientX, y: e.clientY }
+    moved = 0
   }
   const pm = (e: PointerEvent) => {
     if (!dragging) return
@@ -41,7 +49,14 @@ export function attachControls() {
     controls.look.y += e.clientY - last.y
     last = { x: e.clientX, y: e.clientY }
   }
-  const pu = () => (dragging = false)
+  const pu = (e: PointerEvent) => {
+    if (dragging) {
+      moved = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+      // A near-stationary click (not a drag-to-look) casts a spell.
+      if (moved < 6) controls.cast = true
+    }
+    dragging = false
+  }
 
   window.addEventListener('keydown', down)
   window.addEventListener('keyup', up)

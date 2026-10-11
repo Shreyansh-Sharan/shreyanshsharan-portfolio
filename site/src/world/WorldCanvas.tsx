@@ -9,6 +9,8 @@ import { Landmarks, Scatters } from './Models'
 import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
 import { Guide, Player, spawnPlayer } from './Characters'
+import { Critter } from './Critter'
+import { SpellFx } from './SpellFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
 
@@ -92,6 +94,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         <Ambient />
         <Guide />
         {playing && <Player />}
+        {playing && <Critter />}
+        {playing && <SpellFx />}
         <Preload all />
       </Suspense>
       <CameraRig playing={playing} mode={mode} />
