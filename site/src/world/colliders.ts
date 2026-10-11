@@ -182,10 +182,10 @@ function pushOut(c: Collider, p: { x: number; z: number }, radius: number) {
 const probe = { x: 0, z: 0 }
 
 /** True if a circle at (x, z) would overlap any collider (used to keep wander targets clear). */
-export function blocked(x: number, z: number, radius: number) {
+export function blocked(x: number, z: number, radius: number, feet = -Infinity) {
   probe.x = x
   probe.z = z
-  return resolve(probe, radius)
+  return resolve(probe, radius, feet)
 }
 
 /** For tests (`?snap`): every registered collider. */

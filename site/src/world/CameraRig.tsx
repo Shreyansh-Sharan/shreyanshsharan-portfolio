@@ -8,6 +8,7 @@ import { controls } from './controls'
 import { player } from './Characters'
 import { world } from './store'
 import { feel } from './combat'
+import { blocked } from './colliders'
 
 // `?snap` jumps the camera instantly (handy for screenshots and slow machines).
 const SNAP = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('snap')
@@ -56,6 +57,17 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
         tmpTarget.y + Math.sin(player.camPitch) * dist,
         tmpTarget.z + Math.cos(player.camYaw) * Math.cos(player.camPitch) * dist,
       )
+      // Don't sit inside a tree or a wall: if a prop stands between the player and the camera, pull in.
+      for (let i = 1; i <= 4; i++) {
+        const t = i / 4
+        const x = tmpTarget.x + (tmpPos.x - tmpTarget.x) * t, y = tmpTarget.y + (tmpPos.y - tmpTarget.y) * t
+        const z = tmpTarget.z + (tmpPos.z - tmpTarget.z) * t
+        if (blocked(x, z, 1.1, y - 1)) {
+          const k = Math.max(2.4 / dist, t * 0.8)
+          tmpPos.set(tmpTarget.x + (tmpPos.x - tmpTarget.x) * k, tmpTarget.y + (tmpPos.y - tmpTarget.y) * k, tmpTarget.z + (tmpPos.z - tmpTarget.z) * k)
+          break
+        }
+      }
       const floor = heightAt(tmpPos.x, tmpPos.z) + 0.8
       if (tmpPos.y < floor) tmpPos.y = floor
       const k = SNAP ? 1 : 1 - Math.exp(-dt * 10)
