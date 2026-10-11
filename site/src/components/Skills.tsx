@@ -13,7 +13,7 @@ export function Skills({ onAccent }: { onAccent: (a: [string, string], emblem: s
       <header className="page-header">
         <p className="eyebrow">Loadout</p>
         <h1 className="page-title">Skill Tree</h1>
-        <p className="page-lead">Six branches, unlocked over 8+ years of client delivery.</p>
+        <p className="page-lead">{skillTree.length} branches, unlocked over 8+ years of client delivery.</p>
       </header>
       <div className="branch-grid">
         {skillTree.map((b) => (
