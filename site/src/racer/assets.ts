@@ -1,4 +1,4 @@
-// Loads the Higgsfield-generated cars, track props and textures. Anything that fails falls back to procedural meshes.
+// Loads the generated cars, track props and textures. Anything that fails falls back to procedural meshes.
 // The Dust Bowl borrows a few small props from the open world (public/world/models).
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
