@@ -42,6 +42,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Progression', detail: 'Fan Points, Fan Runs and up to 5 Lights per event, saved in your browser.' },
         { title: 'Assets', detail: 'Eight cars, street lamps, billboards, towers, cranes and textures generated with Higgsfield.' },
       ]
+    case 'bogey-brawl':
+      return [
+        { title: 'Hole', detail: 'Lakeside Bend, a par-4 dogleg around a lake in the Greenmeadow biome, with bunkers, checkpoints and a 3-minute clock.' },
+        { title: 'Combat', detail: 'Club rivals mid-swing, dive, and grab briefcases for a Rocket Launcher, Dueling Pistol or Electromagnet shield.' },
+        { title: 'Scoring', detail: 'First to hole out scores 100, plus par bonuses and knockouts. Unfinished at the end of overtime costs 50.' },
+        { title: 'Assets', detail: 'Rigged golfer with run, idle and swing, plus carts, a clubhouse, windmills and balloons generated with Higgsfield.' },
+      ]
     case 'sports-complex':
       return [
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },

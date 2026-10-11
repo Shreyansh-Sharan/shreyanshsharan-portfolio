@@ -19,6 +19,7 @@ import type { SceneMode } from './world/WorldCanvas'
 // The open world is a separate chunk so the first screen paints before three.js downloads.
 const WorldCanvas = lazy(() => import('./world/WorldCanvas'))
 const Racer = lazy(() => import('./racer/Racer').then((m) => ({ default: m.Racer })))
+const Golf = lazy(() => import('./golf/Golf').then((m) => ({ default: m.Golf })))
 const PlayHud = lazy(() => import('./world/PlayHud').then((m) => ({ default: m.PlayHud })))
 
 function canRun3D() {
@@ -86,7 +87,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (route.name === 'arena' || route.name === 'racer') return
+        if (route.name === 'arena' || route.name === 'racer' || route.name === 'golf') return
         setPlaying(!world.get().playing)
       } else if (e.key === 'Escape' && world.get().playing && !world.get().open) {
         setPlaying(false)
@@ -105,7 +106,7 @@ export default function App() {
 
   // Leaving the site for a route (e.g. from a mission briefing) ends explore mode.
   useEffect(() => {
-    if ((route.name === 'arena' || route.name === 'racer') && world.get().playing) world.set({ playing: false })
+    if ((route.name === 'arena' || route.name === 'racer' || route.name === 'golf') && world.get().playing) world.set({ playing: false })
   }, [route.name])
 
   const mode: SceneMode = route.name === 'boot' ? 'boot' : route.name === 'home' ? 'home' : 'page'
@@ -140,6 +141,13 @@ export default function App() {
       screen = (
         <Suspense fallback={null}>
           <Racer key={route.auto ?? route.join ?? 'menu'} auto={route.auto} join={route.join} onAccent={setAccent} />
+        </Suspense>
+      )
+      break
+    case 'golf':
+      screen = (
+        <Suspense fallback={null}>
+          <Golf auto={route.auto} onAccent={setAccent} />
         </Suspense>
       )
       break

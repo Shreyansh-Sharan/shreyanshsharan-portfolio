@@ -2918,3 +2918,393 @@ p {
   object-fit: cover;
   display: block;
 }
+
+/* ---------- BOGEY BRAWL ---------- */
+
+.bb-title {
+  background: linear-gradient(90deg, #bef264, #facc15);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 0.04em;
+}
+
+.bb-hole {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(190, 242, 100, 0.06);
+  color: #bef264;
+}
+
+.bb-hole div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+}
+
+.golf-stage {
+  background: #9cc9ec;
+}
+
+.golf-stage canvas {
+  cursor: crosshair;
+}
+
+.bb-loading {
+  color: #14532d;
+  background: linear-gradient(#9cc9ec, #cde7b0);
+}
+
+.bb-hud {
+  font-weight: 700;
+}
+
+.bb-top {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 16px;
+  border-radius: 99px;
+  background: rgba(10, 30, 15, 0.55);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.bb-top strong {
+  font-size: 22px;
+  min-width: 64px;
+  text-align: center;
+}
+
+.bb-top .bb-low {
+  color: #fde047;
+}
+
+.bb-top .bb-ot {
+  color: #f87171;
+  animation: bb-pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes bb-pulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+.bb-board {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 12px;
+  background: rgba(10, 30, 15, 0.55);
+  font-size: 13px;
+  min-width: 190px;
+}
+
+.bb-board li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.bb-board li.is-me span:first-of-type {
+  color: #bef264;
+}
+
+.bb-board i,
+.bb-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.bb-board b {
+  color: #fde047;
+}
+
+.bb-marker {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.bb-marker span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.bb-marker em {
+  position: absolute;
+  top: -20px;
+  font-style: normal;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bb-marker.is-me {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+}
+
+.bb-popups {
+  position: absolute;
+  inset: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+  display: block;
+}
+
+.bb-popups div {
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.bb-lock {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 99px;
+  background: rgba(220, 38, 38, 0.85);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  animation: bb-pulse 0.35s ease-in-out infinite alternate;
+}
+
+.bb-status {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.bb-stun {
+  color: #fde047;
+  font-size: 20px;
+}
+
+.bb-feed {
+  position: absolute;
+  top: 70px;
+  left: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  max-width: 340px;
+}
+
+.bb-feed li {
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(10, 30, 15, 0.5);
+}
+
+.bb-feed li.is-mine {
+  background: rgba(59, 130, 246, 0.6);
+}
+
+.bb-left {
+  position: absolute;
+  bottom: 22px;
+  left: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.bb-power {
+  width: 16px;
+  height: 140px;
+  border-radius: 8px;
+  background: rgba(10, 30, 15, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.bb-power i {
+  display: block;
+  width: 100%;
+  background: linear-gradient(0deg, #22c55e, #facc15 60%, #ef4444);
+}
+
+.bb-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.bb-boost {
+  color: #fde047;
+}
+
+.bb-shield {
+  color: #7dd3fc;
+}
+
+.bb-slots {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.bb-slot {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  background: rgba(10, 30, 15, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  display: grid;
+  place-items: center;
+}
+
+.bb-slot.is-active {
+  border-color: #bef264;
+  box-shadow: 0 0 14px -2px #bef264;
+}
+
+.bb-slot .bb-key {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.bb-slot em {
+  position: absolute;
+  top: -22px;
+  font-style: normal;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bb-hint {
+  position: absolute;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.bb-cross {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.bb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(5, 20, 10, 0.45);
+  color: #fff;
+  pointer-events: none;
+  text-align: center;
+}
+
+.bb-overlay h2 {
+  font-size: 40px;
+  font-style: italic;
+  color: #bef264;
+  margin: 0;
+}
+
+.bb-overlay .btn {
+  pointer-events: auto;
+}
+
+.bb-results {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.bb-results th,
+.bb-results td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.bb-results tr.is-me td {
+  background: rgba(190, 242, 100, 0.08);
+}
+
+.bb-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+@media (max-width: 720px) {
+  .bb-board {
+    min-width: 0;
+    font-size: 11px;
+  }
+
+  .bb-feed {
+    display: none;
+  }
+
+  .bb-hint {
+    white-space: normal;
+    width: 90%;
+    text-align: center;
+  }
+
+  .bb-results th:nth-child(4),
+  .bb-results td:nth-child(4) {
+    display: none;
+  }
+}
