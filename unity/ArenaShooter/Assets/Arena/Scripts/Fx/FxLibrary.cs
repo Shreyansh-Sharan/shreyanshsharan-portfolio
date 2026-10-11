@@ -35,20 +35,22 @@ namespace Arena.Fx
             block = new MaterialPropertyBlock();
         }
 
-        public static void Tracer(Vector3 from, Vector3 to, Color color)
+        /// <summary>A shot trail; <paramref name="width"/> scales its thickness (and how long it lingers).</summary>
+        public static void Tracer(Vector3 from, Vector3 to, Color color, float width = 1f)
         {
             if (!Instance) return;
-            var e = Instance.Get(Kind.Tracer, 0.09f, color);
+            var e = Instance.Get(Kind.Tracer, 0.09f * Mathf.Lerp(1f, width, 0.5f), color);
             e.Line.SetPosition(0, from);
             e.Line.SetPosition(1, to);
+            e.Size = width;
         }
 
-        public static void MuzzleFlash(Vector3 at, Color color)
+        public static void MuzzleFlash(Vector3 at, Color color, float size = 0.22f)
         {
             if (!Instance) return;
             var e = Instance.Get(Kind.Flash, 0.05f, Color.Lerp(color, Color.white, 0.6f));
             e.Go.transform.position = at;
-            e.Size = 0.22f;
+            e.Size = size;
         }
 
         public static void Impact(Vector3 at, Vector3 normal, Color? color = null, float scale = 1f)
@@ -144,8 +146,8 @@ namespace Arena.Fx
                         c.a = 1f - t;
                         e.Line.startColor = c;
                         e.Line.endColor = new Color(c.r, c.g, c.b, c.a * 0.3f);
-                        e.Line.startWidth = 0.05f * (1f - t * 0.5f);
-                        e.Line.endWidth = 0.02f;
+                        e.Line.startWidth = 0.05f * e.Size * (1f - t * 0.5f);
+                        e.Line.endWidth = 0.02f * e.Size;
                         continue;
                     case Kind.Flash:
                     case Kind.Spark:

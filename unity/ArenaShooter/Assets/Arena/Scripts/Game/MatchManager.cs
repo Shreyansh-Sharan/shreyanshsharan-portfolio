@@ -29,6 +29,8 @@ namespace Arena.Game
             public string Killer, Victim;
             public Color KillerColor, VictimColor;
             public bool Headshot;
+            /// <summary>WeaponKind of the kill, or 255 for none.</summary>
+            public byte Weapon;
             public float Time;
         }
 
@@ -137,16 +139,17 @@ namespace Arena.Game
             return best;
         }
 
-        public void ServerOnKill(Combatant killer, Combatant victim, bool headshot)
+        public void ServerOnKill(Combatant killer, Combatant victim, bool headshot, byte weapon)
         {
             KillFeedRpc(
                 killer != null ? killer.NetworkObjectId : ulong.MaxValue,
                 victim.NetworkObjectId,
-                headshot);
+                headshot,
+                weapon);
         }
 
         [Rpc(SendTo.Everyone)]
-        void KillFeedRpc(ulong killerId, ulong victimId, bool headshot)
+        void KillFeedRpc(ulong killerId, ulong victimId, bool headshot, byte weapon)
         {
             var spawned = NetworkManager.SpawnManager.SpawnedObjects;
             Combatant killer = null, victim = null;
@@ -161,6 +164,7 @@ namespace Arena.Game
                 KillerColor = killer != null ? killer.Color : Color.white,
                 VictimColor = victim.Color,
                 Headshot = headshot,
+                Weapon = weapon,
                 Time = Time.time,
             });
             if (Feed.Count > 6) Feed.RemoveAt(0);

@@ -540,7 +540,7 @@ export const tiles: Tile[] = [
     period: 'Play now',
     genre: 'Shooter',
     blurb:
-      'A lightweight browser shooter on three original maps: Dunes, Harbor Night and Frost Outpost. Fight AI bots or invite friends with a code; headshots kill in one hit, and you have dash, double jump, overshield and pulse scan.',
+      'A lightweight browser shooter on six original maps, including three classic-style arenas (Sandstorm, Villa and Bazaar). Five weapons from sidearm to scoped sniper, right-click aiming, AI bots or friends by invite code, plus dash, double jump, overshield and pulse scan.',
     icon: Crosshair,
     accent: ['#9a3412', '#fdba74'],
     action: { kind: 'route', to: '#/arena', label: 'Play' },

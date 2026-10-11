@@ -113,6 +113,10 @@ namespace Arena.Map
                 (V(-24, -2), PickupKind.Overdrive),
                 (V(22, 7), PickupKind.Haste),
                 (V(-36, 40), PickupKind.Haste),
+                (V(-10, 6), PickupKind.Smg),
+                (V(4, -40), PickupKind.Rifle),
+                (V(41, 36), PickupKind.Sniper),
+                (V(-35, -30), PickupKind.Shotgun),
             },
 
             Waypoints = new[]
@@ -120,6 +124,14 @@ namespace Arena.Map
                 V(37, 26), V(-37, -12), V(0, -12), V(0, 12), V(-12, 0), V(12, 0), V(0, -28), V(0, 28),
                 V(-37, -32), V(-37, 24), V(37, -32), V(37, 8), V(-24, -2), V(22, 7), V(0, -42), V(0, 42),
                 V(-36, 40), V(36, 40), V(-36, -40), V(36, -40),
+            },
+
+            Perches = new[]
+            {
+                H(37, -36, 0f),     // Trench lane, looking north
+                H(-37, 36, 180f),   // Hangar lane, looking south
+                H(0, 30, 180f),     // North gate, into the courtyard
+                H(0, -30, 0f),      // South gate, into the courtyard
             },
 
             // Over the south gate, facing the south spawn.

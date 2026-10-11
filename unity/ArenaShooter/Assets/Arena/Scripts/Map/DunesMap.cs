@@ -108,6 +108,10 @@ namespace Arena.Map
                 (V(-20, -3), PickupKind.Overdrive),
                 (V(26, -40), PickupKind.Haste),
                 (V(14, 16), PickupKind.Haste),
+                (V(9, 7), PickupKind.Smg),
+                (V(-6, 44), PickupKind.Rifle),
+                (V(37, -30), PickupKind.Sniper),
+                (V(-39, -16), PickupKind.Shotgun),
             },
 
             Waypoints = new[]
@@ -115,6 +119,16 @@ namespace Arena.Map
                 V(31, 33), V(-32, 23), V(0, 0), V(0, -28), V(0, 20), V(39, -20), V(39, 12),
                 V(-39, -24), V(-39, 0), V(-20, -3), V(14, 16), V(8, 9), V(8, 44), V(-14, 38),
                 V(26, -40), V(-34, -40), V(0, -48), V(24, 40), V(-40, 34),
+            },
+
+            Perches = new[]
+            {
+                H(39, -30, 0f),     // Long, looking up the lane
+                H(36, 43, 177f),    // Back of A, down long
+                H(0, -40, 0f),      // Attacker mid, up mid
+                H(0, 36, 180f),     // Defender mid, down mid
+                H(-39, -30, 0f),    // Tunnels, toward B
+                H(-40, 36, 175f),   // Back of B, onto the tunnel exit
             },
 
             // A gantry over mid, read from the attackers' side; the back carries the same sign.

@@ -3,7 +3,11 @@ namespace Arena.Map
     /// <summary>Every map in the game, in menu order. All of them live in the one scene, far apart.</summary>
     public static class Maps
     {
-        public static readonly MapDefinition[] All = { DunesMap.Create(), HarborMap.Create(), FrostMap.Create() };
+        public static readonly MapDefinition[] All =
+        {
+            DunesMap.Create(), HarborMap.Create(), FrostMap.Create(),
+            SandstormMap.Create(), VillaMap.Create(), BazaarMap.Create(),
+        };
 
         public static int IndexOf(string id)
         {

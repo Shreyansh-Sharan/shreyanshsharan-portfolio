@@ -89,6 +89,8 @@ namespace Arena.EditorTools
         {
             public Material Body, Visor, Gun, Glow, Pad, Fx, Skybox;
             public Material[] PickupMats;
+            /// <summary>One glowing material per weapon (WeaponKind order), for the weapon crates.</summary>
+            public Material[] WeaponMats;
         }
 
         static Material Mat(string name, Color color, float smoothness = 0.15f, float metallic = 0f, Color? emission = null, string shader = "Standard", Texture texture = null)
@@ -166,6 +168,7 @@ namespace Arena.EditorTools
                     Mat("PickupHaste", new Color(0.85f, 0.4f, 1f), 0.6f, 0f, new Color(0.85f, 0.4f, 1f) * 1.8f),
                 },
                 Fx = Mat("Fx", Color.white, 0f, 0f, null, "Sprites/Default"),
+                WeaponMats = WeaponSpec.All.Select(w => Mat($"Weapon{w.Kind}", w.Tint, 0.6f, 0f, w.Tint * 1.8f)).ToArray(),
             };
 
             var sky = Mat("Sky", Color.white, 0f, 0f, null, "Skybox/Procedural");
@@ -191,22 +194,26 @@ namespace Arena.EditorTools
             Color orange = new Color(1f, 0.5f, 0.12f), blue = new Color(0.3f, 0.6f, 1f);
             return new MapPalette
             {
-                Ground = Mat($"{id}_Ground", Color.white, 0.05f, 0f, null, "Standard", MapTex(t.Ground, 1024)),
-                Floor = Mat($"{id}_Floor", new Color(0.9f, 0.9f, 0.9f), 0.1f, 0f, null, "Standard", MapTex(t.Floor)),
+                Ground = Mat($"{id}_Ground", look.GroundTint, 0.05f, 0f, null, "Standard", MapTex(t.Ground, 1024)),
+                Floor = Mat($"{id}_Floor", look.FloorTint, 0.1f, 0f, null, "Standard", MapTex(t.Floor)),
                 Walls = walls,
-                Roof = Mat($"{id}_Roof", new Color(0.8f, 0.8f, 0.8f), 0.1f, 0f, null, "Standard", MapTex(t.Roof)),
-                Wood = Mat($"{id}_Wood", Color.white, 0.15f, 0f, null, "Standard", MapTex(t.Wood)),
-                Metal = Mat($"{id}_Metal", Color.white, 0.45f, 0.4f, null, "Standard", MapTex(t.Metal)),
-                Stone = Mat($"{id}_Stone", new Color(0.92f, 0.9f, 0.88f), 0.1f, 0f, null, "Standard", MapTex(t.Stone)),
-                Accent = Mat($"{id}_Accent", Color.white, 0.3f, 0f, null, "Standard", MapTex(t.Accent)),
+                Roof = Mat($"{id}_Roof", look.RoofTint, 0.1f, 0f, null, "Standard", MapTex(t.Roof)),
+                Wood = Mat($"{id}_Wood", look.WoodTint, 0.15f, 0f, null, "Standard", MapTex(t.Wood)),
+                Metal = Mat($"{id}_Metal", look.MetalTint, 0.45f, 0.4f, null, "Standard", MapTex(t.Metal)),
+                Stone = Mat($"{id}_Stone", look.StoneTint, 0.1f, 0f, null, "Standard", MapTex(t.Stone)),
+                Accent = Mat($"{id}_Accent", look.AccentTint, 0.3f, 0f, null, "Standard", MapTex(t.Accent)),
                 NeonTrim = Mat($"{id}_Neon", look.Neon, 0.5f, 0f, look.Neon * 2.2f),
                 NeonAlt = Mat($"{id}_NeonAlt", look.NeonAlt, 0.5f, 0f, look.NeonAlt * 2.2f),
                 Glow = Mat($"{id}_Glow", look.Glow, 0.5f, 0f, look.Glow * 3f),
                 SiteA = Mat($"{id}_SiteA", orange, 0.4f, 0f, new Color(1f, 0.45f, 0.08f) * 2f),
                 SiteB = Mat($"{id}_SiteB", blue, 0.4f, 0f, new Color(0.25f, 0.55f, 1f) * 2f),
                 Lane = Mat($"{id}_Lane", look.Neon, 0.5f, 0f, look.Neon * 1.4f),
-                Water = Mat($"{id}_Water", new Color(0.03f, 0.07f, 0.13f), 0.95f, 0.3f),
+                Water = Mat($"{id}_Water", look.WaterColor, 0.95f, 0.3f),
                 Board = Mat($"{id}_Board", new Color(0.04f, 0.045f, 0.07f), 0.6f, 0.3f, new Color(0.02f, 0.03f, 0.06f)),
+                Cloth = Mat($"{id}_Cloth", look.ClothTint, 0.1f, 0f, null, "Standard", MapTex(t.Cloth)),
+                Foliage = Mat($"{id}_Foliage", look.Foliage, 0.2f),
+                // Lit windows glow at dusk; otherwise they are dark glass or painted shutters.
+                Window = Mat($"{id}_Window", look.WindowColor, 0.5f, 0f, look.WindowGlow > 0f ? look.WindowColor * look.WindowGlow : (Color?)null),
             };
         }
 
@@ -448,6 +455,7 @@ namespace Arena.EditorTools
 
             var weapon = root.AddComponent<Weapon>();
             weapon.Muzzle = muzzle;
+            weapon.Glow = glow.GetComponent<Renderer>();
 
             if (isBot) root.AddComponent<BotBrain>();
             else
@@ -487,7 +495,23 @@ namespace Arena.EditorTools
             Part("Chevron", PrimitiveType.Cube, haste.transform, new Vector3(0, 0.12f, 0), new Vector3(0.6f, 0.12f, 0.12f), m.PickupMats[3], new Vector3(0, 0, 30));
             Part("Chevron", PrimitiveType.Cube, haste.transform, new Vector3(0, -0.12f, 0), new Vector3(0.6f, 0.12f, 0.12f), m.PickupMats[3], new Vector3(0, 0, -30));
 
-            pickup.Visuals = new[] { health, shield, overdrive, haste };
+            // Weapon crates: a scaled-up model of the gun with a glowing strip in the weapon's colour, on a small crate.
+            var weapons = new GameObject[WeaponSpec.All.Length - 1];
+            for (int i = 1; i < WeaponSpec.All.Length; i++)
+            {
+                var spec = WeaponSpec.Get(i);
+                var go = new GameObject(spec.Short);
+                go.transform.SetParent(spinner, false);
+                var size = spec.ModelScale * 2.2f;
+                Part("Gun", PrimitiveType.Cube, go.transform, Vector3.zero, size, m.Gun);
+                Part("Strip", PrimitiveType.Cube, go.transform, new Vector3(0, size.y * 0.55f, 0), new Vector3(size.x * 0.6f, size.y * 0.15f, size.z * 0.8f), m.WeaponMats[i]);
+                if (spec.Scope) Part("Scope", PrimitiveType.Cylinder, go.transform, new Vector3(0, size.y * 0.85f, 0), new Vector3(0.1f, size.z * 0.25f, 0.1f), m.Gun, new Vector3(90, 0, 0));
+                Part("Grip", PrimitiveType.Cube, go.transform, new Vector3(0, -size.y * 0.8f, -size.z * 0.2f), new Vector3(size.x * 0.8f, size.y, size.x * 1.2f), m.Gun, new Vector3(15, 0, 0));
+                Part("Crate", PrimitiveType.Cube, go.transform, new Vector3(0, -0.55f, 0), new Vector3(0.7f, 0.18f, 0.7f), m.WeaponMats[i]);
+                weapons[i - 1] = go;
+            }
+
+            pickup.Visuals = new[] { health, shield, overdrive, haste }.Concat(weapons).ToArray();
             pickup.Spinner = spinner;
             pickup.Pad = pad.GetComponent<Renderer>();
             return root;
