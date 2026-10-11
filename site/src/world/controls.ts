@@ -1,4 +1,4 @@
-// Input for explore mode: keyboard, mouse/touch drag to look, and the on-screen joystick.
+// Input for explore mode: keyboard, mouse/touch drag to look, the on-screen joystick and buttons, and a gamepad.
 export const controls = {
   keys: new Set<string>(),
   /** Joystick vector from the HUD, each axis in [-1, 1]. */
@@ -7,11 +7,23 @@ export const controls = {
   jump: false,
   /** Accumulated look deltas in pixels, consumed by the camera each frame. */
   look: { x: 0, y: 0 },
-  /** A spell cast was requested (quick click or the cast key); consumed per frame. */
+  /** A spell cast was requested (the cast key); consumed per frame. */
   cast: false,
+  /** A melee attack was requested (quick click, J, gamepad B); consumed per frame. */
+  attack: false,
+  /** The spin attack was requested directly (Q, gamepad Y). */
+  spin: false,
+  /** Take off / land was requested (double-tap Space, X, gamepad LB). */
+  fly: false,
+  /** Ascend / descend held while flying (Space / Ctrl or C, or the touch buttons). */
+  up: false,
+  down: false,
+  /** Gamepad left stick and run trigger, refreshed by pollPad(). */
+  pad: { x: 0, y: 0, run: false, up: false, down: false },
 }
 
 let attached = false
+let lastSpace = 0
 
 export function attachControls() {
   if (attached) return () => {}
@@ -21,10 +33,20 @@ export function attachControls() {
     if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return
     controls.keys.add(e.code)
     if (e.code === 'Space') {
-      controls.jump = true
       e.preventDefault()
+      if (!e.repeat) {
+        controls.jump = true
+        // A quick second tap takes off.
+        const now = performance.now()
+        if (now - lastSpace < 320) controls.fly = true
+        lastSpace = now
+      }
     }
+    if (e.repeat) return
     if (e.code === 'KeyF') controls.cast = true
+    if (e.code === 'KeyJ') controls.attack = true
+    if (e.code === 'KeyQ') controls.spin = true
+    if (e.code === 'KeyX') controls.fly = true
     if (e.code.startsWith('Arrow')) e.preventDefault()
   }
   const up = (e: KeyboardEvent) => controls.keys.delete(e.code)
@@ -36,7 +58,7 @@ export function attachControls() {
   let moved = 0
   const pd = (e: PointerEvent) => {
     const t = e.target as HTMLElement
-    // Ignore presses on HUD buttons/links so casting only happens over the world.
+    // Ignore presses on HUD buttons/links so attacks only happen over the world.
     if (!t.closest('canvas') || t.closest('button, a, .play-hud .prompt, .play-hud .objective')) return
     dragging = true
     last = { x: e.clientX, y: e.clientY }
@@ -52,10 +74,16 @@ export function attachControls() {
   const pu = (e: PointerEvent) => {
     if (dragging) {
       moved = Math.hypot(e.clientX - start.x, e.clientY - start.y)
-      // A near-stationary click (not a drag-to-look) casts a spell.
-      if (moved < 6) controls.cast = true
+      // A near-stationary click (not a drag-to-look) attacks; right click casts.
+      if (moved < 6) {
+        if (e.button === 2) controls.cast = true
+        else controls.attack = true
+      }
     }
     dragging = false
+  }
+  const menu = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('canvas')) e.preventDefault()
   }
 
   window.addEventListener('keydown', down)
@@ -64,6 +92,7 @@ export function attachControls() {
   window.addEventListener('pointerdown', pd)
   window.addEventListener('pointermove', pm)
   window.addEventListener('pointerup', pu)
+  window.addEventListener('contextmenu', menu)
   return () => {
     attached = false
     controls.keys.clear()
@@ -73,12 +102,47 @@ export function attachControls() {
     window.removeEventListener('pointerdown', pd)
     window.removeEventListener('pointermove', pm)
     window.removeEventListener('pointerup', pu)
+    window.removeEventListener('contextmenu', menu)
   }
+}
+
+const prevButtons: boolean[] = []
+
+/** Read the first gamepad (if any): stick and held buttons into `controls.pad`, presses into the one-shot flags. */
+export function pollPad() {
+  const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : null
+  const gp = pads ? Array.from(pads).find(Boolean) : null
+  const pad = controls.pad
+  if (!gp) {
+    pad.x = pad.y = 0
+    pad.run = pad.up = pad.down = false
+    return
+  }
+  const dz = (v: number) => (Math.abs(v) < 0.18 ? 0 : v)
+  pad.x = dz(gp.axes[0] ?? 0)
+  pad.y = -dz(gp.axes[1] ?? 0)
+  controls.look.x += dz(gp.axes[2] ?? 0) * 9
+  controls.look.y += dz(gp.axes[3] ?? 0) * 6
+  const held = (i: number) => !!gp.buttons[i]?.pressed
+  const pressed = (i: number) => {
+    const now = held(i)
+    const was = prevButtons[i] ?? false
+    prevButtons[i] = now
+    return now && !was
+  }
+  pad.run = held(7) || held(10) // RT or left-stick click
+  pad.up = held(0)
+  pad.down = held(6) // LT
+  if (pressed(0)) controls.jump = true // A
+  if (pressed(2)) controls.attack = true // X
+  if (pressed(1)) controls.cast = true // B
+  if (pressed(3)) controls.spin = true // Y
+  if (pressed(4) || pressed(5)) controls.fly = true // bumpers
 }
 
 export function moveAxes() {
   const k = controls.keys
-  let x = controls.stick.x, y = controls.stick.y
+  let x = controls.stick.x + controls.pad.x, y = controls.stick.y + controls.pad.y
   if (k.has('KeyW') || k.has('ArrowUp')) y += 1
   if (k.has('KeyS') || k.has('ArrowDown')) y -= 1
   if (k.has('KeyD') || k.has('ArrowRight')) x += 1
@@ -88,5 +152,13 @@ export function moveAxes() {
     x /= len
     y /= len
   }
-  return { x, y, run: controls.run || k.has('ShiftLeft') || k.has('ShiftRight') }
+  return { x, y, run: controls.run || controls.pad.run || k.has('ShiftLeft') || k.has('ShiftRight') }
+}
+
+/** Vertical input while flying: +1 up, -1 down, 0 hover. */
+export function flyAxis() {
+  const k = controls.keys
+  const up = controls.up || controls.pad.up || k.has('Space')
+  const down = controls.down || controls.pad.down || k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyC')
+  return (up ? 1 : 0) - (down ? 1 : 0)
 }

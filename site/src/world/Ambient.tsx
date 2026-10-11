@@ -1,35 +1,16 @@
-// Things that move: mission beacons, the neon skyline, vehicles, sheep, birds, smoke and glows.
+// Things that move: mission beacons, the neon skyline, vehicles, birds, smoke and glows (animals live in Animals.tsx).
 import { Suspense, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
 import { REGIONS } from './regions'
-import { heightAt, mulberry32 } from './terrain'
+import { heightAt } from './terrain'
+import { neonBlocks } from './layout'
 import { MISSIONS } from './missions'
 import { useModel } from './Models'
 import { useWorld } from './store'
 
 const region = (id: string) => REGIONS.find((r) => r.id === id)!
-
-/**
- * The neon skyline's building footprints, generated deterministically so both the renderer and the
- * player's collision code (Characters.tsx) agree on where the towers are.
- */
-export function neonBlocks(): { x: number; z: number; w: number; d: number; h: number }[] {
-  const r = region('neon')
-  const rnd = mulberry32(77)
-  const out: { x: number; z: number; w: number; d: number; h: number }[] = []
-  for (let i = 0; i < 46; i++) {
-    const a = rnd() * Math.PI * 2,
-      d = 14 + rnd() * 30
-    const x = r.center[0] + Math.cos(a) * d,
-      z = r.center[1] + Math.sin(a) * d
-    const near = (bx: number, bz: number) => Math.hypot(x - bx, z - bz)
-    if (near(r.center[0] - 14, r.center[1] + 10) < 7 || near(r.center[0] - 6, r.center[1] + 16) < 6) continue
-    out.push({ x, z, w: 4 + rnd() * 5, d: 4 + rnd() * 5, h: 8 + rnd() * 26 })
-  }
-  return out
-}
 
 /* ---------- Mission beacons ---------- */
 
@@ -220,30 +201,6 @@ function Tractor() {
   )
 }
 
-function Sheep({ seed }: { seed: number }) {
-  const r = region('highland')
-  const sheep = useModel('sheep', 1.1)
-  const ref = useRef<THREE.Group>(null)
-  const path = useMemo(() => {
-    const rnd = mulberry32(seed)
-    // Pasture on the far side of the distillery, away from the mission beacon.
-    return { cx: r.center[0] - 26 + rnd() * 14, cz: r.center[1] - 22 + rnd() * 12, rad: 2 + rnd() * 4, speed: 0.05 + rnd() * 0.08, phase: rnd() * 6 }
-  }, [seed, r])
-  useFrame(({ clock }) => {
-    const g = ref.current
-    if (!g) return
-    const t = clock.elapsedTime * path.speed + path.phase
-    const x = path.cx + Math.cos(t) * path.rad, z = path.cz + Math.sin(t) * path.rad
-    g.position.set(x, heightAt(x, z) + Math.abs(Math.sin(clock.elapsedTime * 6 + seed)) * 0.06, z)
-    g.rotation.y = -t - Math.PI
-  })
-  return (
-    <group ref={ref}>
-      <primitive object={sheep} />
-    </group>
-  )
-}
-
 /* ---------- Birds ---------- */
 
 function Birds({ center, count = 9, height = 38, radius = 30 }: { center: [number, number]; count?: number; height?: number; radius?: number }) {
@@ -364,11 +321,6 @@ export function Ambient() {
       <Suspense fallback={null}>
         <Tractor />
       </Suspense>
-      {[1, 2, 3, 4, 5, 6].map((s) => (
-        <Suspense key={s} fallback={null}>
-          <Sheep seed={s * 31} />
-        </Suspense>
-      ))}
     </>
   )
 }

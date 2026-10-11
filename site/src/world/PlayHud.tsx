@@ -1,10 +1,12 @@
 // DOM overlay for explore mode: mission log, objective compass, minimap, prompts, briefing, touch controls.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleCheck, Compass, Crosshair, Footprints, Map as MapIcon, X } from 'lucide-react'
+import { CircleCheck, Compass, Crosshair, Feather, Footprints, Map as MapIcon, Swords, X, Zap } from 'lucide-react'
 import { MISSIONS, type Mission } from './missions'
 import { ISLAND_RADIUS, REGIONS } from './regions'
 import { controls } from './controls'
 import { lastCast } from './spells'
+import { player } from './Characters'
+import { results, startFight, wavesFor } from './combat'
 import { world, useWorld } from './store'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
@@ -142,6 +144,7 @@ function Joystick() {
 function Briefing({ mission, onClose }: { mission: Mission; onClose: () => void }) {
   const done = useWorld((s) => s.done.includes(mission.tile.id))
   const t = mission.tile
+  const waves = wavesFor(MISSIONS.indexOf(mission))
   const exitTo = (to: string) => {
     world.complete(t.id)
     world.set({ open: null, playing: false })
@@ -192,16 +195,19 @@ function Briefing({ mission, onClose }: { mission: Mission; onClose: () => void 
             ))}
           </ul>
         )}
+        <p className="briefing-fight">
+          <Swords size={15} /> Clear {waves.length === 1 ? 'a wave' : `${waves.length} waves`} of {waves.reduce((a, b) => a + b, 0)} mischief-makers around the beacon to complete it.
+        </p>
         <div className="briefing-actions">
           <button
             className="btn btn-primary"
             onClick={() => {
-              world.complete(t.id)
               play('select')
               onClose()
+              startFight(mission)
             }}
           >
-            {done ? 'Mission complete ✓' : 'Complete mission'}
+            {done ? 'Replay mission ✓' : 'Start mission'}
           </button>
           {special && (
             <button className="btn btn-secondary" onClick={() => exitTo(special.to)}>
@@ -220,8 +226,20 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
   const open = useWorld((s) => s.open)
   const done = useWorld((s) => s.done)
   const touch = useMemo(() => matchMedia('(pointer: coarse)').matches, [])
+  const fightState = useWorld((s) => s.fight)
+  const flying = player.flying
 
-  // Show a brief toast naming the last spell cast at the creature.
+  // The victory banner shows for a few seconds after a mission is won.
+  const won = useWorld((s) => s.cheer)
+  const [seenWin, setSeenWin] = useState(won?.n ?? 0)
+  const cheer = won && won.n !== seenWin ? won : null
+  useEffect(() => {
+    if (!won) return
+    const id = window.setTimeout(() => setSeenWin(won.n), 3200)
+    return () => window.clearTimeout(id)
+  }, [won])
+
+  // Show a brief toast naming the last spell cast and the animal it hit.
   const [spellToast, setSpellToast] = useState<{ n: number; label: string } | null>(null)
   useEffect(() => {
     let seen = 0
@@ -229,7 +247,8 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
       const c = lastCast()
       if (c && c.n !== seen) {
         seen = c.n
-        setSpellToast({ n: c.n, label: `${c.spell.icon} ${c.spell.name}` })
+        // Zaps in a fight are too frequent for a toast.
+        if (c.spell.id !== 'zap') setSpellToast({ n: c.n, label: `${c.spell.icon} ${c.spell.name}${c.target ? ` → ${c.target}` : ' (no animal nearby)'}` })
       }
     }, 120)
     return () => window.clearInterval(id)
@@ -300,7 +319,35 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </ul>
       </section>
 
-      {nextMission && (
+      <div className="coin-pill" title="Coins from popped enemies and won missions">
+        <span className="coin" aria-hidden="true" />
+        {results.coins}
+      </div>
+
+      {fightState && (
+        <div className="fight-hud" role="status">
+          <span className="fight-title">
+            <Swords size={15} /> {fightState.name}
+          </span>
+          <span className="fight-wave">
+            Wave {fightState.wave}/{fightState.waves}
+          </span>
+          <span className="fight-bar">
+            <i style={{ width: `${(1 - fightState.left / Math.max(1, fightState.total)) * 100}%` }} />
+          </span>
+          <span className="fight-left">{fightState.left === 0 ? 'Wave cleared!' : `${fightState.left} left`}</span>
+        </div>
+      )}
+
+      {cheer && (
+        <div className="mission-cheer" key={cheer.n} role="status">
+          <span className="mission-cheer-stars">★ ★ ★</span>
+          <strong>Mission complete!</strong>
+          <span>{cheer.name}</span>
+        </div>
+      )}
+
+      {!fightState && nextMission && (
         <div className="objective">
           <Compass size={16} />
           <span className="objective-arrow" style={{ transform: `rotate(${arrow}rad)` }}>
@@ -311,7 +358,7 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
           </span>
         </div>
       )}
-      {!nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
+      {!fightState && !nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
 
       <div className="map-wrap">
         <Minimap target={nextMission} />
@@ -352,11 +399,31 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
             <button className="touch-btn" onPointerDown={() => (controls.jump = true)} aria-label="Jump">
               ⤒
             </button>
+            <button className="touch-btn" onPointerDown={() => (controls.fly = true)} aria-label="Fly or land">
+              <Feather size={20} />
+            </button>
+            {flying && (
+              <button
+                className="touch-btn"
+                onPointerDown={() => (controls.down = true)}
+                onPointerUp={() => (controls.down = false)}
+                onPointerCancel={() => (controls.down = false)}
+                aria-label="Fly down"
+              >
+                ⤓
+              </button>
+            )}
+            <button className="touch-btn touch-btn-strong" onPointerDown={() => (controls.attack = true)} aria-label="Attack">
+              <Swords size={20} />
+            </button>
+            <button className="touch-btn" onPointerDown={() => (controls.cast = true)} aria-label="Zap or cast a spell">
+              <Zap size={20} />
+            </button>
           </div>
         </>
       ) : (
         <p className="play-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump · drag to look · <kbd>E</kbd> interact · click / <kbd>F</kbd> cast spell · <kbd>⌘K</kbd> back to site
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump, double-tap to fly ({flying ? <><kbd>Space</kbd>/<kbd>C</kbd> up/down</> : <><kbd>X</kbd> too</>}) · click / <kbd>J</kbd> attack · <kbd>Q</kbd> spin · <kbd>F</kbd> zap / spell · <kbd>E</kbd> interact · <kbd>⌘K</kbd> exit
         </p>
       )}
 

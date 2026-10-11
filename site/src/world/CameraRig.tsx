@@ -7,6 +7,7 @@ import { lookTarget } from './Environment'
 import { controls } from './controls'
 import { player } from './Characters'
 import { world } from './store'
+import { feel } from './combat'
 
 // `?snap` jumps the camera instantly (handy for screenshots and slow machines).
 const SNAP = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('snap')
@@ -23,7 +24,7 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
   const { camera, size } = useThree()
   const state = useRef({ angle: 0.6, target: new THREE.Vector3(0, 20, 0), pos: new THREE.Vector3(0, 180, 320), init: false, lookIdle: 0 })
 
-  useFrame((_, rawDt) => {
+  useFrame((frame, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const s = state.current
 
@@ -47,7 +48,8 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
         player.camYaw += d * rate
         player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 2))
       }
-      const dist = 7.5
+      // Pull back a little (and widen the lens) as flight speeds up.
+      const dist = 7.5 + player.fly * 3.5
       tmpTarget.set(player.pos.x, player.pos.y + 1.6, player.pos.z)
       tmpPos.set(
         tmpTarget.x + Math.sin(player.camYaw) * Math.cos(player.camPitch) * dist,
@@ -60,12 +62,31 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       s.target.lerp(tmpTarget, k)
       s.pos.lerp(tmpPos, k)
       camera.position.copy(s.pos)
+      // Screen shake from hits and stomps (see combat.ts), decaying quickly.
+      if (feel.shake > 0.001) {
+        const a = feel.shake * 0.35
+        camera.position.x += (Math.random() - 0.5) * a
+        camera.position.y += (Math.random() - 0.5) * a
+        camera.position.z += (Math.random() - 0.5) * a
+        feel.shake = Math.max(0, feel.shake - dt * 2.4)
+      }
+      const persp = frame.camera as THREE.PerspectiveCamera
+      const fov = 48 + player.fly * 14
+      if (Math.abs(persp.fov - fov) > 0.05) {
+        persp.fov += (fov - persp.fov) * Math.min(1, dt * 3)
+        persp.updateProjectionMatrix()
+      }
       camera.lookAt(s.target)
       lookTarget.copy(s.target)
       return
     }
 
-    // Cinematic orbit.
+    // Cinematic orbit (back to the normal lens if we just left a flight).
+    const lens = frame.camera as THREE.PerspectiveCamera
+    if (lens.fov !== 48) {
+      lens.fov = 48
+      lens.updateProjectionMatrix()
+    }
     const focus = world.get().focus
     let radius: number, height: number, cx: number, cz: number, cy: number
     if (mode === 'boot') {
