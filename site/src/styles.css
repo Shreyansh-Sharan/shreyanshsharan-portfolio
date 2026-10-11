@@ -3308,3 +3308,19 @@ p {
     display: none;
   }
 }
+
+/* Low-poly avatar move buttons */
+.lp-moves {
+  margin-top: 12px;
+}
+
+.lp-move {
+  cursor: pointer;
+  font: inherit;
+}
+
+.lp-move.is-active {
+  border-color: var(--accent, #a78bfa);
+  color: var(--text);
+  background: rgba(167, 139, 250, 0.16);
+}
