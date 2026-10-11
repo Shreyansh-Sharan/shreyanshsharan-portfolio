@@ -2918,3 +2918,101 @@ p {
   object-fit: cover;
   display: block;
 }
+
+/* ---------- Embedded site (iframe) ---------- */
+.embed {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: #0a0c1a;
+  animation: fade-in 0.35s var(--ease);
+}
+
+.embed-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 var(--gutter);
+  background: rgba(10, 12, 26, 0.86);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.embed-back {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+.embed-title {
+  flex: 1 1 auto;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.embed-open {
+  flex: 0 0 auto;
+}
+
+.embed-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.embed-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  background: #0a0c1a;
+}
+
+.embed-frame.is-loaded {
+  opacity: 1;
+}
+
+.embed-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.embed-loading .btn {
+  pointer-events: auto;
+}
+
+.embed-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--focus);
+  animation: embed-spin 0.9s linear infinite;
+}
+
+@keyframes embed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .embed-title {
+    display: none;
+  }
+}

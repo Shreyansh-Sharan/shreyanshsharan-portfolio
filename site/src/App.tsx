@@ -10,6 +10,7 @@ import { GameHub } from './components/GameHub'
 import { Trophies } from './components/Trophies'
 import { Skills } from './components/Skills'
 import { Profile } from './components/Profile'
+import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
 import { world, useWorld } from './world/store'
@@ -129,6 +130,9 @@ export default function App() {
       break
     case 'profile':
       screen = <Profile onAccent={setAccent} />
+      break
+    case 'embed':
+      screen = <Embed id={route.id} onAccent={setAccent} />
       break
     case 'resume':
       screen = <QuickView onAccent={setAccent} />

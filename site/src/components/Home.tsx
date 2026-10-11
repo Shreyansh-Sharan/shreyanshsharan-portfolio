@@ -12,9 +12,12 @@ type Tab = Tile['tab']
 type Zone = 'tabs' | 'tiles' | 'actions' | 'cards'
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'profile', label: 'Profile' },
   { id: 'career', label: 'Career' },
   { id: 'extras', label: 'Extras' },
 ]
+
+const TAB_IDS = TABS.map((t) => t.id)
 
 function previewCards(tile: Tile): Activity[] {
   switch (tile.id) {
@@ -62,11 +65,11 @@ function useClock() {
   return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Tiles shown under a tab. Shared tiles (the profile) lead the Career tab and keep their place in Extras. */
+/** Tiles shown under a tab: the tab's own tiles, plus any tile that opts in via `alsoIn`. */
 function tilesFor(tab: Tab) {
   const own = tiles.filter((t) => t.tab === tab)
   const shared = tiles.filter((t) => t.alsoIn === tab)
-  return tab === 'career' ? [...shared, ...own] : [...own, ...shared]
+  return [...own, ...shared]
 }
 
 export function Home({
@@ -80,10 +83,9 @@ export function Home({
 }) {
   const start = tiles.find((t) => t.id === initialTile) ?? tiles[0]
   const [tab, setTab] = useState<Tab>(start.tab)
-  const [indexByTab, setIndexByTab] = useState<Record<Tab, number>>(() => ({
-    career: start.tab === 'career' ? tilesFor('career').indexOf(start) : 0,
-    extras: start.tab === 'extras' ? tilesFor('extras').indexOf(start) : 0,
-  }))
+  const [indexByTab, setIndexByTab] = useState<Record<Tab, number>>(() =>
+    Object.fromEntries(TABS.map((t) => [t.id, t.id === start.tab ? Math.max(0, tilesFor(t.id).indexOf(start)) : 0])) as Record<Tab, number>,
+  )
   const [zone, setZone] = useState<Zone>('tiles')
   const [actionIdx, setActionIdx] = useState(0)
   const [cardIdx, setCardIdx] = useState(0)
@@ -137,6 +139,13 @@ export function Home({
     setActionIdx(0)
   }
 
+  // Step to the neighbouring tab (clamped at the ends).
+  const stepTab = (dir: 1 | -1) => {
+    const i = TAB_IDS.indexOf(tab)
+    const next = TAB_IDS[Math.max(0, Math.min(TAB_IDS.length - 1, i + dir))]
+    switchTab(next)
+  }
+
   const runPrimary = (t: Tile = tile) => {
     const a = t.action
     switch (a.kind) {
@@ -146,6 +155,10 @@ export function Home({
       case 'route':
         play('select')
         navigate(a.to)
+        break
+      case 'iframe':
+        play('select')
+        navigate(`#/embed/${t.id}`)
         break
       case 'download':
         actionRefs.current[0]?.click()
@@ -180,7 +193,7 @@ export function Home({
 
   useActions((action: Action) => {
     if (action === 'prevTab' || action === 'nextTab') {
-      switchTab(action === 'nextTab' ? 'extras' : 'career')
+      stepTab(action === 'nextTab' ? 1 : -1)
       return true
     }
     const horizontal = action === 'left' || action === 'right'
@@ -188,7 +201,7 @@ export function Home({
 
     switch (zone) {
       case 'tabs':
-        if (horizontal) switchTab(dir === 1 ? 'extras' : 'career')
+        if (horizontal) stepTab(dir)
         else if (action === 'down' || action === 'confirm') setZone('tiles')
         else if (action === 'back') setZone('tiles')
         else return false
@@ -364,7 +377,7 @@ export function Home({
 
       {cards.length > 0 && (
         <section className="cards" aria-label="Highlights">
-          <h2 className="cards-title">{tile.tab === 'career' ? 'Activities' : 'Preview'}</h2>
+          <h2 className="cards-title">{tile.tab === 'career' && tile.id !== 'profile' ? 'Activities' : 'Preview'}</h2>
           <div className="card-row">
             {cards.map((c, i) => (
               <button

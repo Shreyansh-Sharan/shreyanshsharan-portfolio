@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { Box, Download, FileText, Link as LinkIcon, Mail, MapPin, Video } from 'lucide-react'
+import { Download, FileText, Gamepad2, Link as LinkIcon, Mail, MapPin, User } from 'lucide-react'
 import { profile, tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { Page } from './Page'
@@ -16,29 +16,41 @@ function canRender3D() {
   }
 }
 
-/** The Higgsfield-generated avatar (interactive 3D) and intro clip. */
+/** The interactive 3D avatar: your Higgsfield-generated likeness, or a free game character to switch to. */
 function ProfileMedia() {
-  const [view, setView] = useState<'3d' | 'video'>(() => (canRender3D() ? '3d' : 'video'))
+  const [who, setWho] = useState<'me' | 'game'>('me')
+  const has3D = canRender3D()
+
+  if (!has3D) {
+    return (
+      <section className="profile-media">
+        <div className="profile-stage">
+          <img className="profile-poster" src={`${base}profile/poster.jpg`} alt={profile.name} />
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="profile-media">
       <div className="seg seg-sm" role="tablist" aria-label="Avatar view">
-        <button role="tab" aria-selected={view === '3d'} className={`seg-btn ${view === '3d' ? 'is-active' : ''}`} onClick={() => setView('3d')}>
-          <Box size={14} /> 3D avatar
+        <button role="tab" aria-selected={who === 'me'} className={`seg-btn ${who === 'me' ? 'is-active' : ''}`} onClick={() => setWho('me')}>
+          <User size={14} /> My avatar
         </button>
-        <button role="tab" aria-selected={view === 'video'} className={`seg-btn ${view === 'video' ? 'is-active' : ''}`} onClick={() => setView('video')}>
-          <Video size={14} /> Intro video
+        <button role="tab" aria-selected={who === 'game'} className={`seg-btn ${who === 'game' ? 'is-active' : ''}`} onClick={() => setWho('game')}>
+          <Gamepad2 size={14} /> Game character
         </button>
       </div>
       <div className="profile-stage">
-        {view === '3d' ? (
-          <Suspense fallback={<img className="profile-poster" src={`${base}profile/poster.jpg`} alt="" />}>
-            <ProfileAvatar />
-          </Suspense>
-        ) : (
-          <video className="profile-video" src={`${base}profile/intro.mp4`} poster={`${base}profile/poster.jpg`} autoPlay muted loop playsInline />
-        )}
+        <Suspense fallback={<img className="profile-poster" src={`${base}profile/poster.jpg`} alt="" />}>
+          <ProfileAvatar variant={who} />
+        </Suspense>
       </div>
-      <p className="muted small">3D model, intro clip and textures generated with Higgsfield from a photo.</p>
+      <p className="muted small">
+        {who === 'me'
+          ? '3D model and textures generated with Higgsfield from a photo.'
+          : 'Game character: “Fox” by tomkranis / Asobo Studio (CC-BY 4.0), via the Khronos glTF sample assets.'}
+      </p>
     </section>
   )
 }

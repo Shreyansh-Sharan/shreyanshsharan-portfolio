@@ -1,12 +1,13 @@
 // The Higgsfield-generated 3D avatar on the profile page: orbit to look around, click to wave.
 // The model is generated without glasses (thin frames reconstruct badly and smear the eyes), so the frames are
 // modelled here and attached to the head bone.
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { ContactShadows, Environment, Lightformer, OrbitControls, useAnimations, useGLTF } from '@react-three/drei'
+import { ContactShadows, Environment, Lightformer, OrbitControls, Stage, useAnimations, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
 const URL = `${import.meta.env.BASE_URL}profile/avatar.glb`
+const GAME_URL = `${import.meta.env.BASE_URL}profile/game-character.glb`
 
 /** Glasses in model space at the bind pose, in metres (measured on the generated model: eye line ~1.655 m). */
 const GLASSES = { center: [0, 1.655, 0.126] as const, width: 0.146, lensW: 0.053, lensH: 0.036, rim: 0.0045, temple: 0.12 }
@@ -123,39 +124,115 @@ function Avatar({ waveKey }: { waveKey: number }) {
   )
 }
 
-export default function ProfileAvatar() {
-  const [waveKey, setWaveKey] = useState(0)
+/**
+ * A free rigged "game character" (the Khronos Fox, CC-BY 4.0 by tomkranis / Asobo Studio).
+ * Normalised to a comfortable size, rested on the ground, with its built-in animations cycling.
+ */
+function GameCharacter() {
+  const gltf = useGLTF(GAME_URL, false, true)
+  const group = useRef<THREE.Group>(null)
+  const model = useMemo(() => {
+    const root = gltf.scene.clone(true)
+    root.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (m.isMesh) {
+        m.castShadow = true
+        m.receiveShadow = true
+        m.frustumCulled = false
+      }
+    })
+    // Turn it to a three-quarter view so it reads as a character, not a silhouette.
+    // <Stage> centres, grounds and frames it, so no manual scaling here.
+    const wrap = new THREE.Group()
+    wrap.add(root)
+    wrap.rotation.y = Math.PI * 0.75
+    return wrap
+  }, [gltf])
+  const { actions, names } = useAnimations(gltf.animations, group)
+  const [clip, setClip] = useState(0)
+
+  useEffect(() => {
+    const name = names[clip % names.length]
+    const a = name ? actions[name] : undefined
+    a?.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.3).play()
+    return () => {
+      a?.fadeOut(0.3)
+    }
+  }, [actions, names, clip])
+
   return (
-    <div className="profile-3d" onClick={() => setWaveKey((k) => k + 1)}>
-      <Canvas shadows dpr={[1, 1.75]} camera={{ position: [0, 1.35, 3.1], fov: 32 }} gl={{ antialias: true }}>
-        <color attach="background" args={['#0d1222']} />
-        <hemisphereLight args={['#dbe6ff', '#2a2233', 0.7]} />
-        <directionalLight position={[2.5, 4, 3]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} />
-        <directionalLight position={[-3, 2, -2]} intensity={1.1} color="#a5b4fc" />
+    <group ref={group} onClick={() => setClip((c) => c + 1)}>
+      <primitive object={model} />
+    </group>
+  )
+}
+
+function Studio({ children, target, autoRotate = true }: { children: ReactNode; target: [number, number, number]; autoRotate?: boolean }) {
+  return (
+    <>
+      {/* Accent-tinted key + rim lighting with a soft hemisphere fill. */}
+      <hemisphereLight args={['#dbe6ff', '#211b2e', 0.75]} />
+      <directionalLight position={[2.5, 4, 3]} intensity={2.3} castShadow shadow-mapSize={[1024, 1024]} />
+      <directionalLight position={[-3, 2.4, -2]} intensity={1.3} color="#a5b4fc" />
+      <spotLight position={[0, 3.4, 2.4]} angle={0.6} penumbra={0.9} intensity={1.4} color="#fbcfe8" />
+      {/* Studio reflections built in code, so nothing is fetched from a CDN. */}
+      <Environment resolution={64} environmentIntensity={0.55}>
+        <Lightformer form="rect" intensity={3} position={[0, 3, 3]} scale={[4, 2, 1]} />
+        <Lightformer form="rect" intensity={1.6} position={[-4, 1, 0]} rotation-y={Math.PI / 2} scale={[3, 3, 1]} color="#c7d2fe" />
+        <Lightformer form="rect" intensity={1.6} position={[4, 1, 0]} rotation-y={-Math.PI / 2} scale={[3, 3, 1]} color="#fbcfe8" />
+      </Environment>
+      <ContactShadows position={[0, 0, 0]} opacity={0.55} scale={4.5} blur={2.6} far={2.2} />
+      {children}
+      <OrbitControls
+        target={target}
+        enablePan={false}
+        minDistance={1.4}
+        maxDistance={6}
+        minPolarAngle={0.4}
+        maxPolarAngle={1.75}
+        autoRotate={autoRotate && !SNAP}
+        autoRotateSpeed={0.6}
+      />
+    </>
+  )
+}
+
+export default function ProfileAvatar({ variant = 'me' }: { variant?: 'me' | 'game' }) {
+  const [waveKey, setWaveKey] = useState(0)
+  const isGame = variant === 'game'
+  return (
+    <div className="profile-3d" onClick={() => !isGame && setWaveKey((k) => k + 1)}>
+      <Canvas
+        shadows
+        dpr={[1, 1.75]}
+        camera={isGame ? { position: [0.4, 1.4, 4.6], fov: 38 } : { position: [0, 1.35, 3.1], fov: 32 }}
+        gl={{ antialias: true }}
+      >
+        {/* A subtle accent gradient backdrop instead of a flat void. */}
+        <color attach="background" args={[isGame ? '#101827' : '#0d1222']} />
+        {!isGame && <fog attach="fog" args={['#0d1222', 6, 12]} />}
         <Suspense fallback={null}>
-          <Avatar waveKey={waveKey} />
+          {isGame ? (
+            <>
+              {/* Stage auto-centres, grounds, frames and lights the model. */}
+              <Stage intensity={0.6} environment={null} preset="rembrandt" shadows={{ type: 'contact', opacity: 0.5, blur: 2.6 }} adjustCamera={1.1}>
+                <GameCharacter />
+              </Stage>
+              <OrbitControls makeDefault enablePan={false} minPolarAngle={0.3} maxPolarAngle={1.75} autoRotate={!SNAP} autoRotateSpeed={0.7} />
+            </>
+          ) : (
+            <Studio target={[0, 1.02, 0]}>
+              <Avatar waveKey={waveKey} />
+            </Studio>
+          )}
         </Suspense>
-        {/* Studio reflections built in code, so nothing is fetched from a CDN. */}
-        <Environment resolution={64} environmentIntensity={0.5}>
-          <Lightformer form="rect" intensity={3} position={[0, 3, 3]} scale={[4, 2, 1]} />
-          <Lightformer form="rect" intensity={1.5} position={[-4, 1, 0]} rotation-y={Math.PI / 2} scale={[3, 3, 1]} color="#c7d2fe" />
-          <Lightformer form="rect" intensity={1.5} position={[4, 1, 0]} rotation-y={-Math.PI / 2} scale={[3, 3, 1]} color="#fbcfe8" />
-        </Environment>
-        <ContactShadows position={[0, 0, 0]} opacity={0.5} scale={4} blur={2.4} far={2} />
-        <OrbitControls
-          target={[0, 1.02, 0]}
-          enablePan={false}
-          minDistance={1.4}
-          maxDistance={4.5}
-          minPolarAngle={0.5}
-          maxPolarAngle={1.75}
-          autoRotate={!SNAP}
-          autoRotateSpeed={0.6}
-        />
       </Canvas>
-      <span className="profile-3d-hint">Drag to look around · click to wave</span>
+      <span className="profile-3d-hint">
+        {isGame ? 'Drag to orbit · click to change pose' : 'Drag to look around · click to wave'}
+      </span>
     </div>
   )
 }
 
 useGLTF.preload(URL, false, true)
+useGLTF.preload(GAME_URL, false, true)
