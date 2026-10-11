@@ -572,7 +572,7 @@ export const tiles: Tile[] = [
     period: 'Play now',
     genre: 'Sports · Party',
     blurb:
-      'Everyone tees off at once on a par-4 lakeside hole. First ball in the cup scores the most, but clubs, rockets, pistols and an electromagnet shield mean nobody gets a quiet putt. Three AI rivals.',
+      'Everyone tees off at once on four holes, from a lakeside par 4 to a desert canyon, a frozen fjord and a volcano island at night. First ball in the cup scores the most, but golf carts, rockets, orbital lasers, tornadoes and banana peels mean nobody gets a quiet putt.',
     icon: Flag,
     accent: ['#14532d', '#bef264'],
     action: { kind: 'route', to: '#/golf', label: 'Tee off' },

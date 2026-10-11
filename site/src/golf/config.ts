@@ -57,9 +57,23 @@ export const CONFIG = {
   airhorn_stun: 0.8, // s
   airhorn_knockback: 7, // m at point blank, fading with distance
   airhorn_ball_speed: 9, // m/s given to a loose ball at point blank (times the overshoot multiplier)
+  laser_track_speed: 4.5, // m/s the targeting beam drifts after its mark (you can outrun it)
+  laser_knockback: 10, // m
   cart_speed: 16, // m/s
-  cart_seats: 8, // src
+  cart_seats: 2, // driver + one passenger (src: 8)
   cart_ram_stun: 2.5, // s
+  cart_ram_min_speed: 4.5, // m/s: slower than this and the cart just nudges people
+  cart_ram_knockback: 14, // m at full speed, scaled by speed
+  cart_ball_mult: 1.5, // x cart speed given to a ball the cart drives into
+  cart_accel: 9, // m/s²
+  cart_brake: 20, // m/s²
+  cart_reverse_speed: 6, // m/s
+  cart_turn_rate: 2.3, // rad/s at speed
+  cart_grip: 9, // lateral grip (1/s); the handbrake drops it for drifts
+  cart_gravity: 20, // m/s² when airborne off a ramp
+  cart_enter_range: 3.4, // m
+  cart_idle_life: 25, // s an empty summoned cart stays before it vanishes
+  cart_sink_time: 3, // s before a sunk parked cart is back at its spot
   coffee_duration: 10, // s, src
   coffee_speed_mult: 1.4, // x
   springboots_distance: 40, // m
@@ -74,6 +88,35 @@ export const CONFIG = {
   freeze_throw: 14, // m ahead the bomb lands
   freeze_fuse: 0.7, // s in the air
   wind_max: 6, // m/s, snow biome
+  wind_ball_accel: 0.35, // 1/s: how hard the wind pushes a ball in the air (per m/s of wind)
+  tornado_life: 11, // s
+  tornado_speed: 4.5, // m/s
+  tornado_radius: 3.2, // m: caught in the funnel
+  tornado_pull_radius: 14, // m: dragged towards it
+  tornado_pull: 2.6, // m/s
+  tornado_stun: 2.5, // s
+  tornado_fling: 12, // m
+  tornado_lift: 13, // m/s upward
+  banana_stun: 1.8, // s
+  banana_radius: 0.9, // m
+  banana_lifetime: 90, // s
+  banana_slide: 6, // m
+  banana_charges: 2,
+  meteor_delay: 1.8, // s of warning before impact
+  meteor_radius: 6, // m
+  meteor_stun: 3, // s
+  meteor_knockback: 11, // m
+  meteor_spread: 4, // m around the target
+  bouncy_restitution: 0.82,
+  bouncy_skips: 3, // times a bouncy ball can skip off water
+  swap_min_gain: 5, // m of progress the swap has to win you
+  chaos_first: 22, // s into the hole
+  chaos_interval: 30, // s between events (±4)
+  chaos_duration: 12, // s
+  chaos_wind: 12, // m/s gust
+  chaos_gravity: 0.38, // x gravity during low gravity
+  chaos_meteors: 7,
+  chaos_loot: 5,
   friction_fairway: 1.0, // m/s²
   friction_rough: 2.5, // m/s²
   friction_sand: 6.0, // m/s²
@@ -110,11 +153,15 @@ export const CONFIG = {
   rocket_lifetime: 7, // s
   rocket_lock_range: 80, // m
   shield_block_radius: 1.4, // m: bubble radius
-  briefcases_per_hole: 8,
+  briefcases_per_hole: 12,
   item_weights: {
-    rocket: 14, pistol: 12, landmine: 12, airhorn: 10, coffee: 10, springboots: 10, cart: 8, elephant: 8, shield: 8, freeze: 4, driver: 2, laser: 2,
+    rocket: 12, pistol: 10, landmine: 9, airhorn: 8, coffee: 8, springboots: 8, cart: 7, elephant: 7, shield: 8, freeze: 5, driver: 5, laser: 4,
+    tornado: 6, swap: 4, banana: 9, bouncy: 6, meteor: 5,
   } as Record<string, number>,
-  enabled_items: ['rocket', 'pistol', 'shield', 'landmine', 'airhorn', 'coffee', 'freeze', 'springboots', 'elephant'] as string[], // laser, cart and driver are still stubbed
+  enabled_items: [
+    'rocket', 'pistol', 'shield', 'landmine', 'airhorn', 'coffee', 'freeze', 'springboots', 'elephant', 'laser', 'cart', 'driver',
+    'tornado', 'swap', 'banana', 'bouncy', 'meteor',
+  ] as string[],
   ai_skill: [0.35, 0.55, 0.75], // Easy / Normal / Hard
   ai_shot_samples: 16,
   ai_sim_seconds: 10,
@@ -124,6 +171,10 @@ export const CONFIG = {
   ai_briefcase_detour: 15, // m
   ai_rocket_range: 40, // m
   ai_pistol_range: 20, // m
+  ai_cart_distance: 60, // m: further than this from the ball, a bot looks for a cart
+  ai_cart_search: 35, // m: how far a bot walks to a parked cart
+  ai_cart_exit: 9, // m from the ball where a bot gets out
+  ai_chase_time: 7, // s a Griefer spends chasing someone with a cart
   results_time: 5, // s before the next hole
 } as const
 

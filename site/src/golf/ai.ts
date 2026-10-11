@@ -35,12 +35,15 @@ export function chooseShot(game: Game, g: Golfer) {
   const cup = c.cup
   const onGreen = game.ground.surface(start.x, start.z) === 'green'
   const err = 1 - g.skill
+  // Armed items change the shot: the Rocket Driver doubles the power, the Bouncy Ball bounces.
+  const scale = g.driverArmed && !onGreen ? CONFIG.rocket_driver_power / 100 : 1
+  const bouncy = g.bouncyArmed
   if (onGreen) {
     // Putt: aim at the cup and search for the power that stops closest to it.
     const dir = Math.atan2(cup.x - start.x, cup.z - start.z)
     let best = { power: 0.3, d: Infinity }
     for (let p = 0.06; p <= 1; p += 0.04) {
-      const r = simulateShot(start, launch(dir, p, 0, true), 6, game.ground, c)
+      const r = simulateShot(start, launch(dir, p, 0, true), 6, game.ground, c, bouncy)
       const d = r.mode === 'holed' ? 0 : r.pos.distanceTo(cup)
       if (d < best.d) best = { power: p, d }
     }
@@ -61,7 +64,7 @@ export function chooseShot(game: Game, g: Golfer) {
     const toCup = start.distanceTo(cup)
     const power = toCup < 60 ? rand(0.12, 0.6) : rand(0.4, 1)
     const loft = deg(rand(18, 50))
-    const r = simulateShot(start, launch(dir, power, loft, false), CONFIG.ai_sim_seconds, game.ground, c)
+    const r = simulateShot(start, launch(dir, power, loft, false, scale), CONFIG.ai_sim_seconds, game.ground, c, bouncy)
     // Remaining route length, but never less than the straight line to the cup (so overshooting the green costs).
     let score = Math.max(c.length - c.progress(r.pos.x, r.pos.z), r.pos.distanceTo(cup))
     if (r.mode === 'air') score += 100 // still flying when the sim ran out: unknown landing
@@ -84,12 +87,85 @@ export function chooseShot(game: Game, g: Golfer) {
   }
 }
 
+/** Driving a cart: towards the ball (round the lake), or, for a Griefer, into a rival. */
+function aiDrive(game: Game, g: Golfer, dt: number): MoveInput | null {
+  const cart = g.cart!
+  const ai = g.ai
+  if (cart.driver !== g) {
+    // A bot never rides shotgun for long.
+    game.toggleCart(g)
+    return null
+  }
+  const toBall = g.ball.pos.distanceTo(cart.pos)
+  ai.driveT += dt
+  // Griefers go hunting: the nearest rival on foot, for a few seconds at a time.
+  const grace = game.phase === 'play' && game.phaseTime < CONFIG.ai_melee_grace
+  if (g.personality === 'Griefer' && !grace) {
+    ai.chaseT -= dt
+    if (!ai.chase && ai.chaseT <= -4) {
+      const prey = game.golfers.find((o) => o !== g && o.canAct && !o.cart && o.pos.distanceTo(cart.pos) < 45 && o.protect <= 0)
+      if (prey) {
+        ai.chase = prey
+        ai.chaseT = CONFIG.ai_chase_time
+      }
+    }
+    if (ai.chase && (ai.chaseT <= 0 || !ai.chase.canAct || ai.chase.cart || ai.chase.protect > 0)) {
+      ai.chase = null
+      ai.chaseT = 0
+    }
+  }
+  const chasing = ai.chase
+  // Close enough to the ball: hop out and play.
+  if (!chasing && (toBall < CONFIG.ai_cart_exit || g.ball.mode === 'holed' || ai.driveT > 45)) {
+    game.toggleCart(g)
+    ai.driveT = 0
+    return null
+  }
+  const target = chasing ? chasing.pos : g.ball.pos
+  const wp = waypoint(game, cart.pos, target)
+  const want = Math.atan2(wp.x - cart.pos.x, wp.z - cart.pos.z)
+  let diff = want - cart.yaw
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff))
+  // Steering right (+x) turns the nose clockwise (yaw down).
+  let steer = THREE.MathUtils.clamp(-diff * 2.2, -1, 1)
+  const dist = wp.distanceTo(cart.pos)
+  let throttle = Math.abs(diff) > 1.7 ? 0.35 : chasing ? 1 : dist < 14 ? 0.55 : 1
+  // Water dead ahead: brake and turn.
+  const ax = cart.pos.x + Math.sin(cart.yaw) * 9, az = cart.pos.z + Math.cos(cart.yaw) * 9
+  if (game.ground.y(ax, az) < 0.4 && cart.speed > 3) {
+    throttle = -0.6
+    steer = steer || 1
+  }
+  // Stuck on a tree or a wall: back up, turning the other way.
+  if (ai.reverse > 0) {
+    ai.reverse -= dt
+    return { x: -steer, y: -1, yaw: cart.yaw, jump: false, dive: false, creep: false }
+  }
+  if (throttle > 0 && cart.speed < 1.2) ai.stuck += dt
+  else ai.stuck = Math.max(0, ai.stuck - dt * 2)
+  if (ai.stuck > 1.2) {
+    ai.stuck = 0
+    ai.reverse = 0.9 + Math.random() * 0.6
+    ai.avoid++
+    if (ai.avoid > 5) {
+      // Hopeless: walk instead.
+      ai.avoid = 0
+      game.toggleCart(g)
+      ai.cartT = 12
+      return null
+    }
+  }
+  if (chasing && chasing.pos.distanceTo(cart.pos) < 12 && Math.random() < dt * 1.5) game.honk(g)
+  return { x: steer, y: throttle, yaw: cart.yaw, jump: false, dive: false, creep: false, brake: Math.abs(diff) > 1.2 && cart.speed > 9 }
+}
+
 /** One AI tick: returns movement for the controller, and triggers swings and items through the game. */
 export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
   if (!g.canAct || game.phase === 'intro' || game.phase === 'results') return null
   const ai = g.ai
   ai.itemT -= dt
   ai.meleeT -= dt
+  ai.cartT -= dt
   const rivals = game.golfers.filter((o) => o !== g && o.canAct)
   const near = (r: number) => rivals.filter((o) => o.pos.distanceTo(g.pos) < r)
 
@@ -126,9 +202,24 @@ export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
       const t = rivals.find((o) => Math.abs(o.pos.distanceTo(g.pos) - CONFIG.freeze_throw) < CONFIG.freeze_radius && (o.charging > 0 || Math.random() < 0.3))
       if (t) game.selectAndUse(g, 'freeze', t)
     } else if (has('landmine') && (near(14).length > 0 || Math.random() < 0.05)) game.selectAndUse(g, 'landmine')
+    // The new chaos: lasers and meteors on the leader, twisters and peels near rivals, swaps from behind.
+    const ballAtRest = g.ball.mode === 'rest' && game.ground.surface(g.ball.pos.x, g.ball.pos.z) !== 'green'
+    const toCup = g.ball.pos.distanceTo(game.course.cup)
+    if (has('laser') && leader && (leader.pos.distanceTo(g.pos) > 12 || Math.random() < 0.3)) game.selectAndUse(g, 'laser', leader)
+    else if (has('meteor') && leader && leader.pos.distanceTo(g.pos) > CONFIG.meteor_radius + 4) game.selectAndUse(g, 'meteor', leader)
+    else if (has('tornado')) {
+      const t = rivals.find((o) => o.pos.distanceTo(g.pos) < 22)
+      if (t) game.selectAndUse(g, 'tornado', t)
+    } else if (has('swap') && game.swapTarget(g)) {
+      const o = game.swapTarget(g)!
+      if (game.course.progress(o.ball.pos.x, o.ball.pos.z) - game.course.progress(g.ball.pos.x, g.ball.pos.z) > 40) game.selectAndUse(g, 'swap')
+    } else if (has('banana') && (near(16).length > 0 || Math.random() < 0.06)) game.selectAndUse(g, 'banana')
+    if (has('driver') && !g.driverArmed && ballAtRest && toCup > 160) game.selectAndUse(g, 'driver')
+    if (has('bouncy') && !g.bouncyArmed && ballAtRest && toCup > 70 && Math.random() < 0.4) game.selectAndUse(g, 'bouncy')
+    if (has('cart') && !g.cart && toBallNow > CONFIG.ai_cart_distance) game.selectAndUse(g, 'cart')
     // Getting around: coffee for a long walk, boots for a long safe leap towards the ball.
-    if (has('coffee') && toBallNow > 35 && g.boost <= 0) game.selectAndUse(g, 'coffee')
-    if (has('springboots') && toBallNow > CONFIG.springboots_distance + 10 && g.canAct) {
+    if (has('coffee') && toBallNow > 35 && g.boost <= 0 && !g.cart) game.selectAndUse(g, 'coffee')
+    if (has('springboots') && toBallNow > CONFIG.springboots_distance + 10 && g.canAct && !g.cart) {
       const yaw = Math.atan2(g.ball.pos.x - g.pos.x, g.ball.pos.z - g.pos.z)
       const lx = g.pos.x + Math.sin(yaw) * CONFIG.springboots_distance, lz = g.pos.z + Math.cos(yaw) * CONFIG.springboots_distance
       if (game.ground.y(lx, lz) > 0.4 && game.ground.inBounds(lx, lz)) {
@@ -138,6 +229,7 @@ export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
     }
   }
 
+  if (g.cart) return aiDrive(game, g, dt)
   const toBall = g.ball.pos.distanceTo(g.pos)
   const aboutToPutt = toBall < CONFIG.swing_reach + 1 && game.ground.surface(g.ball.pos.x, g.ball.pos.z) === 'green'
   // Melee anyone in reach (unless lining up a putt).
@@ -174,6 +266,31 @@ export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
   if (g.charging > 0) return null
   ai.plan = null
 
+  // A long way from the ball: borrow a parked cart (Griefers always fancy one).
+  if (ai.cartId < 0 && ai.cartT <= 0 && toBall > CONFIG.ai_cart_distance) {
+    ai.cartT = 4
+    if (g.personality === 'Griefer' || Math.random() < 0.55) {
+      const c = game.cartNear(g.pos, CONFIG.ai_cart_search, true)
+      // Only if the cart is roughly on the way.
+      if (c && c.pos.distanceTo(g.ball.pos) < toBall + 10) ai.cartId = c.id
+    }
+  }
+  if (ai.cartId >= 0) {
+    const c = game.cartById(ai.cartId)
+    if (!c || c.driver || c.sunk > 0 || toBall < 30) ai.cartId = -1
+    else {
+      const d = c.pos.distanceTo(g.pos)
+      if (d < CONFIG.cart_enter_range - 0.4) {
+        ai.cartId = -1
+        game.toggleCart(g)
+        ai.driveT = 0
+        return null
+      }
+      const yaw = Math.atan2(c.pos.x - g.pos.x, c.pos.z - g.pos.z)
+      return { x: 0, y: 1, yaw: yaw + avoidTrees(game, g, yaw), jump: false, dive: false, creep: false }
+    }
+  }
+
   // Walk to the ball, detouring for a briefcase near the path.
   let target = g.ball.pos.clone()
   if (g.inventory.some((s) => !s)) {
@@ -192,7 +309,21 @@ export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
   const contested = game.cases.some((b) => b.ready && b.pos.distanceTo(g.pos) < 6 && rivals.some((o) => o.pos.distanceTo(b.pos) < 5))
   const dist = wp.distanceTo(g.pos)
   if (dist < 0.6) return null
-  return { x: 0, y: dist < 1.5 ? 0.5 : 1, yaw, jump: false, dive: contested && Math.random() < 0.05, creep: false }
+  return { x: 0, y: dist < 1.5 ? 0.5 : 1, yaw: dist > 3 ? yaw + avoidTrees(game, g, yaw) : yaw, jump: false, dive: contested && Math.random() < 0.05, creep: false }
+}
+
+/** Sidestep a trunk (or a cactus) straight ahead: the angle to add to the heading. */
+function avoidTrees(game: Game, g: Golfer, yaw: number) {
+  const fx = Math.sin(yaw), fz = Math.cos(yaw)
+  for (const t of game.course.trees) {
+    const dx = t.x - g.pos.x, dz = t.z - g.pos.z
+    const along = dx * fx + dz * fz
+    if (along < 0 || along > 4) continue
+    const side = dx * -fz + dz * fx // > 0: the trunk is to the right
+    const r = t.r * t.scale + CONFIG.player_radius + 0.3
+    if (Math.abs(side) < r) return side > 0 ? 0.9 : -0.9
+  }
+  return 0
 }
 
 function distToSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3) {
