@@ -58,6 +58,7 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },
         { title: 'Stadium', detail: 'Score penalties to unlock achievements.' },
         { title: 'Rally hall', detail: 'Win badminton and table tennis points to unlock skills.' },
+        { title: 'Hub', detail: 'Walk the landscaped complex as the low-poly avatar. Unlocks are saved in your browser.' },
       ]
     default:
       return tile.activities.slice(0, 4)
