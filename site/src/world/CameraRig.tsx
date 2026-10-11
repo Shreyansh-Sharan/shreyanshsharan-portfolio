@@ -21,16 +21,31 @@ const right = new THREE.Vector3()
  */
 export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 'home' | 'page' }) {
   const { camera, size } = useThree()
-  const state = useRef({ angle: 0.6, target: new THREE.Vector3(0, 20, 0), pos: new THREE.Vector3(0, 180, 320), init: false })
+  const state = useRef({ angle: 0.6, target: new THREE.Vector3(0, 20, 0), pos: new THREE.Vector3(0, 180, 320), init: false, lookIdle: 0 })
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const s = state.current
 
     if (playing) {
+      const dragged = controls.look.x !== 0 || controls.look.y !== 0
       player.camYaw -= controls.look.x * 0.005
       player.camPitch = THREE.MathUtils.clamp(player.camPitch + controls.look.y * 0.004, 0.05, 1.1)
       controls.look.x = controls.look.y = 0
+
+      // When the player isn't actively dragging to look, ease the camera back behind the player's
+      // heading so it auto-follows. Only kicks in after a short idle and while the player is moving.
+      if (dragged) s.lookIdle = 0
+      else s.lookIdle += dt
+      if (s.lookIdle > 0.6 && player.speed > 0.2) {
+        // Behind the player: camYaw such that the camera sits opposite the facing direction.
+        const desired = player.yaw + Math.PI
+        let d = desired - player.camYaw
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        player.camYaw += d * Math.min(1, dt * 2.2)
+        // Ease the pitch back to a comfortable default too.
+        player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 1.5))
+      }
       const dist = 7.5
       tmpTarget.set(player.pos.x, player.pos.y + 1.6, player.pos.z)
       tmpPos.set(

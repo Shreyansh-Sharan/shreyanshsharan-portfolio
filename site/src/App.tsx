@@ -15,6 +15,7 @@ import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
+import { CanvasErrorBoundary } from './world/CanvasErrorBoundary'
 import type { SceneMode } from './world/WorldCanvas'
 
 // The open world is a separate chunk so the first screen paints before three.js downloads.
@@ -153,11 +154,13 @@ export default function App() {
     <>
       {!hide2D && <Background accent={accent} />}
       {use3D && (
-        <Suspense fallback={null}>
-          <div className={`scene-layer ${ready3D ? 'is-ready' : ''}`}>
-            <WorldCanvas mode={mode} paused={gameRunning} onReady={() => setReady3D(true)} />
-          </div>
-        </Suspense>
+        <CanvasErrorBoundary>
+          <Suspense fallback={null}>
+            <div className={`scene-layer ${ready3D ? 'is-ready' : ''}`}>
+              <WorldCanvas mode={mode} paused={gameRunning} onReady={() => setReady3D(true)} />
+            </div>
+          </Suspense>
+        </CanvasErrorBoundary>
       )}
       <main className={`app ${playing ? 'is-hidden' : ''}`} aria-hidden={playing}>
         {screen}

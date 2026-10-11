@@ -74,8 +74,10 @@ export function Guide() {
 
 /* ---------- Player ---------- */
 
+// Solid landmarks (buildings): a radius roughly matching each landmark's footprint so the player
+// can't walk through them. Scaled up from the old 0.62 factor which let the player clip into buildings.
 const COLLIDERS = REGIONS.flatMap((r) =>
-  r.landmarks.map((l) => ({ x: r.center[0] + l.at[0], z: r.center[1] + l.at[1], r: (l.pad ?? 4) * 0.62 })),
+  r.landmarks.map((l) => ({ x: r.center[0] + l.at[0], z: r.center[1] + l.at[1], r: (l.pad ?? 4) * 0.95 })),
 )
 
 export function Player() {
@@ -91,7 +93,7 @@ export function Player() {
     return [w, i].filter(Boolean) as THREE.AnimationClip[]
   }, [walk, idle])
   const { actions } = useAnimations(clips, group)
-  const state = useRef({ vy: 0, grounded: true, current: '' as string, near: null as string | null, teleportN: 0 })
+  const state = useRef({ vy: 0, grounded: true, current: '' as string, near: null as string | null, teleportN: 0, runBlend: 0, runPhase: 0 })
 
   useEffect(() => {
     state.current.teleportN = world.get().teleport?.n ?? 0
@@ -171,9 +173,24 @@ export function Player() {
     if (speed > 0.1) {
       fadeTo('walk')
       const a = actions.walk
-      if (a) a.timeScale = run ? 1.9 : 1.05
+      if (a) a.timeScale = run ? 2.0 : 1.05
     } else fadeTo(actions.idle ? 'idle' : 'walk')
     if (!actions.idle && speed <= 0.1 && actions.walk) actions.walk.timeScale = 0
+
+    // Procedural run: the model only ships walk + idle clips, so running is read through a forward
+    // lean plus a faster vertical bob and a subtle side sway layered on top of the sped-up walk clip.
+    const runAmt = run && speed > 4 ? 1 : 0
+    s.runBlend = THREE.MathUtils.lerp(s.runBlend, runAmt, Math.min(1, dt * 6))
+    if (s.runBlend > 0.001) {
+      s.runPhase += dt * (10 + speed) // cadence rises with speed
+      const b = s.runBlend
+      g.rotation.x = 0.16 * b // forward lean
+      g.position.y += Math.abs(Math.sin(s.runPhase)) * 0.12 * b // vertical bob
+      g.rotation.z = Math.sin(s.runPhase) * 0.05 * b // side sway
+    } else {
+      g.rotation.x = 0
+      g.rotation.z = 0
+    }
 
     // Nearest mission within reach.
     let near: string | null = null
