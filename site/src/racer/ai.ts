@@ -73,7 +73,7 @@ export function aiDrive(game: Game, car: Car, dt: number) {
   ai.think -= dt
   ai.boltTimer -= dt
   if (game.phase !== 'race' || ai.think > 0) return
-  ai.think = Math.max(0.08, 0.55 - car.skill * 0.45) * (game.mode === 'combat' ? 0.5 : 1) * (0.7 + Math.random() * 0.6)
+  ai.think = Math.max(0.08, 0.55 - car.skill * 0.45) * (game.armed ? 0.5 : 1) * (0.7 + Math.random() * 0.6)
   pickupLane(game, car)
   chooseWeapon(game, car, threat)
 }
@@ -114,7 +114,7 @@ function along(a: Car, b: Car) {
 }
 
 function chooseWeapon(game: Game, car: Car, threat: ReturnType<typeof incomingShunt>) {
-  const combat = game.mode === 'combat'
+  const combat = game.armed
   const pers = car.personality
   const slot = (t: PowerType) => car.slotOf(t)
   const trigger = (t: PowerType, backward = false, target?: Car | null) => {
@@ -173,8 +173,8 @@ function chooseWeapon(game: Game, car: Car, threat: ReturnType<typeof incomingSh
       const c = car.consume()
       if (c) {
         fireBolt(game, car, !fwd, err)
-        game.audio.fire('bolt')
-        game.onFired(car, 'bolt', !fwd)
+        game.sfx('fire:bolt', car.pos)
+        game.onFired(car)
       }
       return
     }

@@ -74,6 +74,15 @@ export class Car {
   sinceRespawn = 99
   lastWreckedBy: Car | null = null
 
+  // Who drives it, and multiplayer bookkeeping.
+  controller: 'local' | 'remote' | 'ai' = 'ai'
+  remoteId: string | null = null
+  human = false
+  fans = 0
+  fanTargetMet = false
+  boltHold: { backward: boolean; t: number; next: number } | null = null
+  readonly net = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, t: -1 }
+
   // Bay.
   bay: (BaySlot | null)[] = [null, null, null]
   active = 0

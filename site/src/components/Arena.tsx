@@ -40,6 +40,7 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
   const [name, setName] = useState(readName)
   const [bots, setBots] = useState(5)
   const [skill, setSkill] = useState(1)
+  const [map, setMap] = useState<'dunes' | 'harbor' | 'frost'>('dunes')
   const [code, setCode] = useState((join ?? '').toUpperCase())
   const [src, setSrc] = useState<string | null>(null)
   const [available, setAvailable] = useState<boolean | null>(null)
@@ -61,7 +62,7 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
     if (!canStart) return
     saveName(name)
     play('select')
-    const params = new URLSearchParams({ mode, bots: String(bots), diff: String(skill), name: name.trim() || 'Player' })
+    const params = new URLSearchParams({ mode, map, bots: String(bots), diff: String(skill), name: name.trim() || 'Player' })
     if (mode === 'join') params.set('code', code.trim().toUpperCase())
     setSrc(`${GAME_URL}?${params}`)
   }
@@ -74,8 +75,8 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
         <p className="eyebrow">Extras · Unity 6</p>
         <h1 className="page-title">Dunes Arena</h1>
         <p className="page-lead">
-          A lightweight multiplayer shooter on an original desert map: a long lane to A, a catwalk from mid, tunnels to B.
-          Fight bots or invite friends with a code.
+          A lightweight multiplayer shooter on three original maps: the Dunes desert, a night-time container harbour and a
+          snowbound outpost. Fight bots or invite friends with a code. Headshots are a one-shot kill.
         </p>
       </header>
 
@@ -108,6 +109,22 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
 
           {mode !== 'join' && (
             <>
+              <div className="field">
+                <span>Map</span>
+                <div className="seg seg-sm">
+                  {(
+                    [
+                      ['dunes', 'Dunes'],
+                      ['harbor', 'Harbor Night'],
+                      ['frost', 'Frost Outpost'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button key={id} className={`seg-btn ${map === id ? 'is-active' : ''}`} onClick={() => setMap(id)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="field">
                 <span>
                   AI bots <strong>{bots}</strong>

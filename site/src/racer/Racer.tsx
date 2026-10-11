@@ -1,73 +1,67 @@
-// VOLT RIOT page: menu (mode, difficulty, car), the race with its HUD, results, and the Combat Points series.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowUp, Flag, LogOut, Pause, Play, RotateCcw, Star, Swords, Trophy } from 'lucide-react'
+// VOLT RIOT page: menu and game settings, the online lobby, the race, results and the Combat Points series.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Check, Copy, Crown, Flag, Globe, LogIn, Play, Skull, Star, Swords, User, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play as uiSound } from '../lib/sound'
-import { setInputSuspended } from '../lib/input'
 import { Page } from '../components/Page'
 import { CONFIG } from './config'
 import { CARS, DRIVERS, topSpeedKmh, type CarModel } from './cars'
 import { glyphUrl } from './fx'
 import { POWER_COLORS, type PowerType } from './track'
 import { loadRacerAssets, type RacerAssets } from './assets'
-import type { Game, Hud, Mode, RaceResult } from './game'
+import { fanLevel, readSave, writeSave, POWER_NAMES, type Save } from './save'
+import { RaceStage } from './RaceStage'
+import { Results, Standings } from './Results'
+import { hostRoom, joinRoom, type Link, type LobbyPlayer, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
+import type { Mode, RaceResult } from './game'
 
 const accent = tiles.find((t) => t.id === 'volt-riot')?.accent ?? (['#831843', '#f0abfc'] as [string, string])
 
-/* ---------- Career save (localStorage) ---------- */
+type Stage = 'menu' | 'lobby' | 'race' | 'results' | 'standings'
+type PlayMode = 'solo' | 'host' | 'join'
 
-interface Save {
-  fans: number
-  lights: Record<string, number> // best Lights per event
-  seriesWins: number
+interface Session {
+  link: Link
+  players: LobbyPlayer[]
+  settings: MatchSettings
 }
 
-function readSave(): Save {
+function stored(key: string, fallback: string) {
   try {
-    const s = JSON.parse(localStorage.getItem('volt-riot') ?? '') as Save
-    return { fans: s.fans ?? 0, lights: s.lights ?? {}, seriesWins: s.seriesWins ?? 0 }
+    return localStorage.getItem(key) ?? fallback
   } catch {
-    return { fans: 0, lights: {}, seriesWins: 0 }
+    return fallback
   }
 }
 
-function writeSave(s: Save) {
+function store(key: string, value: string) {
   try {
-    localStorage.setItem('volt-riot', JSON.stringify(s))
+    localStorage.setItem(key, value)
   } catch {
-    // Private mode: progress just isn't kept.
+    // Private mode: just not remembered.
   }
 }
 
-function fanLevel(fans: number) {
-  const base = CONFIG.fan_level_base
-  const level = Math.min(CONFIG.fan_level_cap, Math.floor(Math.sqrt(fans / base)) + 1)
-  const cur = base * (level - 1) ** 2
-  const next = base * level ** 2
-  return { level, progress: level >= CONFIG.fan_level_cap ? 1 : (fans - cur) / (next - cur), next }
+const DEFAULT_SETTINGS: MatchSettings = { mode: 'race', laps: CONFIG.race_laps, minutes: CONFIG.deathmatch_minutes, bots: 5, difficulty: 1 }
+
+/** Grid for an online match: humans first, AI drivers fill the rest. */
+function buildSetup(players: LobbyPlayer[], settings: MatchSettings): MatchSetup {
+  const humans: Slot[] = players.slice(0, CONFIG.max_players).map((p) => ({ kind: 'human', id: p.id, name: p.name, carId: p.carId }))
+  const bots = Math.max(0, Math.min(settings.bots, CONFIG.max_players - humans.length))
+  const ai: Slot[] = DRIVERS.slice(0, bots).map((d, i) => ({ kind: 'ai', id: `ai-${i}`, name: d.name, carId: d.car, driver: i }))
+  return { settings, slots: [...humans, ...ai], seed: Math.floor(Math.random() * 1e9) }
 }
 
-const POWER_NAMES: Record<PowerType, string> = {
-  shunt: 'Shunt', barge: 'Barge', bolt: 'Bolt', mine: 'Mine', shock: 'Shock', nitro: 'Nitro', shield: 'Shield', repair: 'Repair',
-}
-
-/* ---------- Page ---------- */
-
-type Stage = 'menu' | 'race' | 'results' | 'standings'
-
-export function Racer({ auto, onAccent }: { auto?: 'race' | 'combat'; onAccent: (a: [string, string], focus: string) => void }) {
+export function Racer({ auto, join, onAccent }: { auto?: 'race' | 'combat'; join?: string; onAccent: (a: [string, string], focus: string) => void }) {
   useEffect(() => onAccent(accent, 'volt-riot'), [onAccent])
   const [stage, setStage] = useState<Stage>(auto ? 'race' : 'menu')
-  const [mode, setMode] = useState<Mode>('race')
-  const [difficulty, setDifficulty] = useState(1)
-  const [carId, setCarId] = useState(() => {
-    try {
-      return localStorage.getItem('volt-riot-car') ?? 'mamba'
-    } catch {
-      return 'mamba'
-    }
-  })
+  const [playMode, setPlayMode] = useState<PlayMode>(join ? 'join' : 'solo')
+  const [mode, setMode] = useState<Mode>(auto ?? 'race')
+  const [settings, setSettings] = useState<MatchSettings>(DEFAULT_SETTINGS)
+  const [carId, setCarId] = useState(() => stored('volt-riot-car', 'mamba'))
+  const [name, setName] = useState(() => stored('volt-riot-name', ''))
+  const [code, setCode] = useState((join ?? '').toUpperCase())
   const [round, setRound] = useState(0)
   const [series, setSeries] = useState<Record<string, number>>({})
   const [result, setResult] = useState<RaceResult | null>(null)
@@ -75,6 +69,16 @@ export function Racer({ auto, onAccent }: { auto?: 'race' | 'combat'; onAccent: 
   const [assets, setAssets] = useState<RacerAssets | null>(null)
   const [loadPct, setLoadPct] = useState(0)
   const [runKey, setRunKey] = useState(0)
+  const [session, setSession] = useState<Session | null>(null)
+  const [setup, setSetup] = useState<MatchSetup | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const unsubs = useRef<(() => void)[]>([])
+  const sessionRef = useRef<Session | null>(null)
+
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
 
   useEffect(() => {
     let alive = true
@@ -84,42 +88,201 @@ export function Racer({ auto, onAccent }: { auto?: 'race' | 'combat'; onAccent: 
     }
   }, [])
 
-  const start = (m: Mode) => {
+  const leave = useCallback(() => {
+    for (const u of unsubs.current) u()
+    unsubs.current = []
+    sessionRef.current?.link.close()
+    sessionRef.current = null
+    setSession(null)
+    setSetup(null)
+  }, [])
+
+  // Close the connection when leaving the page.
+  useEffect(() => leave, [leave])
+
+  const displayName = () => (name.trim() || 'Driver').slice(0, 16)
+
+  /* ---------- Solo ---------- */
+
+  const startSolo = (m: Mode) => {
     uiSound('select')
-    try {
-      localStorage.setItem('volt-riot-car', carId)
-    } catch {
-      // ignore
-    }
+    store('volt-riot-car', carId)
     setMode(m)
     setRound(0)
     setSeries({})
+    setResult(null)
+    setSetup(null)
+    setRunKey((k) => k + 1)
+    setStage('race')
+  }
+
+  /* ---------- Online ---------- */
+
+  const broadcastLobby = (s: Session) => s.link.send({ t: 'lobby', players: s.players, settings: s.settings } satisfies Msg)
+
+  const createRoom = async () => {
+    setBusy(true)
+    setError(null)
+    store('volt-riot-name', name)
+    store('volt-riot-car', carId)
+    try {
+      const link = await hostRoom()
+      const s: Session = {
+        link,
+        players: [{ id: 'host', name: displayName(), carId }],
+        settings: { ...settings, mode: mode === 'deathmatch' ? 'deathmatch' : 'race' },
+      }
+      sessionRef.current = s
+      setSession(s)
+      unsubs.current.push(
+        link.onMessage((raw, from) => {
+          const msg = raw as Msg
+          if (msg.t !== 'hello') return
+          const cur = sessionRef.current
+          if (!cur) return
+          const exists = cur.players.some((p) => p.id === from)
+          if (!exists && cur.players.length >= CONFIG.max_players) {
+            link.send({ t: 'full' } satisfies Msg, from)
+            return
+          }
+          const player = { id: from, name: (msg.name || 'Driver').slice(0, 16), carId: CARS.some((c) => c.id === msg.carId) ? msg.carId : 'mamba' }
+          const next = { ...cur, players: exists ? cur.players.map((p) => (p.id === from ? player : p)) : [...cur.players, player] }
+          sessionRef.current = next
+          setSession(next)
+          broadcastLobby(next)
+        }),
+        link.onPeer((event, id) => {
+          const cur = sessionRef.current
+          if (!cur) return
+          if (event === 'join') return broadcastLobby(cur)
+          const next = { ...cur, players: cur.players.filter((p) => p.id !== id) }
+          sessionRef.current = next
+          setSession(next)
+          broadcastLobby(next)
+        }),
+      )
+      setStage('lobby')
+    } catch (e) {
+      setError((e as Error).message || 'Could not create a room.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const joinGame = async () => {
+    if (code.trim().length < 4) return
+    setBusy(true)
+    setError(null)
+    store('volt-riot-name', name)
+    store('volt-riot-car', carId)
+    try {
+      const link = await joinRoom(code)
+      const s: Session = { link, players: [], settings }
+      sessionRef.current = s
+      setSession(s)
+      unsubs.current.push(
+        link.onMessage((raw) => {
+          const msg = raw as Msg
+          if (msg.t === 'lobby') {
+            const cur = sessionRef.current
+            if (!cur) return
+            const next = { ...cur, players: msg.players, settings: msg.settings }
+            sessionRef.current = next
+            setSession(next)
+          } else if (msg.t === 'start') {
+            setSetup(msg.setup)
+            setResult(null)
+            setRunKey((k) => k + 1)
+            setStage('race')
+          } else if (msg.t === 'lobbyback') setStage('lobby')
+          else if (msg.t === 'full') {
+            setError('That room is full.')
+            leave()
+            setStage('menu')
+          }
+        }),
+        link.onPeer((event, id) => {
+          if (event === 'leave' && id === 'host') {
+            setError('The host closed the room.')
+            leave()
+            setStage('menu')
+          }
+        }),
+      )
+      link.send({ t: 'hello', name: displayName(), carId } satisfies Msg)
+      setStage('lobby')
+    } catch (e) {
+      setError((e as Error).message || 'Could not join.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateSettings = (next: MatchSettings) => {
+    const cur = sessionRef.current
+    if (!cur || !cur.link.isHost) return
+    const s = { ...cur, settings: next }
+    sessionRef.current = s
+    setSession(s)
+    broadcastLobby(s)
+  }
+
+  const changeCar = (id: string) => {
+    setCarId(id)
+    store('volt-riot-car', id)
+    const cur = sessionRef.current
+    if (!cur) return
+    if (cur.link.isHost) {
+      const next = { ...cur, players: cur.players.map((p) => (p.id === 'host' ? { ...p, carId: id } : p)) }
+      sessionRef.current = next
+      setSession(next)
+      broadcastLobby(next)
+    } else cur.link.send({ t: 'hello', name: displayName(), carId: id } satisfies Msg)
+  }
+
+  const startOnline = () => {
+    const s = sessionRef.current
+    if (!s || !s.link.isHost) return
+    uiSound('select')
+    const st = buildSetup(s.players, s.settings)
+    s.link.send({ t: 'start', setup: st } satisfies Msg)
+    setSetup(st)
     setResult(null)
     setRunKey((k) => k + 1)
     setStage('race')
   }
 
-  const onFinish = useCallback(
-    (r: RaceResult) => {
-      setResult(r)
-      setSave((prev) => {
-        const next: Save = { ...prev, lights: { ...prev.lights } }
-        next.fans += r.fans
-        if (r.mode === 'race') next.lights['harbor-loop'] = Math.max(next.lights['harbor-loop'] ?? 0, r.lights.total)
-        writeSave(next)
+  const backToLobby = () => {
+    const s = sessionRef.current
+    if (s?.link.isHost) s.link.send({ t: 'lobbyback' } satisfies Msg)
+    setStage('lobby')
+  }
+
+  const quitOnline = () => {
+    leave()
+    setStage('menu')
+  }
+
+  /* ---------- Results ---------- */
+
+  const onFinish = useCallback((r: RaceResult) => {
+    setResult(r)
+    setSave((prev) => {
+      const next: Save = { ...prev, lights: { ...prev.lights } }
+      next.fans += r.fans
+      if (r.mode === 'race' && !r.online) next.lights['harbor-loop'] = Math.max(next.lights['harbor-loop'] ?? 0, r.lights.total)
+      writeSave(next)
+      return next
+    })
+    if (r.mode === 'combat') {
+      setSeries((prev) => {
+        const next = { ...prev }
+        for (const [n, pts] of Object.entries(r.combat)) next[n] = (next[n] ?? 0) + pts
         return next
       })
-      if (r.mode === 'combat') {
-        setSeries((prev) => {
-          const next = { ...prev }
-          for (const [name, pts] of Object.entries(r.combat)) next[name] = (next[name] ?? 0) + pts
-          return next
-        })
-      }
-      setStage('results')
-    },
-    [],
-  )
+    }
+    setStage('results')
+  }, [])
 
   const nextRound = () => {
     uiSound('select')
@@ -146,47 +309,107 @@ export function Racer({ auto, onAccent }: { auto?: 'race' | 'combat'; onAccent: 
     setStage('race')
   }
 
-  if (stage === 'race')
+  /* ---------- Screens ---------- */
+
+  if (stage === 'race') {
+    const online = !!(setup && session)
+    const s = setup?.settings
     return (
       <RaceStage
         key={runKey}
-        mode={auto ?? mode}
-        carId={auto ? 'sable' : carId}
-        difficulty={difficulty}
-        round={round}
-        auto={!!auto}
+        options={
+          online && s
+            ? { mode: s.mode, carId, difficulty: s.difficulty, round: 0, laps: s.laps, minutes: s.minutes, net: { link: session!.link, setup: setup! } }
+            : {
+                mode: auto ?? mode,
+                carId: auto ? 'sable' : carId,
+                difficulty: settings.difficulty,
+                round,
+                autopilot: !!auto,
+                laps: settings.laps,
+                minutes: settings.minutes,
+                bots: auto ? undefined : settings.bots,
+              }
+        }
         assets={assets}
         loadPct={loadPct}
         onFinish={onFinish}
-        onQuit={() => setStage('menu')}
-        onRestart={() => setRunKey((k) => k + 1)}
+        onQuit={online ? quitOnline : () => setStage('menu')}
+        onRestart={online ? undefined : () => setRunKey((k) => k + 1)}
+        onDisconnect={(reason) => {
+          setError(reason)
+          quitOnline()
+        }}
       />
     )
+  }
 
-  if (stage === 'results' && result)
+  if (stage === 'results' && result) {
+    if (result.online) {
+      const host = !!session?.link.isHost
+      return (
+        <Results
+          r={result}
+          save={save}
+          series={series}
+          onAgain={session && host ? backToLobby : undefined}
+          againLabel="Back to lobby"
+          onMenu={quitOnline}
+          menuLabel="Leave"
+          note={session && !host ? 'Waiting for the host to start the next match.' : session ? undefined : 'The room has closed.'}
+        />
+      )
+    }
     return (
       <Results
         r={result}
         save={save}
         series={series}
-        onAgain={() => (result.mode === 'race' ? start('race') : nextRound())}
+        onAgain={() => (result.mode === 'combat' ? nextRound() : startSolo(result.mode))}
         onMenu={() => setStage('menu')}
       />
     )
+  }
 
-  if (stage === 'standings') return <Standings series={series} save={save} onMenu={() => setStage('menu')} onAgain={() => start('combat')} />
+  if (stage === 'standings') return <Standings series={series} save={save} onMenu={() => setStage('menu')} onAgain={() => startSolo('combat')} />
+
+  if (stage === 'lobby' && session)
+    return (
+      <Lobby
+        session={session}
+        carId={carId}
+        setCarId={changeCar}
+        onSettings={updateSettings}
+        onStart={startOnline}
+        onLeave={quitOnline}
+        loadPct={assets ? 1 : loadPct}
+      />
+    )
 
   return (
     <Menu
+      playMode={playMode}
+      setPlayMode={setPlayMode}
       mode={mode}
       setMode={setMode}
-      difficulty={difficulty}
-      setDifficulty={setDifficulty}
+      settings={settings}
+      setSettings={setSettings}
       carId={carId}
       setCarId={setCarId}
+      name={name}
+      setName={setName}
+      code={code}
+      setCode={setCode}
       save={save}
+      busy={busy}
+      error={error}
       loadPct={assets ? 1 : loadPct}
-      onStart={() => start(mode)}
+      onStart={() => {
+        setError(null)
+        if (playMode === 'solo') startSolo(mode)
+        else if (playMode === 'host') void createRoom()
+        else void joinGame()
+      }}
     />
   )
 }
@@ -204,28 +427,152 @@ function StatBar({ label, v }: { label: string; v: number }) {
   )
 }
 
+function Seg<T extends string | number>({ value, options, onChange, disabled }: { value: T; options: [T, string][]; onChange: (v: T) => void; disabled?: boolean }) {
+  return (
+    <div className="seg seg-sm">
+      {options.map(([v, label]) => (
+        <button key={String(v)} disabled={disabled} className={`seg-btn ${value === v ? 'is-active' : ''}`} onClick={() => onChange(v)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Game settings: laps or time limit, AI rivals and difficulty. */
+function SettingsPanel({
+  mode,
+  settings,
+  onChange,
+  readOnly,
+  online,
+}: {
+  mode: Mode
+  settings: MatchSettings
+  onChange: (s: MatchSettings) => void
+  readOnly?: boolean
+  online?: boolean
+}) {
+  if (mode === 'combat')
+    return (
+      <p className="muted small">
+        A {CONFIG.combat_tracks}-track series of {CONFIG.combat_laps} laps each: forward, reverse, then a finale with double Shock and Mines. Weapons-only
+        pickups. Wrecks score, position barely does. Solo only.
+      </p>
+    )
+  const maxBots = online ? CONFIG.max_players - 1 : DRIVERS.length
+  const bots = Math.min(settings.bots, maxBots)
+  return (
+    <div className="vr-settings">
+      {mode === 'race' ? (
+        <div className="field">
+          <span>Laps</span>
+          <Seg value={settings.laps} options={CONFIG.race_laps_options.map((n) => [n, String(n)] as [number, string])} onChange={(laps) => onChange({ ...settings, laps })} disabled={readOnly} />
+        </div>
+      ) : (
+        <div className="field">
+          <span>Time limit</span>
+          <Seg
+            value={settings.minutes}
+            options={CONFIG.deathmatch_minutes_options.map((n) => [n, `${n} min`] as [number, string])}
+            onChange={(minutes) => onChange({ ...settings, minutes })}
+            disabled={readOnly}
+          />
+        </div>
+      )}
+      <label className="field">
+        <span>
+          AI rivals <strong>{bots}</strong>
+          {online && <em className="muted small"> · fill empty grid slots, up to {CONFIG.max_players} cars</em>}
+        </span>
+        <input type="range" min={0} max={maxBots} value={bots} disabled={readOnly} onChange={(e) => onChange({ ...settings, bots: Number(e.target.value) })} />
+      </label>
+      <div className="field">
+        <span>AI difficulty</span>
+        <Seg
+          value={settings.difficulty}
+          options={[[0, 'Easy'], [1, 'Normal'], [2, 'Hard']]}
+          onChange={(difficulty) => onChange({ ...settings, difficulty })}
+          disabled={readOnly}
+        />
+      </div>
+    </div>
+  )
+}
+
+function CarPicker({ carId, setCarId }: { carId: string; setCarId: (id: string) => void }) {
+  const car = CARS.find((c) => c.id === carId) ?? CARS[0]
+  return (
+    <>
+      <div className="vr-cars" role="listbox" aria-label="Car">
+        {CARS.map((c) => (
+          <button
+            key={c.id}
+            role="option"
+            aria-selected={c.id === carId}
+            className={`vr-car ${c.id === carId ? 'is-active' : ''}`}
+            onClick={() => setCarId(c.id)}
+            style={{ ['--car' as string]: c.glow }}
+          >
+            <span className="vr-class">{c.cls}</span>
+            <strong>{c.name}</strong>
+            <span className="muted small">{c.archetype}</span>
+          </button>
+        ))}
+      </div>
+      <CarCard car={car} />
+    </>
+  )
+}
+
 function Menu(p: {
+  playMode: PlayMode
+  setPlayMode: (m: PlayMode) => void
   mode: Mode
   setMode: (m: Mode) => void
-  difficulty: number
-  setDifficulty: (d: number) => void
+  settings: MatchSettings
+  setSettings: (s: MatchSettings) => void
   carId: string
   setCarId: (id: string) => void
+  name: string
+  setName: (n: string) => void
+  code: string
+  setCode: (c: string) => void
   save: Save
+  busy: boolean
+  error: string | null
   loadPct: number
   onStart: () => void
 }) {
-  const car = CARS.find((c) => c.id === p.carId) ?? CARS[0]
   const lvl = fanLevel(p.save.fans)
   const lights = Object.values(p.save.lights).reduce((a, b) => a + b, 0)
+  const online = p.playMode !== 'solo'
+  const mode: Mode = online && p.mode === 'combat' ? 'race' : p.mode
+  const canStart = !p.busy && (p.playMode !== 'join' || p.code.trim().length >= 4)
+  const tabs: [PlayMode, string, ReactNode][] = [
+    ['solo', 'Solo', <User key="u" size={15} />],
+    ['host', 'Host online', <Globe key="g" size={15} />],
+    ['join', 'Join', <LogIn key="l" size={15} />],
+  ]
+  const startLabel = p.busy
+    ? 'Connecting…'
+    : p.playMode === 'solo'
+      ? mode === 'combat'
+        ? 'Start series'
+        : mode === 'deathmatch'
+          ? 'Start deathmatch'
+          : 'Start race'
+      : p.playMode === 'host'
+        ? 'Create room'
+        : 'Join room'
   return (
     <Page onBack={() => navigate('#/home/volt-riot')} className="racer-page">
       <header className="page-header">
         <p className="eyebrow">Extras · Combat racer</p>
         <h1 className="page-title vr-title">VOLT RIOT</h1>
         <p className="page-lead">
-          Neon street racing with weapons. Eight power-ups, three bay slots, ten segments of health. Drive well, fight
-          dirty, win fans.
+          Neon street racing with weapons. Eight power-ups, three bay slots, ten segments of health. Race or fight solo against AI, or online with
+          friends.
         </p>
       </header>
 
@@ -251,45 +598,67 @@ function Menu(p: {
 
       <div className="vr-grid">
         <section className="arena-panel">
-          <div className="seg" role="tablist" aria-label="Mode">
-            <button role="tab" aria-selected={p.mode === 'race'} className={`seg-btn ${p.mode === 'race' ? 'is-active' : ''}`} onClick={() => p.setMode('race')}>
-              <Flag size={15} /> Race
-            </button>
-            <button role="tab" aria-selected={p.mode === 'combat'} className={`seg-btn ${p.mode === 'combat' ? 'is-active' : ''}`} onClick={() => p.setMode('combat')}>
-              <Swords size={15} /> Combat Points
-            </button>
-          </div>
-          <p className="muted small">
-            {p.mode === 'race'
-              ? `${CONFIG.race_laps} laps on Harbor Loop with ${CONFIG.race_cars} cars. Finish on the podium, meet the fan demand and complete every Fan Run for up to 5 Lights.`
-              : `A ${CONFIG.combat_tracks}-track series of ${CONFIG.combat_laps} laps each: forward, reverse, then a finale with double Shock and Mines. Weapons-only pickups. Wrecks score, position barely does.`}
-          </p>
-          {p.mode === 'race' && (
-            <div className="field">
-              <span>Rivals</span>
-              <div className="seg seg-sm">
-                {['Easy', 'Normal', 'Hard'].map((label, i) => (
-                  <button key={label} className={`seg-btn ${p.difficulty === i ? 'is-active' : ''}`} onClick={() => p.setDifficulty(i)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="vr-cars" role="listbox" aria-label="Car">
-            {CARS.map((c) => (
-              <button key={c.id} role="option" aria-selected={c.id === p.carId} className={`vr-car ${c.id === p.carId ? 'is-active' : ''}`} onClick={() => p.setCarId(c.id)} style={{ ['--car' as string]: c.glow }}>
-                <span className="vr-class">{c.cls}</span>
-                <strong>{c.name}</strong>
-                <span className="muted small">{c.archetype}</span>
+          <div className="seg" role="tablist" aria-label="Play">
+            {tabs.map(([id, label, icon]) => (
+              <button key={id} role="tab" aria-selected={p.playMode === id} className={`seg-btn ${p.playMode === id ? 'is-active' : ''}`} onClick={() => p.setPlayMode(id)}>
+                {icon} {label}
               </button>
             ))}
           </div>
-          <CarCard car={car} />
-          <button className="btn btn-primary arena-start" onClick={p.onStart}>
-            <Play size={18} /> {p.mode === 'race' ? 'Start race' : 'Start series'}
+
+          {p.playMode !== 'join' && (
+            <>
+              <div className="field">
+                <span>Mode</span>
+                <div className="seg seg-sm">
+                  <button className={`seg-btn ${mode === 'race' ? 'is-active' : ''}`} onClick={() => p.setMode('race')}>
+                    <Flag size={14} /> Race
+                  </button>
+                  <button className={`seg-btn ${mode === 'deathmatch' ? 'is-active' : ''}`} onClick={() => p.setMode('deathmatch')}>
+                    <Skull size={14} /> Deathmatch
+                  </button>
+                  {!online && (
+                    <button className={`seg-btn ${mode === 'combat' ? 'is-active' : ''}`} onClick={() => p.setMode('combat')}>
+                      <Swords size={14} /> Combat Points
+                    </button>
+                  )}
+                </div>
+              </div>
+              {mode !== 'combat' && (
+                <p className="muted small">
+                  {mode === 'race'
+                    ? 'First across the line after the set laps. Finish on the podium, meet the fan demand and complete every Fan Run (solo) for up to 5 Lights.'
+                    : 'Weapons-only pickups that respawn fast. Wreck the most cars before time runs out: Combat Points scoring, and your own wrecks cost points.'}
+                </p>
+              )}
+              <SettingsPanel mode={mode} settings={p.settings} onChange={p.setSettings} online={online} />
+            </>
+          )}
+
+          {online && (
+            <label className="field">
+              <span>Driver name</span>
+              <input value={p.name} maxLength={16} placeholder="Driver" onChange={(e) => p.setName(e.target.value)} />
+            </label>
+          )}
+          {p.playMode === 'join' && (
+            <label className="field">
+              <span>Room code</span>
+              <input className="code-input" value={p.code} maxLength={8} placeholder="ABC123" onChange={(e) => p.setCode(e.target.value.toUpperCase())} />
+            </label>
+          )}
+
+          <CarPicker carId={p.carId} setCarId={p.setCarId} />
+          <button className="btn btn-primary arena-start" disabled={!canStart} onClick={p.onStart}>
+            {p.playMode === 'solo' ? <Play size={18} /> : p.playMode === 'host' ? <Globe size={18} /> : <LogIn size={18} />} {startLabel}
           </button>
+          {p.error && <p className="notice">{p.error}</p>}
+          {online && (
+            <p className="muted small">
+              Online play is peer-to-peer: the host's browser runs the race and up to {CONFIG.max_players - 1} friends join with a code. A free public
+              server only introduces the browsers to each other. Some strict office or mobile networks block peer-to-peer connections.
+            </p>
+          )}
           {p.loadPct < 1 && <p className="muted small">Loading cars and track: {Math.round(p.loadPct * 100)}%</p>}
           <p className="muted small mobile-only">Best with a keyboard or a gamepad.</p>
         </section>
@@ -312,7 +681,7 @@ function Menu(p: {
             <li><kbd>Shift</kbd> / <kbd>J</kbd> Fire forward (hold for all Bolts)</li>
             <li><kbd>K</kbd> Fire backward</li>
             <li><kbd>Tab</kbd> / <kbd>Q</kbd> Cycle · <kbd>X</kbd> Discard</li>
-            <li><kbd>C</kbd> Look back · <kbd>R</kbd> Reset · <kbd>M</kbd> Music · <kbd>Esc</kbd> Pause</li>
+            <li><kbd>C</kbd> Look back · <kbd>R</kbd> Reset · <kbd>M</kbd> Music · <kbd>Esc</kbd> Menu</li>
           </ul>
           <p className="muted small">Gamepad: RT/LT drive, A drift, X fire, B fire back, LB/RB cycle, Y discard. Hit the throttle right on GO for a launch boost.</p>
           <h2 className="section-title">Rivals</h2>
@@ -323,6 +692,112 @@ function Menu(p: {
               </li>
             ))}
           </ul>
+        </section>
+      </div>
+    </Page>
+  )
+}
+
+/* ---------- Lobby ---------- */
+
+function Lobby({
+  session,
+  carId,
+  setCarId,
+  onSettings,
+  onStart,
+  onLeave,
+  loadPct,
+}: {
+  session: Session
+  carId: string
+  setCarId: (id: string) => void
+  onSettings: (s: MatchSettings) => void
+  onStart: () => void
+  onLeave: () => void
+  loadPct: number
+}) {
+  const host = session.link.isHost
+  const [copied, setCopied] = useState(false)
+  const invite = `${window.location.origin}${window.location.pathname}${window.location.search}#/racer?join=${session.link.code}`
+  const s = session.settings
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(invite)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      window.prompt('Copy this invite link', invite)
+    }
+  }
+  const bots = Math.max(0, Math.min(s.bots, CONFIG.max_players - session.players.length))
+  return (
+    <Page onBack={onLeave} backLabel="Leave" className="racer-page">
+      <header className="page-header">
+        <p className="eyebrow">VOLT RIOT · Online lobby</p>
+        <h1 className="page-title vr-title">{s.mode === 'deathmatch' ? 'Deathmatch' : 'Race'} room</h1>
+        <p className="page-lead">
+          {s.mode === 'deathmatch' ? `${s.minutes} minutes, weapons only` : `${s.laps} lap${s.laps > 1 ? 's' : ''}`} · {session.players.length} driver
+          {session.players.length === 1 ? '' : 's'} + {bots} AI
+        </p>
+      </header>
+      <div className="vr-grid">
+        <section className="arena-panel">
+          <div className="vr-code">
+            <span className="muted small">Room code</span>
+            <strong>{session.link.code}</strong>
+            <button className="pill" onClick={copy}>
+              {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy invite link'}
+            </button>
+          </div>
+          <h2 className="section-title">
+            <Users size={14} /> Drivers
+          </h2>
+          <ul className="vr-lobby">
+            {session.players.map((pl) => {
+              const car = CARS.find((c) => c.id === pl.carId)
+              return (
+                <li key={pl.id} style={{ ['--car' as string]: car?.glow ?? '#fff' }}>
+                  {pl.id === 'host' && <Crown size={14} className="vr-crown" aria-label="Host" />}
+                  <strong>{pl.name}</strong>
+                  <span className="muted small">{car?.name}</span>
+                  {pl.id === session.link.selfId && <em className="muted small">you</em>}
+                </li>
+              )
+            })}
+            {Array.from({ length: bots }, (_, i) => (
+              <li key={`ai-${i}`} className="is-ai">
+                <strong>{DRIVERS[i].name}</strong>
+                <span className="muted small">AI · {CARS.find((c) => c.id === DRIVERS[i].car)?.name}</span>
+              </li>
+            ))}
+          </ul>
+          <h2 className="section-title">Game settings</h2>
+          <div className="field">
+            <span>Mode</span>
+            <Seg
+              value={s.mode}
+              options={[
+                ['race', 'Race'],
+                ['deathmatch', 'Deathmatch'],
+              ]}
+              onChange={(mode) => onSettings({ ...s, mode })}
+              disabled={!host}
+            />
+          </div>
+          <SettingsPanel mode={s.mode} settings={s} onChange={onSettings} readOnly={!host} online />
+          {host ? (
+            <button className="btn btn-primary arena-start" disabled={loadPct < 1} onClick={onStart}>
+              <Play size={18} /> {loadPct < 1 ? `Loading ${Math.round(loadPct * 100)}%` : 'Start match'}
+            </button>
+          ) : (
+            <p className="notice">Waiting for the host to start…</p>
+          )}
+          <p className="muted small">Anyone can join until the host starts. Players who drop out are taken over by an AI driver.</p>
+        </section>
+        <section className="arena-panel arena-info">
+          <h2 className="section-title">Your car</h2>
+          <CarPicker carId={carId} setCarId={setCarId} />
         </section>
       </div>
     </Page>
@@ -355,390 +830,5 @@ function CarCard({ car }: { car: CarModel }) {
       <StatBar label="Drift" v={car.stats.drift} />
       <StatBar label="Stability" v={car.stats.stability} />
     </div>
-  )
-}
-
-/* ---------- Race ---------- */
-
-function RaceStage(p: {
-  mode: Mode
-  carId: string
-  difficulty: number
-  round: number
-  auto: boolean
-  assets: RacerAssets | null
-  loadPct: number
-  onFinish: (r: RaceResult) => void
-  onQuit: () => void
-  onRestart: () => void
-}) {
-  const host = useRef<HTMLDivElement>(null)
-  const map = useRef<HTMLCanvasElement>(null)
-  const gameRef = useRef<Game | null>(null)
-  const [hud, setHud] = useState<Hud | null>(null)
-  const [paused, setPaused] = useState(false)
-  const { onFinish } = p
-  const ready = !!p.assets
-
-  // The site's world pauses and menu input is off while racing.
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('arena-running', { detail: true }))
-    setInputSuspended(true)
-    return () => {
-      window.dispatchEvent(new CustomEvent('arena-running', { detail: false }))
-      setInputSuspended(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!ready || !host.current) return
-    let game: Game | null = null
-    let cancelled = false
-    import('./game').then(({ Game }) => {
-      if (cancelled || !host.current) return
-      game = new Game(host.current, { mode: p.mode, carId: p.carId, difficulty: p.difficulty, round: p.round, autopilot: p.auto, assets: p.assets ?? undefined })
-      gameRef.current = game
-      game.minimap = map.current
-      game.onHud = setHud
-      game.onPause = setPaused
-      game.onFinish = onFinish
-      // ?snap (tests): no live loop; the test advances the game with simulate().
-      if (new URLSearchParams(window.location.search).has('snap')) {
-        ;(window as unknown as { __racer: Game }).__racer = game
-        game.simulate(0)
-      } else game.start()
-    })
-    return () => {
-      cancelled = true
-      game?.dispose()
-      gameRef.current = null
-    }
-    // The stage is keyed by run, so options are fixed for its lifetime.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready])
-
-  return (
-    <div className="racer-stage">
-      <div ref={host} className="racer-host" />
-      {!ready && <div className="vr-loading">Loading cars and track… {Math.round(p.loadPct * 100)}%</div>}
-      {hud && <RaceHud hud={hud} mode={p.mode} round={p.round} />}
-      <canvas ref={map} className="vr-minimap" width={360} height={360} />
-      {paused && (
-        <div className="vr-pause">
-          <h2>Paused</h2>
-          <button className="btn btn-primary" onClick={() => gameRef.current?.setPaused(false)}>
-            <Play size={16} /> Resume
-          </button>
-          <button className="btn" onClick={p.onRestart}>
-            <RotateCcw size={16} /> Restart
-          </button>
-          <button className="btn" onClick={p.onQuit}>
-            <LogOut size={16} /> Quit to menu
-          </button>
-        </div>
-      )}
-      <button className="pill vr-pausebtn" aria-label="Pause" onClick={() => gameRef.current?.setPaused(true)}>
-        <Pause size={16} />
-      </button>
-    </div>
-  )
-}
-
-function RaceHud({ hud, mode, round }: { hud: Hud; mode: Mode; round: number }) {
-  const hp = Math.ceil(hud.health)
-  const frac = hud.health / CONFIG.max_health
-  const hpClass = frac <= CONFIG.fire_below ? 'is-critical' : frac <= CONFIG.smoke_below ? 'is-low' : ''
-  return (
-    <div className="vr-hud">
-      {hud.hitFlash && <div className="vr-edge" style={{ boxShadow: `inset 0 0 120px 30px ${hud.hitFlash}`, opacity: hud.hitFlashAmt }} />}
-
-      <div className="vr-tl">
-        <div className="vr-pos">
-          {hud.place}
-          <span>/{hud.cars}</span>
-        </div>
-        <div className="vr-lap">
-          LAP {hud.lap}/{hud.laps}
-        </div>
-        {hud.combat && (
-          <div className="vr-combat">
-            <strong>{hud.combat.score} CP</strong>
-            <span>
-              Track {round + 1}/{CONFIG.combat_tracks} · {Math.floor(hud.combat.timeLeft / 60)}:{String(Math.floor(hud.combat.timeLeft % 60)).padStart(2, '0')}
-            </span>
-            <span className="muted">
-              Leader: {hud.combat.leader} {hud.combat.leaderScore}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {mode === 'race' && (
-        <div className="vr-fans">
-          <Trophy size={14} /> {hud.fans.toLocaleString()} <span className="muted">/ {hud.fanTarget.toLocaleString()} fans</span>
-        </div>
-      )}
-
-      {hud.fanRun && (
-        <div className="vr-fanrun">
-          <strong>FAN RUN</strong> {hud.fanRun.label}
-          <div className="vr-fanrun-bar">
-            <i style={{ width: `${Math.min(1, hud.fanRun.progress / hud.fanRun.goal) * 100}%` }} />
-          </div>
-          <span>{hud.fanRun.time.toFixed(1)} s</span>
-        </div>
-      )}
-
-      {hud.phase === 'intro' && (
-        <div className="vr-intro">
-          {hud.intro.map((l, i) => (
-            <p key={i} style={{ animationDelay: `${i * 0.6}s` }}>
-              {l}
-            </p>
-          ))}
-          <span className="muted small">Press Enter to skip</span>
-        </div>
-      )}
-      {hud.countdown >= 0 && hud.phase !== 'intro' && (
-        <div className="vr-count" key={hud.countdown}>
-          {hud.countdown === 0 ? 'GO' : hud.countdown}
-        </div>
-      )}
-      {hud.phase === 'countdown' && <div className="vr-hint">Hit the throttle right on GO for a perfect launch</div>}
-
-      {hud.banner && (
-        <div className="vr-banner" style={{ color: hud.banner.color }}>
-          {hud.banner.text}
-          {hud.wrecked > 0 && <span>Respawn in {Math.ceil(hud.wrecked)}</span>}
-        </div>
-      )}
-
-      <div className="vr-popups">
-        {hud.popups.map((pp) => (
-          <div key={pp.id} style={{ color: pp.color, transform: `translateY(${-pp.age * 40}px)`, opacity: 1 - pp.age / 1.6 }}>
-            {pp.text}
-          </div>
-        ))}
-      </div>
-
-      {hud.reticle && (
-        <div className="vr-reticle" style={{ left: hud.reticle.x, top: hud.reticle.y }}>
-          <span>{hud.reticle.name}</span>
-        </div>
-      )}
-      {hud.incoming !== null && (
-        <div className="vr-incoming" style={{ transform: `translate(-50%, -50%) rotate(${hud.incoming}rad)` }}>
-          <ArrowUp size={44} />
-          <span>SHUNT</span>
-        </div>
-      )}
-      {hud.lookBack && <div className="vr-lookback">LOOKING BACK</div>}
-
-      <div className="vr-bottom">
-        <div className="vr-health">
-          <span className="vr-label">
-            HEALTH {hud.shield > 0 && <em>SHIELD {hud.shield.toFixed(1)}</em>}
-            {hud.invuln && <em>INVULNERABLE</em>}
-          </span>
-          <div className={`vr-segs ${hpClass}`}>
-            {Array.from({ length: CONFIG.max_health }, (_, i) => (
-              <i key={i} className={i < hp ? 'on' : ''} />
-            ))}
-          </div>
-        </div>
-
-        <div className="vr-center">
-          {(hud.killFeed.length > 0 || hud.chain) && (
-            <div className="vr-feed">
-              {hud.chain && (
-                <div className="vr-chain">
-                  CHAIN ×{hud.chain.mult.toFixed(1)} <i style={{ width: `${(hud.chain.time / CONFIG.combat_chain_window) * 100}%` }} />
-                </div>
-              )}
-              {hud.killFeed.map((k) => (
-                <div key={k.id} className={k.mine ? 'is-mine' : ''}>
-                  {k.text}
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="vr-bay">
-            {hud.bay.map((s, i) => (
-              <div key={i} className={`vr-slot ${i === hud.active ? 'is-active' : ''}`} style={s ? { ['--pc' as string]: POWER_COLORS[s.type] } : undefined}>
-                {s ? (
-                  <>
-                    <img src={glyphUrl(s.type)} alt={POWER_NAMES[s.type]} />
-                    {s.count > 1 && <b>×{s.count}</b>}
-                    <span>{POWER_NAMES[s.type]}</span>
-                  </>
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="vr-speed">
-          <strong>{hud.speed}</strong>
-          <span>km/h</span>
-          <div className={`vr-nitro ${hud.nitro > 0 ? 'on' : ''} ${hud.boosting ? 'boost' : ''}`}>
-            <i style={{ width: `${Math.min(1, hud.nitro / CONFIG.nitro_duration) * 100}%` }} />
-            <span>{hud.nitro > 0 ? `NITRO ${hud.nitro.toFixed(1)}` : hud.boosting ? 'BOOST' : 'NITRO'}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- Results ---------- */
-
-function Lights({ n, max = 5 }: { n: number; max?: number }) {
-  return (
-    <div className="vr-lights" aria-label={`${n} of ${max} Lights`}>
-      {Array.from({ length: max }, (_, i) => (
-        <Star key={i} size={22} className={i < n ? 'on' : ''} />
-      ))}
-    </div>
-  )
-}
-
-function fmtTime(t: number | null) {
-  if (t === null) return 'DNF'
-  const m = Math.floor(t / 60)
-  return `${m}:${(t % 60).toFixed(2).padStart(5, '0')}`
-}
-
-function Results({ r, save, series, onAgain, onMenu }: { r: RaceResult; save: Save; series: Record<string, number>; onAgain: () => void; onMenu: () => void }) {
-  const lvl = fanLevel(save.fans)
-  const last = r.mode === 'combat' && r.round + 1 >= CONFIG.combat_tracks
-  return (
-    <Page onBack={onMenu} backLabel="Menu" className="racer-page">
-      <header className="page-header">
-        <p className="eyebrow">{r.mode === 'race' ? 'Race result' : `Combat Points · track ${r.round + 1} of ${CONFIG.combat_tracks}`}</p>
-        <h1 className="page-title vr-title">
-          {r.mode === 'combat' ? `#${r.place} in Combat Points` : r.place === 1 ? 'Winner' : `P${r.place}`} · {r.track}
-        </h1>
-      </header>
-      <div className="vr-grid">
-        <section className="arena-panel">
-          <table className="vr-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Driver</th>
-                <th>Car</th>
-                <th>{r.mode === 'race' ? 'Time' : 'Track CP'}</th>
-                {r.mode === 'combat' && <th>Series</th>}
-                <th>Wrecks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {r.rows.map((row) => (
-                <tr key={row.name} className={row.isPlayer ? 'is-player' : ''}>
-                  <td>{row.place}</td>
-                  <td>
-                    <span className="dot" style={{ background: row.color }} /> {row.name}
-                  </td>
-                  <td>{row.car}</td>
-                  <td>{r.mode === 'race' ? fmtTime(row.time) : row.combat}</td>
-                  {r.mode === 'combat' && <td>{series[row.name] ?? 0}</td>}
-                  <td>{row.wrecks}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="vr-actions">
-            <button className="btn btn-primary" onClick={onAgain}>
-              {r.mode === 'race' ? <RotateCcw size={16} /> : <Play size={16} />} {r.mode === 'race' ? 'Race again' : last ? 'Series standings' : 'Next track'}
-            </button>
-            <button className="btn" onClick={onMenu}>
-              Menu
-            </button>
-          </div>
-        </section>
-        <section className="arena-panel arena-info">
-          {r.mode === 'race' && (
-            <>
-              <h2 className="section-title">Lights</h2>
-              <Lights n={r.lights.total} />
-              <ul className="vr-lightlist">
-                <li className={r.lights.position ? 'on' : ''}>Podium: {r.lights.position} of 3 (3rd = 1, 2nd = 2, 1st = 3)</li>
-                <li className={r.lights.fanTarget ? 'on' : ''}>Fan Target: {CONFIG.fan_target_goal.toLocaleString()} fans {r.fanTargetMet ? '✓' : '✗'}</li>
-                <li className={r.lights.fanRuns ? 'on' : ''}>
-                  Fan Runs: {r.fanRunsDone}/{r.fanRunsTotal} completed
-                </li>
-              </ul>
-            </>
-          )}
-          <h2 className="section-title">Fan Points</h2>
-          <p>
-            <strong>+{r.fans.toLocaleString()}</strong> this race · {save.fans.toLocaleString()} total
-          </p>
-          <div className="vr-levelrow">
-            <span>Fan Level {lvl.level}</span>
-            <div className="vr-level">
-              <i style={{ width: `${lvl.progress * 100}%` }} />
-            </div>
-          </div>
-          <h2 className="section-title">Awards</h2>
-          <ul className="vr-awards">
-            {r.awards.map((a) => (
-              <li key={a.title}>
-                <strong>{a.title}</strong> {a.name} <span className="muted small">{a.value}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-    </Page>
-  )
-}
-
-function Standings({ series, save, onMenu, onAgain }: { series: Record<string, number>; save: Save; onMenu: () => void; onAgain: () => void }) {
-  const ranking = Object.entries(series).sort((a, b) => b[1] - a[1])
-  const won = ranking[0]?.[0] === 'You'
-  const mine = series['You'] ?? 0
-  return (
-    <Page onBack={onMenu} backLabel="Menu" className="racer-page">
-      <header className="page-header">
-        <p className="eyebrow">Combat Points · series complete</p>
-        <h1 className="page-title vr-title">{won ? 'Series won' : `Series: P${ranking.findIndex(([n]) => n === 'You') + 1}`}</h1>
-        <p className="page-lead">
-          {won ? `3 Lights and ${Math.round(mine / 2).toLocaleString()} Fan Points (Combat Points ÷ 2).` : 'Win the series for 3 Lights and Fan Points equal to half your Combat Points.'}
-        </p>
-      </header>
-      <section className="arena-panel">
-        {won && <Lights n={3} max={3} />}
-        <table className="vr-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Driver</th>
-              <th>Combat Points</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ranking.map(([name, pts], i) => (
-              <tr key={name} className={name === 'You' ? 'is-player' : ''}>
-                <td>{i + 1}</td>
-                <td>{name}</td>
-                <td>{pts}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="muted small">Total fans: {save.fans.toLocaleString()} · Series wins: {save.seriesWins}</p>
-        <div className="vr-actions">
-          <button className="btn btn-primary" onClick={onAgain}>
-            <Swords size={16} /> New series
-          </button>
-          <button className="btn" onClick={onMenu}>
-            Menu
-          </button>
-        </div>
-      </section>
-    </Page>
   )
 }

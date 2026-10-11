@@ -111,6 +111,18 @@ export const CONFIG = {
   smoke_below: 0.5, // health fraction
   fire_below: 0.2, // health fraction
   fan_level_base: 250, // fans for level L = base * (L-1)^2
+
+  // Deathmatch (online or solo): wreck the most cars before time runs out; Combat Points scoring
+  deathmatch_minutes: 3,
+  deathmatch_minutes_options: [2, 3, 5],
+  deathmatch_pickup_respawn: 4, // s
+  race_laps_options: [1, 2, 3, 4, 5],
+
+  // Multiplayer
+  max_players: 8, // humans + AI on the grid
+  net_snapshot_hz: 20, // host -> clients
+  net_input_hz: 30, // client -> host (actions are sent immediately)
+  net_finish_grace: 30, // s the race keeps going after the first human finishes
 } as const
 
 export type Config = typeof CONFIG

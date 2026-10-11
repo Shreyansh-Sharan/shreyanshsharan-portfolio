@@ -33,7 +33,7 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Modes', detail: 'Solo vs up to 9 AI bots, or host an online match and invite friends with a code.' },
         { title: 'Powers', detail: 'Dash, double jump, overshield and a pulse scan that sees through walls.' },
         { title: 'Power-ups', detail: 'Health, shield cells, Overdrive (double damage) and Haste.' },
-        { title: 'Map', detail: 'Dunes: long lane to A, catwalk from mid, tunnels to B, mid doors.' },
+        { title: 'Maps', detail: 'Dunes (long lane, catwalk, tunnels), Harbor Night (container port) and Frost Outpost (snowbound base).' },
       ]
     case 'volt-riot':
       return [
@@ -62,6 +62,13 @@ function useClock() {
   return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/** Tiles shown under a tab. Shared tiles (the profile) lead the Career tab and keep their place in Extras. */
+function tilesFor(tab: Tab) {
+  const own = tiles.filter((t) => t.tab === tab)
+  const shared = tiles.filter((t) => t.alsoIn === tab)
+  return tab === 'career' ? [...shared, ...own] : [...own, ...shared]
+}
+
 export function Home({
   initialTile,
   onAccent,
@@ -74,8 +81,8 @@ export function Home({
   const start = tiles.find((t) => t.id === initialTile) ?? tiles[0]
   const [tab, setTab] = useState<Tab>(start.tab)
   const [indexByTab, setIndexByTab] = useState<Record<Tab, number>>(() => ({
-    career: start.tab === 'career' ? tiles.filter((t) => t.tab === 'career').indexOf(start) : 0,
-    extras: start.tab === 'extras' ? tiles.filter((t) => t.tab === 'extras').indexOf(start) : 0,
+    career: start.tab === 'career' ? tilesFor('career').indexOf(start) : 0,
+    extras: start.tab === 'extras' ? tilesFor('extras').indexOf(start) : 0,
   }))
   const [zone, setZone] = useState<Zone>('tiles')
   const [actionIdx, setActionIdx] = useState(0)
@@ -85,7 +92,7 @@ export function Home({
   const [launching, setLaunching] = useState(false)
   const clock = useClock()
 
-  const list = useMemo(() => tiles.filter((t) => t.tab === tab), [tab])
+  const list = useMemo(() => tilesFor(tab), [tab])
   const index = Math.min(indexByTab[tab], list.length - 1)
   const tile = list[index]
   const cards = previewCards(tile)

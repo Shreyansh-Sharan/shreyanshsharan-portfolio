@@ -2787,3 +2787,134 @@ p {
     width: 110px;
   }
 }
+
+/* VOLT RIOT online */
+
+.vr-settings {
+  display: grid;
+  gap: 4px;
+}
+
+.seg-btn:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.vr-code {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px dashed rgba(240, 171, 252, 0.5);
+  background: rgba(240, 171, 252, 0.06);
+}
+
+.vr-code strong {
+  font-size: 30px;
+  letter-spacing: 0.3em;
+  color: #f0abfc;
+  font-variant-numeric: tabular-nums;
+}
+
+.vr-lobby {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.vr-lobby li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--car, #94a3b8);
+}
+
+.vr-lobby li.is-ai {
+  opacity: 0.6;
+  border-left-color: rgba(255, 255, 255, 0.2);
+}
+
+.vr-lobby em {
+  margin-left: auto;
+  font-style: normal;
+}
+
+.vr-crown {
+  color: #fde047;
+}
+
+.vr-human {
+  margin-left: 6px;
+  vertical-align: -1px;
+  color: #f0abfc;
+}
+
+.vr-online {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #4ade80;
+}
+
+/* Profile avatar */
+
+.profile-media {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 28px;
+  max-width: 560px;
+}
+
+.profile-stage {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  max-height: 72vh;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0d1222;
+}
+
+.profile-3d,
+.profile-3d canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.profile-3d-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  background: rgba(5, 6, 15, 0.6);
+  color: var(--muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.profile-video,
+.profile-poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

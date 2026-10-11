@@ -1,21 +1,29 @@
-// VOLT RIOT engine: scene, race flow, input, scoring (Fan Points and Combat Points), camera and HUD feed.
+// VOLT RIOT engine: scene, race flow, input, scoring (Fan Points and Combat Points), camera, HUD feed and netcode.
+// Roles: 'solo' simulates everything; 'host' simulates and streams snapshots; 'client' predicts its own car,
+// interpolates the rest from snapshots and sends inputs to the host.
 import * as THREE from 'three'
 import { BloomEffect, EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode, VignetteEffect } from 'postprocessing'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { CONFIG, kmh, toKmh } from './config'
-import { CARS, DRIVERS, type CarModel } from './cars'
+import { CARS, DRIVERS, radialTexture, type CarModel } from './cars'
 import { Car } from './car'
 import { Track, buildTrackScene, mulberry32, POWER_COLORS, type PowerType } from './track'
 import type { RacerAssets } from './assets'
 import { Particles, Trail, glyphTexture, fanRunTexture } from './fx'
 import { RacerAudio } from './audio'
 import { aiDrive } from './ai'
-import { fire, fireBolt, incomingShunt, lockTarget, updateWeapons, type Dome, type Projectile, type Ring } from './weapons'
-import { radialTexture } from './cars'
+import {
+  PROJECTILE_KINDS, animateDome, bargeRing, domeVisual, fire, fireBolt, incomingShunt, lockTarget, projectileVisual,
+  removeProjectileVisual, updateRings, updateWeapons, type Dome, type Projectile, type Ring,
+} from './weapons'
+import type { Link, MatchSetup, Msg, Slot } from './net'
 
-export type Mode = 'race' | 'combat'
+export type Mode = 'race' | 'combat' | 'deathmatch'
 export type Phase = 'intro' | 'countdown' | 'race' | 'finished'
 export type Weapon = PowerType | 'wall' | 'ram'
+type Role = 'solo' | 'host' | 'client'
+const PHASES: Phase[] = ['intro', 'countdown', 'race', 'finished']
+const STUNS = ['none', 'spin', 'flip'] as const
 
 export interface GameOptions {
   mode: Mode
@@ -24,6 +32,10 @@ export interface GameOptions {
   round: number // Combat Points track index (0-based)
   autopilot?: boolean
   assets?: RacerAssets
+  laps?: number
+  minutes?: number // Deathmatch time limit
+  bots?: number // AI rivals in a solo race
+  net?: { link: Link; setup: MatchSetup }
 }
 
 export interface Pickup {
@@ -52,6 +64,22 @@ const FAN_RUN_LABEL: Record<FanRunKind, string> = {
   pickups: 'Hit 3 pickups in a row',
 }
 
+interface InputState {
+  throttle: number
+  brake: number
+  steer: number
+  handbrake: boolean
+  look: boolean
+  fireHeld: boolean
+  fireBackHeld: boolean
+  actions: string[]
+}
+
+const IDLE: InputState = { throttle: 0, brake: 0, steer: 0, handbrake: false, look: false, fireHeld: false, fireBackHeld: false, actions: [] }
+
+/** Events shown to one player (popups, banners, hit flashes); sent to remote players by the host. */
+type UiEvent = ['pop', string, string] | ['say', string, string, number] | ['hit', string, number] | ['slow', number] | ['sfx', string] | ['shake', number]
+
 export interface HudPopup {
   id: number
   text: string
@@ -60,6 +88,7 @@ export interface HudPopup {
 }
 
 export interface Hud {
+  mode: Mode
   phase: Phase
   countdown: number
   intro: string[]
@@ -90,6 +119,7 @@ export interface Hud {
   hitFlashAmt: number
   lookBack: boolean
   paused: boolean
+  online: boolean
 }
 
 export interface ResultRow {
@@ -100,6 +130,7 @@ export interface ResultRow {
   combat: number
   wrecks: number
   isPlayer: boolean
+  human: boolean
   color: string
 }
 
@@ -116,6 +147,7 @@ export interface RaceResult {
   lights: { position: number; fanTarget: number; fanRuns: number; total: number }
   awards: { title: string; name: string; value: string }[]
   combat: Record<string, number> // driver name -> points this track
+  online: boolean
 }
 
 const KEYMAP: Record<string, string> = {
@@ -126,6 +158,7 @@ const KEYMAP: Record<string, string> = {
 
 const RACE_WEIGHTS: Partial<Record<PowerType, number>> = { shunt: 18, nitro: 18, mine: 16, bolt: 14, barge: 12, shield: 9, shock: 6, repair: 6 }
 const SUPPORT_WEIGHTS: Partial<Record<PowerType, number>> = { repair: 1, shield: 1 }
+const POWER_TYPES: PowerType[] = ['shunt', 'barge', 'bolt', 'mine', 'shock', 'nitro', 'shield', 'repair']
 
 function pick(weights: Partial<Record<PowerType, number>>, rnd: () => number) {
   const entries = Object.entries(weights) as [PowerType, number][]
@@ -139,11 +172,13 @@ function pick(weights: Partial<Record<PowerType, number>>, rnd: () => number) {
   return entries[0][0]
 }
 
+const r2 = (v: number) => Math.round(v * 100) / 100
 const TRACK_NAMES = ['Harbor Loop', 'Harbor Loop Reverse', 'Harbor Loop Overdrive']
 
 export class Game {
   readonly opts: GameOptions
   readonly mode: Mode
+  readonly role: Role
   readonly renderer: THREE.WebGLRenderer
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(64, 1, 0.3, 2400)
@@ -160,11 +195,27 @@ export class Game {
   rings: Ring[] = []
   phase: Phase = 'intro'
   laps: number
+  readonly timeLimit: number
   paused = false
   onHud: ((h: Hud) => void) | null = null
   onFinish: ((r: RaceResult) => void) | null = null
   onPause: ((p: boolean) => void) | null = null
+  onDisconnect: ((reason: string) => void) | null = null
   minimap: HTMLCanvasElement | null = null
+
+  private link: Link | null = null
+  private unsubs: (() => void)[] = []
+  private remote = new Map<string, InputState>()
+  private fxLog: unknown[] = []
+  private uiOut = new Map<string, UiEvent[]>()
+  private snapTimer = 0
+  private inputTimer = 0
+  private lastSent = ''
+  private launched = new Set<Car>()
+  private firstHumanFinish = -1
+  private netProjectiles = new Map<number, Projectile>()
+  private netDomes = new Map<number, Dome>()
+  private gotSnapshot = false
 
   private container: HTMLElement
   private raf = 0
@@ -179,11 +230,8 @@ export class Game {
   private padPrev: boolean[] = []
   private steerSmooth = 0
   private lookBack = false
-  private boltHold: { backward: boolean; t: number; next: number } | null = null
   private throttleEdgeAt: number | null = null
   private throttleWasDown = false
-  private fans = 0
-  private fanTargetMet = false
   private popups: HudPopup[] = []
   private popupId = 0
   private killFeed: { id: number; text: string; mine: boolean; age: number }[] = []
@@ -210,14 +258,18 @@ export class Game {
   private camPos = new THREE.Vector3()
   private camLook = new THREE.Vector3()
   private hidden = () => {
-    if (document.hidden && this.phase !== 'finished') this.setPaused(true)
+    if (document.hidden && this.phase !== 'finished' && this.role === 'solo') this.setPaused(true)
   }
 
   constructor(container: HTMLElement, opts: GameOptions) {
     this.container = container
     this.opts = opts
     this.mode = opts.mode
-    this.laps = opts.mode === 'combat' ? CONFIG.combat_laps : CONFIG.race_laps
+    this.role = opts.net ? (opts.net.link.isHost ? 'host' : 'client') : 'solo'
+    this.link = opts.net?.link ?? null
+    this.laps = opts.mode === 'deathmatch' ? Infinity : opts.mode === 'combat' ? CONFIG.combat_laps : (opts.laps ?? CONFIG.race_laps)
+    this.timeLimit =
+      opts.mode === 'deathmatch' ? (opts.minutes ?? CONFIG.deathmatch_minutes) * 60 : opts.mode === 'combat' ? CONFIG.combat_track_time_limit : Infinity
 
     // Renderer and post-processing: bloom does the neon, tone mapping happens at the end of the chain.
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, depth: true })
@@ -256,9 +308,10 @@ export class Game {
 
     this.spawnCars()
     this.spawnPickups()
-    if (this.mode === 'race') this.spawnFanRuns()
+    if (this.mode === 'race' && this.role === 'solo') this.spawnFanRuns()
     this.prepareMinimap()
     this.introLines = this.makeIntro()
+    this.attachNet()
 
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
@@ -269,35 +322,55 @@ export class Game {
     document.addEventListener('visibilitychange', this.hidden)
   }
 
+  get armed() {
+    return this.mode !== 'race'
+  }
+
+  get online() {
+    return this.role !== 'solo'
+  }
+
   /* ---------- Setup ---------- */
 
+  private slots(): Slot[] {
+    if (this.opts.net) return this.opts.net.setup.slots
+    // Solo: the rivals, with the player mid-grid.
+    const bots = this.mode === 'race' ? THREE.MathUtils.clamp(this.opts.bots ?? CONFIG.race_cars - 1, 0, DRIVERS.length) : CONFIG.race_cars - 1
+    const list: Slot[] = DRIVERS.slice(0, bots).map((d, i) => ({ kind: 'ai', id: `ai-${i}`, name: d.name, carId: d.car, driver: i }))
+    list.splice(Math.min(list.length, Math.floor((bots + 1) / 2)), 0, { kind: 'human', id: 'host', name: 'You', carId: this.opts.carId })
+    return list
+  }
+
   private spawnCars() {
-    const playerModel = CARS.find((c) => c.id === this.opts.carId) ?? CARS[0]
-    const cls = playerModel.cls
+    const slots = this.slots()
+    const localId = this.link?.selfId ?? 'host'
+    const local = slots.find((s) => s.kind === 'human' && s.id === localId) ?? slots[0]
+    const cls = (CARS.find((c) => c.id === local.carId) ?? CARS[0]).cls
     const skill = this.mode === 'combat' ? CONFIG.ai_combat_skill : CONFIG.ai_skill[this.opts.difficulty] ?? 0.6
     const rnd = mulberry32(42 + this.opts.round)
-    const drivers = DRIVERS.slice(0, CONFIG.race_cars - 1)
-    // Player starts mid-grid.
-    const order: (number | 'player')[] = drivers.map((_, i) => i)
-    order.splice(Math.min(order.length, 4), 0, 'player')
-    order.forEach((who, slot) => {
-      let car: Car
-      if (who === 'player') {
-        car = new Car(slot, playerModel, { player: true, name: 'You', cls, glb: this.opts.assets?.cars.get(playerModel.id) })
-        this.player = car
-      } else {
-        const d = drivers[who]
-        const m: CarModel = CARS.find((c) => c.id === d.car) ?? CARS[who % CARS.length]
-        car = new Car(slot, m, { name: d.name, driver: d, skill: THREE.MathUtils.clamp(skill + (rnd() - 0.5) * 0.1, 0.3, 1), cls, glb: this.opts.assets?.cars.get(m.id) })
-        car.ai.laneOffset = (rnd() - 0.5) * 6
-      }
-      const row = Math.floor(slot / 2)
+    slots.forEach((slot, i) => {
+      const model: CarModel = CARS.find((c) => c.id === slot.carId) ?? CARS[i % CARS.length]
+      const isLocal = slot === local
+      const driver = slot.kind === 'ai' ? DRIVERS[slot.driver ?? i % DRIVERS.length] : undefined
+      const name = isLocal && !this.online ? 'You' : slot.name
+      const car = new Car(i, model, {
+        player: isLocal, name, driver, cls, glb: this.opts.assets?.cars.get(model.id),
+        skill: THREE.MathUtils.clamp(skill + (rnd() - 0.5) * 0.1, 0.3, 1),
+      })
+      car.controller = isLocal ? 'local' : slot.kind === 'human' ? 'remote' : 'ai'
+      car.remoteId = slot.kind === 'human' && !isLocal ? slot.id : null
+      car.human = slot.kind === 'human'
+      car.ai.laneOffset = (rnd() - 0.5) * 6
+      if (isLocal) this.player = car
+      const row = Math.floor(i / 2)
       const s = this.track.length - 8 - row * 10
-      car.placeAt(this.track, s, slot % 2 === 0 ? -3.6 : 3.6)
+      car.placeAt(this.track, s, i % 2 === 0 ? -3.6 : 3.6)
       car.s = s
       car.cpPassed = this.track.checkpoints.length
       car.progress = s
       car.safeS = s
+      car.net.pos.copy(car.pos)
+      car.net.yaw = car.yaw
       this.scene.add(car.mesh.root)
       this.cars.push(car)
       const trails = [new Trail(POWER_COLORS.nitro, 0.35, 26, 2.6, true), new Trail(POWER_COLORS.nitro, 0.35, 26, 2.6, true)]
@@ -309,9 +382,9 @@ export class Game {
   private spawnPickups() {
     const rnd = mulberry32(7 + this.opts.round * 31)
     let weights: Partial<Record<PowerType, number>> = RACE_WEIGHTS
-    if (this.mode === 'combat') {
-      // Weapons only: no Nitro or Repair, Shield rare; the last track doubles Shock and Mine.
-      const finale = this.opts.round >= CONFIG.combat_tracks - 1 ? CONFIG.finale_hazard_mult : 1
+    if (this.armed) {
+      // Weapons only: no Nitro or Repair, Shield rare; the last Combat Points track doubles Shock and Mine.
+      const finale = this.mode === 'combat' && this.opts.round >= CONFIG.combat_tracks - 1 ? CONFIG.finale_hazard_mult : 1
       weights = { shunt: 18, mine: 16 * finale, bolt: 14, barge: 12, shock: 6 * finale, shield: 9 * CONFIG.shield_rare_weight }
     }
     const rowS: number[] = []
@@ -364,10 +437,14 @@ export class Game {
   private makeIntro() {
     const rivals = this.cars.filter((c) => !c.isPlayer && c.driver)
     const picks = rivals.sort(() => Math.random() - 0.5).slice(0, 2)
+    const humans = this.cars.filter((c) => c.human).length
     const lines = [
       this.mode === 'combat'
         ? `DJ STATIC: Combat Points, round ${this.opts.round + 1} of ${CONFIG.combat_tracks} on ${this.track.name}. Wrecks pay. Position barely does.`
-        : `DJ STATIC: Lights up on ${this.track.name}. ${this.laps} laps, ${this.cars.length} cars, one podium.`,
+        : this.mode === 'deathmatch'
+          ? `DJ STATIC: Deathmatch on ${this.track.name}. ${Math.round(this.timeLimit / 60)} minutes, ${this.cars.length} cars, weapons only. Wreck everything.`
+          : `DJ STATIC: Lights up on ${this.track.name}. ${this.laps} laps, ${this.cars.length} cars, one podium.`,
+      ...(this.online ? [`${humans} drivers online, ${this.cars.length - humans} AI rivals.`] : []),
       ...picks.map((c) => `${c.driver!.name.toUpperCase()} · ${c.model.name}: ${c.driver!.intro}`),
     ]
     if (this.mode === 'race') lines.push(`Fan demand: earn ${CONFIG.fan_target_goal.toLocaleString()} fans this race.`)
@@ -386,6 +463,311 @@ export class Game {
     this.mapBounds = { minX: (minX + maxX) / 2, minZ: (minZ + maxZ) / 2, scale }
   }
 
+  /* ---------- Netcode ---------- */
+
+  private attachNet() {
+    const link = this.link
+    if (!link) return
+    this.unsubs.push(
+      link.onMessage((raw, from) => {
+        const msg = raw as Msg
+        if (this.role === 'host' && msg.t === 'input') {
+          const car = this.cars.find((c) => c.remoteId === from && c.controller === 'remote')
+          if (!car) return
+          const prev = this.remote.get(from)
+          const [throttle, brake, steer, hb, look, fh, fbh] = msg.i
+          this.remote.set(from, {
+            throttle, brake, steer, handbrake: !!hb, look: !!look, fireHeld: !!fh, fireBackHeld: !!fbh,
+            actions: [...(prev?.actions ?? []), ...msg.a],
+          })
+        } else if (this.role === 'client') {
+          if (msg.t === 'snap') this.applySnapshot(msg.s as Snapshot)
+          else if (msg.t === 'ev') for (const e of msg.e as UiEvent[]) this.applyUi(e)
+          else if (msg.t === 'result' && !this.resultSent) {
+            this.resultSent = true
+            this.onFinish?.(msg.r as RaceResult)
+          }
+        }
+      }),
+      link.onPeer((event, id) => {
+        if (event !== 'leave') return
+        if (this.role === 'client' && id === 'host') this.onDisconnect?.('The host left the race.')
+        if (this.role === 'host') {
+          const car = this.cars.find((c) => c.remoteId === id)
+          if (car && car.controller === 'remote') {
+            // An AI driver takes over the car of anyone who drops out.
+            car.controller = 'ai'
+            car.human = false
+            this.remote.delete(id)
+            this.feed(`${car.name} left · AI takes over`, null, null)
+          }
+        }
+      }),
+    )
+  }
+
+  private snapshot(): Snapshot {
+    const idx = (c: Car | null) => (c ? this.cars.indexOf(c) : -1)
+    const snap: Snapshot = {
+      ph: PHASES.indexOf(this.phase),
+      pt: r2(this.phaseTime),
+      rt: r2(this.raceTime),
+      c: this.cars.map((c) => [
+        r2(c.pos.x), r2(c.pos.z), r2(c.yaw), r2(c.vel.x), r2(c.vel.z), r2(c.yawRate), r2(c.health), r2(c.shield), r2(c.invuln),
+        r2(c.wrecked), r2(c.stun), STUNS.indexOf(c.stunKind), r2(c.stunTotal), r2(c.nitro), r2(c.boost), c.lap, c.place,
+        c.finished ? 1 : 0, c.drifting ? 1 : 0, c.combat, c.fans, r2(c.flash), c.flashColor.getHex(), r2(c.s), c.cpPassed,
+        r2(c.airBrake), c.active, c.bay.map((b) => (b ? `${POWER_TYPES.indexOf(b.type)}${b.count}` : '')).join(','),
+        c.hits, c.wrecksDealt, c.human ? 1 : 0, r2(c.steerKick), r2(c.bog), r2(c.finishTime), c.chainMult, r2(c.lastWreckAt),
+      ]),
+      p: this.projectiles.map((p) => [
+        p.id, PROJECTILE_KINDS.indexOf(p.kind), r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.heading), r2(p.vel.x), r2(p.vel.z),
+        idx(p.owner), idx(p.target), p.lob ? 1 : 0,
+      ]),
+      d: this.domes.map((d) => [d.id, r2(d.pos.x), r2(d.pos.z), r2(d.warn), r2(d.life), idx(d.owner)]),
+      k: this.pickups.map((p) => (p.available ? '1' : '0')).join(''),
+      fx: this.fxLog,
+      t: r2(this.time),
+    }
+    this.fxLog = []
+    return snap
+  }
+
+  private applySnapshot(s: Snapshot) {
+    const phase = PHASES[s.ph] ?? 'race'
+    if (phase !== this.phase) {
+      if (phase === 'race' && this.phase === 'countdown') {
+        this.audio.countdown(true)
+        this.clientLaunch()
+      }
+      this.phase = phase
+    }
+    this.phaseTime = s.pt
+    this.raceTime = s.rt
+    const first = !this.gotSnapshot
+    this.gotSnapshot = true
+    s.c.forEach((a, i) => {
+      const c = this.cars[i]
+      if (!c) return
+      const n = a as number[]
+      const bay = a[27] as string
+      const [x, z, yaw, vx, vz, yawRate, health, shield, invuln, wrecked, stun, stunKind, stunTotal, nitro, boost, lap, place,
+        finished, drifting, combat, fans, flash, flashColor, sAlong, cp, airBrake, active] = n
+      const [hits, wrecks, human, steerKick, bog, finishTime, chainMult, lastWreckAt] = n.slice(28)
+      const wasWrecked = c.wrecked > 0
+      const parsed = parseBay(bay)
+      if (c === this.player) {
+        const added = parsed.find((b, k) => b && (b.type !== c.bay[k]?.type || b.count > (c.bay[k]?.count ?? 0)))
+        if (added) this.audio.pickup(added.type)
+      } else c.yawRate = yawRate
+      c.bay = parsed
+      c.active = active
+      c.net.pos.set(x, 0, z)
+      c.net.vel.set(vx, 0, vz)
+      c.net.yaw = yaw
+      c.net.t = this.time
+      if (first || c !== this.player) {
+        if (first || c.pos.distanceTo(c.net.pos) > 25) {
+          c.pos.copy(c.net.pos)
+          c.yaw = yaw
+        }
+        c.vel.copy(c.net.vel)
+      }
+      c.health = health
+      c.shield = shield
+      c.invuln = invuln
+      c.wrecked = wrecked
+      c.stun = stun
+      c.stunKind = STUNS[stunKind] ?? 'none'
+      c.stunTotal = stunTotal || 1
+      c.nitro = nitro
+      c.boost = boost
+      c.lap = lap
+      c.place = place
+      c.finished = !!finished
+      c.drifting = !!drifting
+      c.combat = combat
+      c.fans = fans
+      c.flash = flash
+      c.flashColor.setHex(flashColor)
+      c.s = sAlong
+      c.cpPassed = cp
+      c.airBrake = airBrake
+      c.hits = hits
+      c.wrecksDealt = wrecks
+      c.human = !!human
+      c.steerKick = steerKick
+      c.bog = bog
+      c.finishTime = finishTime
+      c.chainMult = chainMult
+      c.lastWreckAt = lastWreckAt - s.t + this.time
+      c.progress = c.lap * this.track.length + c.s
+      if (!wasWrecked && wrecked > 0) c.wreckVy = 9
+    })
+
+    // Projectiles: create, update and retire visuals by id.
+    const seen = new Set<number>()
+    for (const [id, kind, x, y, z, heading, vx, vz, owner, target, lob] of s.p) {
+      seen.add(id)
+      let p = this.netProjectiles.get(id)
+      if (!p) {
+        const k = PROJECTILE_KINDS[kind] ?? 'bolt'
+        const { mesh, trail } = projectileVisual(this, k, !!lob)
+        p = {
+          id, kind: k, owner: this.cars[owner] ?? this.cars[0], pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(), heading,
+          target: null, life: 99, hp: 1, weakened: false, hint: -1, age: 0, eventId: 0, lob: null, mesh, trail, dead: false,
+        }
+        this.netProjectiles.set(id, p)
+      }
+      p.pos.set(x, y, z)
+      p.vel.set(vx, 0, vz)
+      p.heading = heading
+      p.target = target >= 0 ? (this.cars[target] ?? null) : null
+      p.lob = lob ? { from: p.pos, to: p.pos, t: 0, dur: 1 } : null
+    }
+    for (const [id, p] of this.netProjectiles) {
+      if (seen.has(id)) continue
+      removeProjectileVisual(this, p)
+      this.netProjectiles.delete(id)
+    }
+    this.projectiles = [...this.netProjectiles.values()]
+
+    const domeSeen = new Set<number>()
+    for (const [id, x, z, warn, life, owner] of s.d) {
+      domeSeen.add(id)
+      let d = this.netDomes.get(id)
+      if (!d) {
+        const pos = new THREE.Vector3(x, 0, z)
+        const { mesh, bolt } = domeVisual(this, pos)
+        d = { id, owner: this.cars[owner] ?? this.cars[0], pos, warn, life, hitSet: new Set(), eventId: 0, mesh, bolt, struck: false }
+        this.netDomes.set(id, d)
+      }
+      d.warn = warn
+      d.life = life
+    }
+    for (const [id, d] of this.netDomes) {
+      if (domeSeen.has(id)) continue
+      this.scene.remove(d.mesh)
+      this.netDomes.delete(id)
+    }
+    this.domes = [...this.netDomes.values()]
+
+    for (let i = 0; i < this.pickups.length; i++) {
+      const p = this.pickups[i]
+      p.available = s.k[i] === '1'
+      p.group.visible = p.available
+    }
+
+    for (const e of s.fx as FxEvent[]) this.replayFx(e)
+  }
+
+  private replayFx(e: FxEvent) {
+    switch (e[0]) {
+      case 'b': {
+        const [, x, y, z, n, speed, life, size, r, g, b, alpha, up, grow] = e
+        this.fx.burst(new THREE.Vector3(x, y, z), n, speed, life, size, new THREE.Color(r, g, b), alpha, up, grow)
+        break
+      }
+      case 's': {
+        const [, name, x, z] = e
+        if (this.near(new THREE.Vector3(x, 0, z), 120)) this.playSfx(name)
+        break
+      }
+      case 'r':
+        bargeRing(this, new THREE.Vector3(e[1], 0, e[2]))
+        break
+      case 'x':
+        this.wreckSmoke(new THREE.Vector3(e[1], e[2], e[3]))
+        break
+      case 'f': {
+        const [, text, a, b] = e
+        this.addFeed(text, !!(this.cars[a]?.isPlayer || this.cars[b]?.isPlayer))
+        break
+      }
+    }
+  }
+
+  /** Effects: run locally and, on the host, recorded for clients. */
+  burst(p: THREE.Vector3, n: number, speed: number, life: number, size: number, color: THREE.Color, alpha = 1, up = 0.4, grow = 0) {
+    this.fx.burst(p, n, speed, life, size, color, alpha, up, grow)
+    if (this.role === 'host') this.fxLog.push(['b', r2(p.x), r2(p.y), r2(p.z), n, speed, life, size, r2(color.r), r2(color.g), r2(color.b), alpha, up, grow])
+  }
+
+  sfx(name: string, pos: THREE.Vector3) {
+    if (this.near(pos, 120)) this.playSfx(name)
+    if (this.role === 'host') this.fxLog.push(['s', name, r2(pos.x), r2(pos.z)])
+  }
+
+  recordRing(pos: THREE.Vector3) {
+    if (this.role === 'host') this.fxLog.push(['r', r2(pos.x), r2(pos.z)])
+  }
+
+  shakeFor(car: Car, a: number) {
+    this.ui(car, ['shake', a])
+  }
+
+  private playSfx(name: string) {
+    const [k, arg] = name.split(':')
+    const a = this.audio
+    if (k === 'fire') a.fire(arg as PowerType)
+    else if (k === 'pickup') a.pickup(arg as PowerType)
+    else if (k === 'airbrake') a.airBrake()
+    else if (k === 'crackle') a.crackle()
+    else if (k === 'hit') a.hit(false)
+    else if (k === 'hitHeavy') a.hit(true)
+    else if (k === 'shield') a.shieldBreak()
+    else if (k === 'boom') a.explosion()
+    else if (k === 'wall') a.wall()
+    else if (k === 'refused') a.refused()
+    else if (k === 'crowd') a.crowd()
+    else if (k === 'fans') a.fans()
+  }
+
+  /** Something only this car's driver sees or hears. */
+  private ui(car: Car, e: UiEvent) {
+    if (car.isPlayer) this.applyUi(e)
+    else if (this.role === 'host' && car.controller === 'remote' && car.remoteId) {
+      const list = this.uiOut.get(car.remoteId) ?? []
+      list.push(e)
+      this.uiOut.set(car.remoteId, list)
+    }
+  }
+
+  private applyUi(e: UiEvent) {
+    switch (e[0]) {
+      case 'pop':
+        this.popup(e[1], e[2])
+        break
+      case 'say':
+        this.banner = { text: e[1], color: e[2], t: e[3] }
+        break
+      case 'hit':
+        this.hitFlash = { color: e[1], t: 0.6 }
+        this.shake(e[2] ? 0.7 : 0.25)
+        break
+      case 'slow':
+        if (this.role === 'solo') this.slowmo = Math.max(this.slowmo, e[1])
+        break
+      case 'sfx':
+        this.playSfx(e[1])
+        break
+      case 'shake':
+        this.shake(e[1])
+        break
+    }
+  }
+
+  private flushNet(dt: number) {
+    const link = this.link
+    if (!link || this.role !== 'host') return
+    this.snapTimer -= dt
+    if (this.snapTimer <= 0) {
+      this.snapTimer = 1 / CONFIG.net_snapshot_hz
+      link.send({ t: 'snap', s: this.snapshot() } satisfies Msg)
+    }
+    for (const [peer, e] of this.uiOut) if (e.length) link.send({ t: 'ev', e } satisfies Msg, peer)
+    this.uiOut.clear()
+  }
+
   /* ---------- Lifecycle ---------- */
 
   start() {
@@ -402,6 +784,7 @@ export class Game {
 
   dispose() {
     cancelAnimationFrame(this.raf)
+    for (const u of this.unsubs) u()
     this.ro.disconnect()
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
@@ -417,10 +800,11 @@ export class Game {
     this.renderer.domElement.remove()
   }
 
+  /** Online games never stop: the pause menu opens over the running race. */
   setPaused(p: boolean) {
     if (this.paused === p) return
     this.paused = p
-    this.audio.setPaused(p)
+    if (!this.online) this.audio.setPaused(p)
     this.keys.clear()
     this.onPause?.(p)
   }
@@ -472,6 +856,91 @@ export class Game {
     }
   }
 
+  /** Keyboard + gamepad into one input state for the local driver. */
+  private readLocal(dt: number, pressed: Set<string>, pad: ReturnType<Game['readPad']>): InputState {
+    const k = this.keys
+    const throttle = Math.max(k.has('up') ? 1 : 0, pad?.throttle ?? 0)
+    const brake = Math.max(k.has('down') ? 1 : 0, pad?.brake ?? 0)
+    const steer = (k.has('right') ? 1 : 0) - (k.has('left') ? 1 : 0)
+    // Smooth keyboard steering; analogue sticks pass straight through.
+    if (pad?.steer) this.steerSmooth = pad.steer
+    else {
+      const rate = steer === 0 || Math.sign(steer) !== Math.sign(this.steerSmooth) ? 9 : 5
+      this.steerSmooth += THREE.MathUtils.clamp(steer - this.steerSmooth, -rate * dt, rate * dt)
+    }
+    const actions: string[] = []
+    if (pressed.has('cycle') || pad?.cycle) actions.push('cycle')
+    if (pressed.has('discard') || pad?.discard) actions.push('discard')
+    if (pressed.has('reset')) actions.push('reset')
+    const fwd = pressed.has('fire') || !!pad?.fire
+    const back = pressed.has('fireBack') || !!pad?.fireBack
+    if (fwd) actions.push('fire')
+    else if (back) actions.push('fireBack')
+
+    // Burnout start: remember when the throttle went down, relative to GO.
+    const down = throttle > 0.5
+    if (down && !this.throttleWasDown && (this.phase === 'countdown' || (this.phase === 'race' && this.phaseTime < 1))) {
+      this.throttleEdgeAt = this.phase === 'countdown' ? this.phaseTime - 3 : this.phaseTime
+      if (this.phase === 'race' && this.throttleEdgeAt <= CONFIG.launch_window && !this.launched.has(this.player) && this.player.bog <= 0)
+        actions.push('launch:perfect')
+    }
+    this.throttleWasDown = down
+    return {
+      throttle, brake, steer: this.steerSmooth, handbrake: k.has('handbrake') || !!pad?.handbrake, look: k.has('look') || !!pad?.look,
+      fireHeld: k.has('fire') || !!pad?.fireHeld, fireBackHeld: k.has('fireBack') || !!pad?.fireBackHeld, actions,
+    }
+  }
+
+  /** Apply one driver's input to their car (host or solo). */
+  private drive(car: Car, st: InputState, dt: number) {
+    car.input.throttle = st.throttle
+    car.input.brake = st.brake
+    car.input.steer = st.steer
+    car.input.handbrake = st.handbrake
+    if (this.phase === 'intro' || this.phase === 'countdown') return
+    for (const a of st.actions) {
+      if (a === 'cycle') car.cycle()
+      else if (a === 'discard') car.discard()
+      else if (a === 'reset') this.instantReset(car)
+      else if (a === 'launch:perfect') this.perfectLaunch(car)
+      else if (a === 'launch:bog') {
+        if (!this.launched.has(car)) {
+          this.launched.add(car)
+          car.bog = 0.7
+          this.ui(car, ['say', 'WHEELSPIN', '#f87171', 1])
+        }
+      } else if (a === 'fire' || a === 'fireBack') {
+        const backward = a === 'fireBack'
+        if (!car.bay[car.active]) car.cycle()
+        const slot = car.bay[car.active]
+        if (slot?.type === 'bolt') {
+          // Tap fires one bolt; holding fires the rest.
+          if (car.alive && this.phase === 'race' && car.consume()) {
+            fireBolt(this, car, backward)
+            this.sfx('fire:bolt', car.pos)
+            this.onFired(car)
+            car.boltHold = { backward, t: 0, next: CONFIG.bolt_hold_delay }
+          }
+        } else fire(this, car, backward)
+      }
+    }
+    if (car.boltHold) {
+      const held = car.boltHold.backward ? st.fireBackHeld : st.fireHeld
+      const slot = car.bay[car.active]
+      if (!held || slot?.type !== 'bolt' || !car.alive) car.boltHold = null
+      else {
+        car.boltHold.t += dt
+        if (car.boltHold.t >= car.boltHold.next) {
+          car.boltHold.next += CONFIG.bolt_hold_interval
+          if (car.consume()) {
+            fireBolt(this, car, car.boltHold.backward)
+            this.sfx('fire:bolt', car.pos)
+          }
+        }
+      }
+    }
+  }
+
   /* ---------- Frame ---------- */
 
   /** Test hook (exposed with ?snap): advance the simulation without rendering. */
@@ -483,16 +952,17 @@ export class Game {
   /** Test hook: a compact snapshot of the race state. */
   debugState() {
     return {
+      role: this.role,
       phase: this.phase,
       raceTime: +this.raceTime.toFixed(1),
-      fans: this.fans,
+      fans: this.player.fans,
       projectiles: this.projectiles.length,
       domes: this.domes.length,
       feed: this.killFeed.map((k) => k.text),
       cars: this.cars.map((c) => ({
-        name: c.name, place: c.place, lap: c.lap, cp: c.cpPassed, s: Math.round(c.s), kmh: Math.round(toKmh(c.speed)), hp: c.health,
+        name: c.name, ctl: c.controller, place: c.place, lap: c.lap, cp: c.cpPassed, s: Math.round(c.s), kmh: Math.round(toKmh(c.speed)), hp: c.health,
         bay: c.bay.map((b) => (b ? `${b.type}x${b.count}` : '-')).join(','), hits: c.hits, wrecks: c.wrecksDealt, wrecked: c.wrecksTaken,
-        combat: c.combat, finished: c.finished, lat: +c.lateral.toFixed(1),
+        combat: c.combat, finished: c.finished, lat: +c.lateral.toFixed(1), x: Math.round(c.pos.x), z: Math.round(c.pos.z),
       })),
     }
   }
@@ -505,17 +975,22 @@ export class Game {
       if (this.phase !== 'finished') this.setPaused(!this.paused)
     }
     if (pressed.has('music')) this.audio.toggleMusic()
-    if (this.paused) {
+    if (this.paused && !this.online) {
       if (render) this.composer.render(realDt)
       return
     }
+    // While the online pause menu is open, the car coasts.
+    if (this.paused) pressed.clear()
+    if (this.role === 'client') return this.clientFrame(realDt, pressed, pad, render)
+
     if (this.slowmo > 0) this.slowmo -= realDt
-    const dt = realDt * (this.slowmo > 0 ? 0.35 : 1)
+    const dt = realDt * (this.slowmo > 0 && !this.online ? 0.35 : 1)
     this.time += dt
     this.phaseTime += dt
 
     if (this.phase === 'intro') {
-      if (pressed.has('skip') || pressed.has('up') || pressed.has('fire') || this.phaseTime > 5.5 || pad?.fire) this.setPhase('countdown')
+      const skip = pressed.has('skip') || pressed.has('up') || pressed.has('fire') || !!pad?.fire
+      if (skip || this.phaseTime > (this.online ? 4 : 5.5)) this.setPhase('countdown')
     } else if (this.phase === 'countdown') {
       const before = Math.ceil(3 - (this.phaseTime - dt))
       const now = Math.ceil(3 - this.phaseTime)
@@ -527,15 +1002,19 @@ export class Game {
       }
     } else if (this.phase === 'race') this.raceTime += dt
 
-    this.playerInput(dt, pressed, pad)
+    const local = this.paused ? IDLE : this.readLocal(dt, pressed, pad)
+    this.lookBack = local.look
     const racing = this.phase === 'race' || this.phase === 'finished'
     for (const c of this.cars) {
-      if (!c.isPlayer || this.opts.autopilot || c.finished) {
-        if (racing) aiDrive(this, c, dt)
-        else {
-          c.input.throttle = 0
-          c.input.brake = 1
-        }
+      if (c.controller === 'local' && !this.opts.autopilot && !c.finished) this.drive(c, local, dt)
+      else if (c.controller === 'remote' && !c.finished) {
+        const st = this.remote.get(c.remoteId!) ?? IDLE
+        this.drive(c, st, dt)
+        if (st !== IDLE) st.actions = []
+      } else if (racing) aiDrive(this, c, dt)
+      else {
+        c.input.throttle = 0
+        c.input.brake = 1
       }
     }
     if (racing) {
@@ -553,21 +1032,115 @@ export class Game {
       this.updateFanRuns(dt)
       this.checkEnd()
     }
+    this.flushNet(dt)
     this.updateEffects(dt)
     for (const c of this.cars) c.syncMesh(dt, this.time)
     this.animateProps(dt)
     this.updateCamera(realDt)
+    this.updateLabels()
+    this.audio.update(dt, this.player.speed / Math.max(1, this.player.top), this.player.input.throttle, this.player.nitro > 0, this.phase !== 'intro')
+    if (!render) return
+    this.composer.render(dt)
+    this.drawMinimap()
+    this.emitHud()
+  }
+
+  /** Client: predict our own car, interpolate everyone else, render what the host says happened. */
+  private clientFrame(dt: number, pressed: Set<string>, pad: ReturnType<Game['readPad']>, render: boolean) {
+    this.time += dt
+    this.phaseTime += dt
+    if (this.phase === 'race') this.raceTime += dt
+    if (this.phase === 'countdown') {
+      const before = Math.ceil(3 - (this.phaseTime - dt))
+      const now = Math.ceil(3 - this.phaseTime)
+      if (now !== before && now > 0 && now <= 3) this.audio.countdown(false)
+    }
+    const st = this.paused ? IDLE : this.readLocal(dt, pressed, pad)
+    this.lookBack = st.look
+    const p = this.player
+    p.input.throttle = st.throttle
+    p.input.brake = st.brake
+    p.input.steer = st.steer
+    p.input.handbrake = st.handbrake
+
+    // Send inputs: every action immediately, held state at the configured rate.
+    this.inputTimer -= dt
+    const held: [number, number, number, number, number, number, number] = [
+      r2(st.throttle), r2(st.brake), r2(st.steer), st.handbrake ? 1 : 0, st.look ? 1 : 0, st.fireHeld ? 1 : 0, st.fireBackHeld ? 1 : 0,
+    ]
+    const key = held.join()
+    if (this.link && (st.actions.length || key !== this.lastSent || this.inputTimer <= 0)) {
+      this.inputTimer = 1 / CONFIG.net_input_hz
+      this.lastSent = key
+      this.link.send({ t: 'input', i: held, a: st.actions } satisfies Msg)
+    }
+
+    const k = 1 - Math.exp(-dt * 12)
+    for (const c of this.cars) {
+      const age = Math.min(0.25, Math.max(0, this.time - c.net.t))
+      const target = c.net.pos.clone().addScaledVector(c.net.vel, age)
+      const predict = c === p && this.phase === 'race' && c.alive && !c.finished
+      if (predict) {
+        // Prediction: drive locally, then ease towards where the host says we are.
+        c.step(dt, this.track)
+        const err = target.sub(c.pos)
+        if (err.length() > 8) {
+          c.pos.add(err)
+          c.vel.copy(c.net.vel)
+          c.yaw = c.net.yaw
+        } else c.pos.addScaledVector(err, Math.min(1, dt * 3))
+        let d = c.net.yaw - c.yaw
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        if (Math.abs(d) > 0.6) c.yaw += d * Math.min(1, dt * 4)
+      } else {
+        c.pos.lerp(target, k)
+        let d = c.net.yaw - c.yaw
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        c.yaw += d * k
+        const n = this.track.nearest(c.pos.x, c.pos.z, c.hint)
+        c.hint = n.i
+        c.lateral = n.lateral
+      }
+    }
+    // Projectiles drift between snapshots; domes and rings animate locally.
+    for (const pr of this.projectiles) {
+      if (!pr.lob && pr.kind !== 'mine') pr.pos.addScaledVector(pr.vel, dt)
+      pr.mesh.position.copy(pr.pos)
+      pr.mesh.rotation.y = pr.kind === 'mine' ? pr.mesh.rotation.y + dt * 3 : pr.heading
+      if (pr.trail) pr.trail.push(pr.pos)
+    }
+    for (const d of this.domes) {
+      if (d.warn > 0) d.warn -= dt
+      else d.life -= dt
+      animateDome(this, d, dt)
+    }
+    updateRings(this, dt)
+    this.updateEffects(dt)
+    for (const c of this.cars) c.syncMesh(dt, this.time)
+    this.animateProps(dt)
+    this.updateCamera(dt)
+    this.updateLabels()
+    this.audio.update(dt, p.speed / Math.max(1, p.top), p.input.throttle, p.nitro > 0, this.phase !== 'intro')
+    if (!render) return
+    this.composer.render(dt)
+    this.drawMinimap()
+    this.emitHud()
+  }
+
+  private clientLaunch() {
+    const t = this.throttleEdgeAt
+    if (!this.link || t === null || this.player.input.throttle <= 0.5) return
+    const a = Math.abs(t) <= CONFIG.launch_window ? 'launch:perfect' : t < -CONFIG.launch_window ? 'launch:bog' : null
+    if (a) this.link.send({ t: 'input', i: [1, 0, 0, 0, 0, 0, 0], a: [a] } satisfies Msg)
+  }
+
+  private updateLabels() {
     // Rival tags: hidden when very close to the camera (they would fill the screen) or far away.
     for (const c of this.cars) {
       if (!c.label) continue
       const d = c.pos.distanceTo(this.camera.position)
       c.label.visible = c.alive && d > 11 && d < 220
     }
-    this.audio.update(dt, this.player.speed / Math.max(1, this.player.top), this.player.input.throttle, this.player.nitro > 0, this.phase !== 'intro')
-    if (!render) return
-    this.composer.render(dt)
-    this.drawMinimap()
-    this.emitHud(dt)
   }
 
   private setPhase(p: Phase) {
@@ -575,98 +1148,29 @@ export class Game {
     this.phaseTime = 0
   }
 
-  private playerInput(dt: number, pressed: Set<string>, pad: ReturnType<Game['readPad']>) {
-    const p = this.player
-    const k = this.keys
-    if (this.opts.autopilot || p.finished) {
-      this.lookBack = false
-      return
-    }
-    const throttle = Math.max(k.has('up') ? 1 : 0, pad?.throttle ?? 0)
-    const brake = Math.max(k.has('down') ? 1 : 0, pad?.brake ?? 0)
-    let steer = (k.has('right') ? 1 : 0) - (k.has('left') ? 1 : 0)
-    // Smooth keyboard steering; analogue sticks pass straight through.
-    if (pad?.steer) this.steerSmooth = pad.steer
-    else {
-      const rate = steer === 0 || Math.sign(steer) !== Math.sign(this.steerSmooth) ? 9 : 5
-      this.steerSmooth += THREE.MathUtils.clamp(steer - this.steerSmooth, -rate * dt, rate * dt)
-    }
-    steer = this.steerSmooth
-    p.input.throttle = throttle
-    p.input.brake = brake
-    p.input.steer = steer
-    p.input.handbrake = k.has('handbrake') || !!pad?.handbrake
-    this.lookBack = k.has('look') || !!pad?.look
-
-    // Burnout start: remember when the throttle went down.
-    const down = throttle > 0.5
-    if (down && !this.throttleWasDown && (this.phase === 'countdown' || (this.phase === 'race' && this.phaseTime < 1))) {
-      this.throttleEdgeAt = this.phase === 'countdown' ? this.phaseTime - 3 : this.phaseTime
-      if (this.phase === 'race') this.lateLaunch()
-    }
-    this.throttleWasDown = down
-
-    if (this.phase === 'intro' || this.phase === 'countdown') return
-    if (pressed.has('cycle') || pad?.cycle) p.cycle()
-    if (pressed.has('discard') || pad?.discard) p.discard()
-    if (pressed.has('reset')) this.instantReset(p)
-    const fwd = pressed.has('fire') || !!pad?.fire
-    const back = pressed.has('fireBack') || !!pad?.fireBack
-    if (fwd || back) {
-      if (!p.bay[p.active]) p.cycle()
-      const slot = p.bay[p.active]
-      if (slot?.type === 'bolt') {
-        // Tap fires one bolt; holding fires the rest.
-        if (p.consume()) {
-          fireBolt(this, p, back && !fwd)
-          this.audio.fire('bolt')
-          this.onFired(p, 'bolt', back && !fwd)
-          this.boltHold = { backward: back && !fwd, t: 0, next: CONFIG.bolt_hold_delay }
-        }
-      } else fire(this, p, back && !fwd)
-    }
-    if (this.boltHold) {
-      const held = this.boltHold.backward ? k.has('fireBack') || !!pad?.fireBackHeld : k.has('fire') || !!pad?.fireHeld
-      const slot = p.bay[p.active]
-      if (!held || slot?.type !== 'bolt') this.boltHold = null
-      else {
-        this.boltHold.t += dt
-        if (this.boltHold.t >= this.boltHold.next) {
-          this.boltHold.next += CONFIG.bolt_hold_interval
-          if (p.consume()) {
-            fireBolt(this, p, this.boltHold.backward)
-            this.audio.fire('bolt')
-          }
-        }
-      }
-    }
-  }
-
   private launch() {
     for (const c of this.cars) {
-      if (c.isPlayer && !this.opts.autopilot) continue
+      if (c.controller !== 'ai' && !(c.isPlayer && this.opts.autopilot)) continue
       if (Math.random() < c.skill * 0.6) c.boost = CONFIG.launch_boost
     }
     const p = this.player
     if (this.opts.autopilot) return
     const t = this.throttleEdgeAt
     if (t !== null && p.input.throttle > 0.5) {
-      if (Math.abs(t) <= CONFIG.launch_window) this.perfectLaunch()
+      if (Math.abs(t) <= CONFIG.launch_window) this.perfectLaunch(p)
       else if (t < -CONFIG.launch_window) {
+        this.launched.add(p)
         p.bog = 0.7
         this.say('WHEELSPIN', '#f87171', 1)
       }
     }
   }
 
-  private lateLaunch() {
-    const t = this.throttleEdgeAt
-    if (t !== null && t <= CONFIG.launch_window && this.player.boost <= 0 && this.player.bog <= 0 && this.phaseTime < CONFIG.launch_window + 0.05) this.perfectLaunch()
-  }
-
-  private perfectLaunch() {
-    this.player.boost = CONFIG.launch_boost
-    this.addFans(CONFIG.fans_perfect_launch, 'PERFECT LAUNCH')
+  private perfectLaunch(car: Car) {
+    if (this.launched.has(car) || this.phaseTime > CONFIG.launch_window + 0.3) return
+    this.launched.add(car)
+    car.boost = CONFIG.launch_boost
+    this.addFans(car, CONFIG.fans_perfect_launch, 'PERFECT LAUNCH')
   }
 
   /* ---------- Simulation ---------- */
@@ -675,11 +1179,11 @@ export class Game {
     // Wall hits: damage above the threshold, instant reset on a head-on hit.
     if (c.alive && c.wallImpact > 0) {
       const sp = c.speed
-      if (c.wallImpact > 3 && c.isPlayer) {
-        this.audio.wall()
-        this.shake(Math.min(0.5, c.wallImpact * 0.04))
+      if (c.wallImpact > 3) {
+        this.ui(c, ['sfx', 'wall'])
+        this.shakeFor(c, Math.min(0.5, c.wallImpact * 0.04))
+        this.burst(c.pos.clone().setY(0.6), 10, 8, 0.4, 0.4, new THREE.Color(3, 2.2, 1.2))
       }
-      if (c.wallImpact > 3) this.fx.burst(c.pos.clone().setY(0.6), 10, 8, 0.4, 0.4, new THREE.Color(3, 2.2, 1.2))
       const before = sp + c.wallImpact
       if (c.wallImpact > 4 && toKmh(before) > CONFIG.wall_hit_damage_threshold && c.wallCooldown <= 0) {
         c.wallCooldown = 0.6
@@ -689,7 +1193,7 @@ export class Game {
       if (c.alive && c.wallImpact > Math.max(25, before * 0.8)) this.instantReset(c)
     }
     // Stuck or off course: reset.
-    if (c.alive && this.phase === 'race' && c.speed < 1.5 && (c.input.throttle > 0 || !c.isPlayer)) {
+    if (c.alive && this.phase === 'race' && c.speed < 1.5 && (c.input.throttle > 0 || c.controller === 'ai')) {
       c.stuckTime += dt
       if (c.stuckTime > CONFIG.stuck_reset) this.instantReset(c)
     } else c.stuckTime = 0
@@ -705,7 +1209,7 @@ export class Game {
         c.cpPassed = 0
         c.safeS = 0
         if (c.lap > this.laps && !c.finished) this.finishCar(c)
-        else if (c.isPlayer && c.lap === this.laps && this.laps > 1) this.say('FINAL LAP', '#fde047', 1.6)
+        else if (c.lap === this.laps && this.laps > 1) this.ui(c, ['say', 'FINAL LAP', '#fde047', 1.6])
       }
     } else if (prev < L * 0.25 && s > L * 0.75 && c.lap > 0) {
       c.lap--
@@ -721,15 +1225,15 @@ export class Game {
     }
     c.progress = c.lap * L + s
 
-    // Drift Fan Points (player).
-    if (c.isPlayer && c.drifting && c.speed > 12) {
+    // Drift Fan Points.
+    if (c.human && c.drifting && c.speed > 12) {
       c.driftFanAcc += dt
-      if (this.fanRun?.kind === 'drift') this.fanRun.progress += c.speed * dt
+      if (c.isPlayer && this.fanRun?.kind === 'drift') this.fanRun.progress += c.speed * dt
       while (c.driftFanAcc >= 1) {
         c.driftFanAcc -= 1
-        this.addFans(CONFIG.fans_drift_per_s, 'DRIFT')
+        this.addFans(c, CONFIG.fans_drift_per_s, 'DRIFT')
       }
-    } else if (c.isPlayer) c.driftFanAcc = 0
+    } else c.driftFanAcc = 0
 
     // Wreck timer and respawn.
     if (c.wrecked > 0) {
@@ -742,32 +1246,39 @@ export class Game {
     c.finished = true
     c.finishTime = this.raceTime
     this.finishOrder.push(c)
-    if (this.mode === 'combat') {
-      const bonus = CONFIG.combat_finish[this.finishOrder.length - 1] ?? 0
-      c.combat += bonus
-    }
-    if (c.isPlayer) {
-      const place = c.place
+    if (c.human && this.firstHumanFinish < 0) this.firstHumanFinish = this.raceTime
+    if (this.mode === 'combat') c.combat += CONFIG.combat_finish[this.finishOrder.length - 1] ?? 0
+    if (c.human) {
+      const place = this.finishOrder.length
       if (this.mode === 'race') {
         const fans = CONFIG.fans_finish[place - 1] ?? 0
-        if (fans) this.addFans(fans, `FINISH P${place}`)
+        if (fans) this.addFans(c, fans, `FINISH P${place}`)
       }
-      this.say(place === 1 ? 'WINNER' : `FINISHED P${place}`, place <= 3 ? '#fde047' : '#e2e8f0', 3)
+      this.ui(c, ['say', place === 1 ? 'WINNER' : `FINISHED P${place}`, place <= 3 ? '#fde047' : '#e2e8f0', 3])
     }
   }
 
   private checkEnd() {
     if (this.resultSent) return
-    const timeUp = this.mode === 'combat' && this.raceTime >= CONFIG.combat_track_time_limit
-    if (this.player.finished || timeUp) {
-      if (this.phase !== 'finished') {
-        this.setPhase('finished')
-        if (timeUp) this.say('TIME', '#fde047', 3)
+    const timeUp = this.raceTime >= this.timeLimit
+    let done: boolean
+    if (this.mode === 'deathmatch') done = timeUp
+    else if (this.role === 'host') {
+      const humans = this.cars.filter((c) => c.human)
+      done = timeUp || humans.every((c) => c.finished) || (this.firstHumanFinish >= 0 && this.raceTime - this.firstHumanFinish > CONFIG.net_finish_grace)
+    } else done = this.player.finished || timeUp
+    if (!done) return
+    if (this.phase !== 'finished') {
+      this.setPhase('finished')
+      if (timeUp) for (const c of this.cars) if (c.human) this.ui(c, ['say', 'TIME', '#fde047', 3])
+    }
+    if (this.phaseTime > 2.2) {
+      this.resultSent = true
+      if (this.role === 'host' && this.link) {
+        for (const c of this.cars) if (c.controller === 'remote' && c.remoteId) this.link.send({ t: 'result', r: this.results(c) } satisfies Msg, c.remoteId)
+        this.flushNet(1)
       }
-      if (this.phaseTime > 2.2) {
-        this.resultSent = true
-        this.onFinish?.(this.results())
-      }
+      this.onFinish?.(this.results(this.player))
     }
   }
 
@@ -833,25 +1344,27 @@ export class Game {
             if (vrel < 0) {
               // Heavier-feeling cars (Stability) get pushed less.
               const wa = 11 - A.model.stats.stability, wb = 11 - B.model.stats.stability
-              const j = (-(1 + 0.3) * vrel) / 1
-              A.vel.addScaledVector(n, (-j * wa) / (wa + wb))
-              B.vel.addScaledVector(n, (j * wb) / (wa + wb))
+              const imp = -(1 + 0.3) * vrel
+              A.vel.addScaledVector(n, (-imp * wa) / (wa + wb))
+              B.vel.addScaledVector(n, (imp * wb) / (wa + wb))
               if (!hit && -vrel > kmh(CONFIG.ram_damage_threshold)) this.ram(A, B)
               hit = true
             }
           }
         }
-        // Near miss / draft for the player.
-        if (!hit && (A.isPlayer || B.isPlayer)) {
-          const other = A.isPlayer ? B : A
-          const me = A.isPlayer ? A : B
-          const gap = me.pos.distanceTo(other.pos) - 2.2
-          const rel = me.vel.clone().sub(other.vel).length()
-          if (gap > 0 && gap < CONFIG.near_miss_distance && rel > CONFIG.near_miss_speed && this.phase === 'race') {
-            const last = this.nearMiss.get(other.id) ?? -99
-            if (this.time - last > 3) {
-              this.nearMiss.set(other.id, this.time)
-              this.addFans(CONFIG.fans_near_miss, 'NEAR MISS')
+        // Near miss for human drivers.
+        if (!hit && (A.human || B.human) && this.phase === 'race') {
+          for (const [me, other] of [[A, B], [B, A]] as const) {
+            if (!me.human) continue
+            const gap = me.pos.distanceTo(other.pos) - 2.2
+            const rel = me.vel.clone().sub(other.vel).length()
+            if (gap > 0 && gap < CONFIG.near_miss_distance && rel > CONFIG.near_miss_speed) {
+              const key = me.id * 100 + other.id
+              const last = this.nearMiss.get(key) ?? -99
+              if (this.time - last > 3) {
+                this.nearMiss.set(key, this.time)
+                this.addFans(me, CONFIG.fans_near_miss, 'NEAR MISS')
+              }
             }
           }
         }
@@ -867,17 +1380,17 @@ export class Game {
     B.vel.multiplyScalar(0.85)
     this.damage(A, 1, { by: B, weapon: 'ram', effect: 'none' })
     this.damage(B, 1, { by: A, weapon: 'ram', effect: 'none' })
-    if (A.isPlayer || B.isPlayer) {
-      this.audio.hit(false)
-      this.shake(0.3)
+    for (const c of [A, B]) {
+      this.ui(c, ['sfx', 'hit'])
+      this.shakeFor(c, 0.3)
     }
-    this.fx.burst(A.pos.clone().lerp(B.pos, 0.5).setY(0.8), 16, 9, 0.4, 0.5, new THREE.Color(3, 2.4, 1.4))
+    this.burst(A.pos.clone().lerp(B.pos, 0.5).setY(0.8), 16, 9, 0.4, 0.5, new THREE.Color(3, 2.4, 1.4))
   }
 
   private updatePickups(dt: number) {
-    const respawn = this.mode === 'combat' ? CONFIG.combat_pickup_respawn : CONFIG.pickup_respawn
+    const respawn = this.mode === 'combat' ? CONFIG.combat_pickup_respawn : this.mode === 'deathmatch' ? CONFIG.deathmatch_pickup_respawn : CONFIG.pickup_respawn
     this.refuseCooldown -= dt
-    const r2 = CONFIG.pickup_radius ** 2
+    const r2p = CONFIG.pickup_radius ** 2
     for (const p of this.pickups) {
       if (!p.available) {
         p.timer -= dt
@@ -890,19 +1403,19 @@ export class Game {
       for (const c of this.cars) {
         if (!c.alive) continue
         const dx = c.pos.x - p.pos.x, dz = c.pos.z - p.pos.z
-        if (dx * dx + dz * dz > r2) continue
+        if (dx * dx + dz * dz > r2p) continue
         if (c.isPlayer) this.touchRow(p.row)
         if (c.give(p.type)) {
           p.available = false
           p.timer = respawn
           p.group.visible = false
           if (c.isPlayer) this.audio.pickup(p.type)
-          this.fx.burst(p.pos.clone().setY(1.4), 18, 7, 0.45, 0.8, new THREE.Color(POWER_COLORS[p.type]).multiplyScalar(2))
+          this.burst(p.pos.clone().setY(1.4), 18, 7, 0.45, 0.8, new THREE.Color(POWER_COLORS[p.type]).multiplyScalar(2))
           break
-        } else if (c.isPlayer && this.refuseCooldown <= 0) {
-          this.refuseCooldown = 1
-          this.audio.refused()
-          this.say('BAY FULL · X TO DISCARD', '#f87171', 1)
+        } else if (c.human && (this.refuseCooldown <= 0 || !c.isPlayer)) {
+          if (c.isPlayer) this.refuseCooldown = 1
+          this.ui(c, ['sfx', 'refused'])
+          this.ui(c, ['say', 'BAY FULL · X TO DISCARD', '#f87171', 1])
         }
       }
     }
@@ -927,20 +1440,26 @@ export class Game {
   }
 
   private rubberBand() {
+    // Measured against the rear-most human so nobody online is left behind.
+    const humans = this.cars.filter((c) => c.human)
+    if (!humans.length) humans.push(this.player)
     const ref = this.player.baseTop * 0.75
     const lead = Math.max(...this.cars.map((c) => c.progress))
+    const backHuman = Math.min(...humans.map((c) => c.progress))
+    const topHuman = Math.min(...humans.map((c) => c.baseTop))
     for (const c of this.cars) {
-      if (c.isPlayer && !this.opts.autopilot) continue
+      if (c.controller !== 'ai') continue
       const behindLeader = (lead - c.progress) / ref
-      const aheadOfPlayer = (c.progress - this.player.progress) / ref
+      const aheadOfPlayer = (c.progress - backHuman) / ref
       c.rubber = 1 + (behindLeader > CONFIG.ai_rubberband_gap ? CONFIG.ai_rubberband_mult : 0) - (aheadOfPlayer > CONFIG.ai_rubberband_gap ? CONFIG.ai_rubberband_mult : 0)
-      c.topCap = this.player.baseTop * (1 + CONFIG.ai_max_topspeed_over_player)
+      c.topCap = topHuman * (1 + CONFIG.ai_max_topspeed_over_player)
     }
   }
 
-  /** Rank by lap, then checkpoint, then distance along the track (progress covers all three). */
+  /** Rank by lap, then checkpoint, then distance (progress covers all three). Deathmatch ranks by score. */
   private rank() {
     const sorted = [...this.cars].sort((a, b) => {
+      if (this.mode === 'deathmatch') return b.combat - a.combat || b.progress - a.progress
       if (a.finished && b.finished) return a.finishTime - b.finishTime
       if (a.finished !== b.finished) return a.finished ? -1 : 1
       return b.progress - a.progress
@@ -962,10 +1481,8 @@ export class Game {
     this.shakeAmt = Math.max(this.shakeAmt, a)
   }
 
-  onFired(car: Car, _type: PowerType, _backward: boolean) {
-    void _type
-    void _backward
-    if (car.isPlayer) this.shake(0.08)
+  onFired(car: Car) {
+    this.shakeFor(car, 0.08)
   }
 
   /* ---------- Damage, wrecks and scoring ---------- */
@@ -981,9 +1498,9 @@ export class Game {
     if (victim.shield > 0 && o.weapon !== 'wall') {
       // The Shield is gone the moment it absorbs one hit.
       victim.shield = 0
-      this.fx.burst(victim.pos.clone().setY(1), 40, 10, 0.5, 0.8, new THREE.Color(2.5, 2.5, 2.8))
-      if (victim.isPlayer || this.near(victim.pos, 80)) this.audio.shieldBreak()
-      if (victim.isPlayer) this.say('SHIELD BLOCKED', '#e0f2fe', 0.9)
+      this.burst(victim.pos.clone().setY(1), 40, 10, 0.5, 0.8, new THREE.Color(2.5, 2.5, 2.8))
+      this.sfx('shield', victim.pos)
+      this.ui(victim, ['say', 'SHIELD BLOCKED', '#e0f2fe', 0.9])
       return false
     }
     victim.health = Math.max(0, victim.health - amount)
@@ -1013,13 +1530,10 @@ export class Game {
         break
     }
     if (o.weapon !== 'wall' && o.weapon !== 'ram') {
-      this.fx.burst(victim.pos.clone().setY(1), 24, 9, 0.5, 0.9, new THREE.Color(color).multiplyScalar(2.2))
-      if (victim.isPlayer || by?.isPlayer || this.near(victim.pos, 90)) this.audio.hit(amount >= 3)
+      this.burst(victim.pos.clone().setY(1), 24, 9, 0.5, 0.9, new THREE.Color(color).multiplyScalar(2.2))
+      this.sfx(amount >= 3 ? 'hitHeavy' : 'hit', victim.pos)
     }
-    if (victim.isPlayer) {
-      this.hitFlash = { color, t: 0.6 }
-      this.shake(amount >= 3 ? 0.7 : 0.25)
-    }
+    this.ui(victim, ['hit', color, amount >= 3 ? 1 : 0])
     if (by && o.weapon !== 'wall') {
       if (o.weapon !== 'ram') {
         by.hits++
@@ -1027,11 +1541,9 @@ export class Game {
       }
       if (victim.health > 0 && o.weapon !== 'ram') {
         by.combat += CONFIG.combat_hit
-        if (by.isPlayer) {
-          this.addFans(CONFIG.fans_hit, 'HIT')
-          if (victim.place === 1) this.addFans(CONFIG.fans_hit_leader, 'LEADER HIT')
-          if (this.fanRun && (this.fanRun.kind === 'hit' || (this.fanRun.kind === 'shunt' && o.weapon === 'shunt'))) this.fanRun.progress++
-        }
+        this.addFans(by, CONFIG.fans_hit, 'HIT')
+        if (victim.place === 1) this.addFans(by, CONFIG.fans_hit_leader, 'LEADER HIT')
+        if (by.isPlayer && this.fanRun && (this.fanRun.kind === 'hit' || (this.fanRun.kind === 'shunt' && o.weapon === 'shunt'))) this.fanRun.progress++
       }
     }
     if (victim.health <= 0) this.wreck(victim, by, o.weapon, o.eventId ?? 0)
@@ -1049,15 +1561,13 @@ export class Game {
     victim.wreckVy = 9
     victim.lastWreckedBy = by
     const at = victim.pos.clone().setY(1)
-    this.fx.burst(at, 90, 20, 1.0, 2.2, new THREE.Color(3, 1.3, 0.35), 1, 1.2, 1)
-    this.fx.burst(at, 40, 30, 0.5, 1.0, new THREE.Color(3, 2.6, 1.6), 1, 0.6)
-    for (let k = 0; k < 30; k++) this.smoke.emit(at, new THREE.Vector3((Math.random() - 0.5) * 6, 3 + Math.random() * 4, (Math.random() - 0.5) * 6), 2.2, 3, new THREE.Color(0.08, 0.07, 0.09), 0.8, 1.6, 0.8)
-    if (victim.isPlayer || by?.isPlayer || this.near(victim.pos, 120)) this.audio.explosion()
-    if (victim.isPlayer) {
-      this.slowmo = 0.7
-      this.shake(1)
-      this.wreckCam.copy(this.camera.position)
-    }
+    this.burst(at, 90, 20, 1.0, 2.2, new THREE.Color(3, 1.3, 0.35), 1, 1.2, 1)
+    this.burst(at, 40, 30, 0.5, 1.0, new THREE.Color(3, 2.6, 1.6), 1, 0.6)
+    this.wreckSmoke(at)
+    if (this.role === 'host') this.fxLog.push(['x', r2(at.x), r2(at.y), r2(at.z)])
+    this.sfx('boom', victim.pos)
+    this.ui(victim, ['slow', 0.7])
+    this.shakeFor(victim, 1)
     const weaponName = weapon === 'wall' ? 'Wall' : weapon === 'ram' ? 'Ram' : weapon[0].toUpperCase() + weapon.slice(1)
     if (by) {
       by.wrecksDealt++
@@ -1073,29 +1583,34 @@ export class Game {
       if (eventId && count >= 2 && (weapon === 'barge' || weapon === 'shock' || weapon === 'mine')) pts += CONFIG.combat_multi_wreck
       by.combat += Math.round(pts)
       victim.combat = Math.max(0, victim.combat + CONFIG.combat_wrecked_penalty)
-      if (by.isPlayer) {
-        this.addFans(CONFIG.fans_wreck, 'WRECK')
-        if (victim.place === 1) this.addFans(CONFIG.fans_hit_leader, 'LEADER WRECKED')
-        if (this.mode === 'combat') this.popup(`+${Math.round(pts)} CP${by.chainMult > 1 ? ` ×${by.chainMult}` : ''}`, '#f472b6')
-        this.slowmo = Math.max(this.slowmo, 0.35)
-      }
-      this.feed(`${by.name} wrecked ${victim.name} — ${weaponName}`, by.isPlayer || victim.isPlayer)
-    } else this.feed(`${victim.name} wrecked — ${weaponName}`, victim.isPlayer)
-    if (victim.isPlayer) this.say('WRECKED', '#ef4444', CONFIG.respawn_delay)
+      this.addFans(by, CONFIG.fans_wreck, 'WRECK')
+      if (victim.place === 1) this.addFans(by, CONFIG.fans_hit_leader, 'LEADER WRECKED')
+      if (this.armed) this.ui(by, ['pop', `+${Math.round(pts)} CP${by.chainMult > 1 ? ` ×${by.chainMult}` : ''}`, '#f472b6'])
+      this.ui(by, ['slow', 0.35])
+      this.feed(`${by.name} wrecked ${victim.name} — ${weaponName}`, by, victim)
+    } else {
+      // In Deathmatch your own wrecks cost points too.
+      if (this.mode === 'deathmatch') victim.combat = Math.max(0, victim.combat + CONFIG.combat_wrecked_penalty)
+      this.feed(`${victim.name} wrecked — ${weaponName}`, victim, null)
+    }
+    this.ui(victim, ['say', 'WRECKED', '#ef4444', CONFIG.respawn_delay])
   }
 
-  private wreckCam = new THREE.Vector3()
+  private wreckSmoke(at: THREE.Vector3) {
+    for (let k = 0; k < 30; k++)
+      this.smoke.emit(at, new THREE.Vector3((Math.random() - 0.5) * 6, 3 + Math.random() * 4, (Math.random() - 0.5) * 6), 2.2, 3, new THREE.Color(0.08, 0.07, 0.09), 0.8, 1.6, 0.8)
+  }
 
-  private addFans(n: number, label: string) {
-    if (n <= 0) return
-    this.fans += n
-    this.popup(`+${n} ${label}`, '#fde047')
-    this.audio.fans()
-    if (this.mode === 'race' && !this.fanTargetMet && this.fans >= CONFIG.fan_target_goal) {
-      this.fanTargetMet = true
-      this.fans += CONFIG.fans_target
-      this.popup(`+${CONFIG.fans_target} FAN TARGET MET`, '#4ade80')
-      this.audio.crowd()
+  private addFans(car: Car, n: number, label: string) {
+    if (n <= 0 || !car.human) return
+    car.fans += n
+    this.ui(car, ['pop', `+${n} ${label}`, '#fde047'])
+    this.ui(car, ['sfx', 'fans'])
+    if (this.mode === 'race' && !car.fanTargetMet && car.fans >= CONFIG.fan_target_goal) {
+      car.fanTargetMet = true
+      car.fans += CONFIG.fans_target
+      this.ui(car, ['pop', `+${CONFIG.fans_target} FAN TARGET MET`, '#4ade80'])
+      this.ui(car, ['sfx', 'crowd'])
     }
   }
 
@@ -1104,7 +1619,12 @@ export class Game {
     if (this.popups.length > 6) this.popups.shift()
   }
 
-  private feed(text: string, mine: boolean) {
+  private feed(text: string, a: Car | null, b: Car | null) {
+    this.addFeed(text, !!(a?.isPlayer || b?.isPlayer))
+    if (this.role === 'host') this.fxLog.push(['f', text, a ? this.cars.indexOf(a) : -1, b ? this.cars.indexOf(b) : -1])
+  }
+
+  private addFeed(text: string, mine: boolean) {
     this.killFeed.push({ id: this.popupId++, text, mine, age: 0 })
     if (this.killFeed.length > 5) this.killFeed.shift()
   }
@@ -1113,10 +1633,10 @@ export class Game {
     this.banner = { text, color, t }
   }
 
-  /* ---------- Fan Runs ---------- */
+  /* ---------- Fan Runs (solo races) ---------- */
 
   private updateFanRuns(dt: number) {
-    if (this.mode !== 'race') return
+    if (this.mode !== 'race' || this.role !== 'solo') return
     const p = this.player
     for (const icon of this.fanIcons) {
       icon.group.visible = icon.state === 'waiting' && p.lap === icon.lap
@@ -1140,7 +1660,7 @@ export class Game {
       this.fanRun.time -= dt
       if (this.fanRun.progress >= this.fanRun.goal) {
         this.fanRunsDone++
-        this.addFans(CONFIG.fans_fan_run, 'FAN RUN')
+        this.addFans(p, CONFIG.fans_fan_run, 'FAN RUN')
         this.audio.crowd()
         this.say('FAN RUN COMPLETE', '#4ade80', 1.6)
         this.fanRun = null
@@ -1163,7 +1683,7 @@ export class Game {
       if (c.alive && frac < CONFIG.smoke_below && Math.random() < dt * 18)
         this.smoke.emit(hood, new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.5, (Math.random() - 0.5) * 1.5).addScaledVector(c.vel, 0.3), 1.2, 1.4, smokeCol, 0.55, 2)
       if ((c.alive && frac < CONFIG.fire_below) || c.wrecked > 0)
-        if (Math.random() < dt * 30) this.fx.emit(hood, new THREE.Vector3((Math.random() - 0.5), 3, (Math.random() - 0.5)).addScaledVector(c.vel, 0.5), 0.45, 1.0, fireCol, 0.9, 0.5)
+        if (Math.random() < dt * 30) this.fx.emit(hood, new THREE.Vector3(Math.random() - 0.5, 3, Math.random() - 0.5).addScaledVector(c.vel, 0.5), 0.45, 1.0, fireCol, 0.9, 0.5)
       if (c.drifting && c.speed > 10 && Math.random() < dt * 40) {
         for (const side of [-0.9, 0.9]) {
           const p = c.pos.clone().addScaledVector(f, -1.4).addScaledVector(c.right, side).setY(0.3)
@@ -1291,8 +1811,13 @@ export class Game {
       if (c.isPlayer) continue
       g.fillStyle = c.alive ? c.model.glow : 'rgba(255,255,255,0.3)'
       g.beginPath()
-      g.arc(X(c.pos.x), Y(c.pos.z), 4, 0, Math.PI * 2)
+      g.arc(X(c.pos.x), Y(c.pos.z), c.human ? 5.5 : 4, 0, Math.PI * 2)
       g.fill()
+      if (c.human) {
+        g.strokeStyle = '#ffffff'
+        g.lineWidth = 1.5
+        g.stroke()
+      }
     }
     const p = this.player
     g.save()
@@ -1311,8 +1836,7 @@ export class Game {
     g.restore()
   }
 
-  private emitHud(dt: number) {
-    void dt
+  private emitHud() {
     if (!this.onHud) return
     const p = this.player
     let reticle: Hud['reticle'] = null
@@ -1338,6 +1862,7 @@ export class Game {
     const leader = this.combatLeader()
     const chainLeft = CONFIG.combat_chain_window - (this.time - p.lastWreckAt)
     this.onHud({
+      mode: this.mode,
       phase: this.phase,
       countdown: this.phase === 'countdown' ? Math.ceil(3 - this.phaseTime) : this.phase === 'race' && this.phaseTime < 0.8 ? 0 : -1,
       intro: this.phase === 'intro' ? this.introLines : [],
@@ -1357,38 +1882,38 @@ export class Game {
       reticle,
       incoming,
       popups: this.popups.map((x) => ({ ...x })),
-      fans: this.fans,
+      fans: p.fans,
       fanTarget: CONFIG.fan_target_goal,
       fanRun: this.fanRun ? { label: FAN_RUN_LABEL[this.fanRun.kind], progress: this.fanRun.progress, goal: this.fanRun.goal, time: this.fanRun.time } : null,
       killFeed: this.killFeed.map(({ id, text, mine }) => ({ id, text, mine })),
-      chain: this.mode === 'combat' && p.chainMult > 1 && chainLeft > 0 ? { mult: p.chainMult, time: chainLeft } : null,
-      combat:
-        this.mode === 'combat'
-          ? { score: p.combat, timeLeft: Math.max(0, CONFIG.combat_track_time_limit - this.raceTime), leader: leader?.name ?? '—', leaderScore: leader?.combat ?? 0 }
-          : null,
+      chain: this.armed && p.chainMult > 1 && chainLeft > 0 ? { mult: p.chainMult, time: chainLeft } : null,
+      combat: this.armed
+        ? { score: p.combat, timeLeft: Math.max(0, this.timeLimit - this.raceTime), leader: leader?.name ?? '—', leaderScore: leader?.combat ?? 0 }
+        : null,
       banner: this.banner ? { text: this.banner.text, color: this.banner.color } : null,
       hitFlash: this.hitFlash?.color ?? null,
       hitFlashAmt: this.hitFlash ? this.hitFlash.t / 0.6 : 0,
       lookBack: this.lookBack,
       paused: this.paused,
+      online: this.online,
     })
   }
 
   /* ---------- Results ---------- */
 
-  private results(): RaceResult {
+  private results(me: Car): RaceResult {
     this.rank()
-    // Combat Points ranks by points; a race ranks by finishing order.
-    const order = [...this.cars].sort((a, b) => (this.mode === 'combat' ? b.combat - a.combat || a.place - b.place : a.place - b.place))
+    // Combat Points and Deathmatch rank by points; a race ranks by finishing order.
+    const order = [...this.cars].sort((a, b) => (this.armed ? b.combat - a.combat || a.place - b.place : a.place - b.place))
     const rows: ResultRow[] = order.map((c, i) => ({
       name: c.name, car: c.model.name, place: i + 1, time: c.finished ? c.finishTime : null, combat: c.combat,
-      wrecks: c.wrecksDealt, isPlayer: c.isPlayer, color: c.model.glow,
+      wrecks: c.wrecksDealt, isPlayer: c === me, human: c.human, color: c.model.glow,
     }))
-    const p = this.player
-    const place = order.indexOf(p) + 1
-    const position = place === 1 ? 3 : place === 2 ? 2 : place === 3 ? 1 : 0
-    const fanTarget = this.fanTargetMet ? 1 : 0
-    const fanRuns = this.fanRunsTotal > 0 && this.fanRunsDone === this.fanRunsTotal && this.fanRunsTotal === this.laps ? 1 : 0
+    const place = order.indexOf(me) + 1
+    const position = this.mode !== 'race' ? 0 : place === 1 ? 3 : place === 2 ? 2 : place === 3 ? 1 : 0
+    const fanTarget = me.fanTargetMet && this.mode === 'race' ? 1 : 0
+    const solo = this.role === 'solo'
+    const fanRuns = solo && this.fanRunsTotal > 0 && this.fanRunsDone === this.fanRunsTotal && this.fanRunsTotal === this.laps ? 1 : 0
     const top = (f: (c: Car) => number, fmt: (v: number) => string, title: string, min = false) => {
       const sorted = [...this.cars].sort((a, b) => (min ? f(a) - f(b) : f(b) - f(a)))
       const c = sorted[0]
@@ -1403,10 +1928,10 @@ export class Game {
       track: this.track.name,
       rows,
       place,
-      fans: this.fans,
-      fanTargetMet: this.fanTargetMet,
-      fanRunsDone: this.fanRunsDone,
-      fanRunsTotal: Math.max(this.fanRunsTotal, this.mode === 'race' ? this.laps : 0),
+      fans: me.fans,
+      fanTargetMet: me.fanTargetMet,
+      fanRunsDone: solo ? this.fanRunsDone : 0,
+      fanRunsTotal: solo ? Math.max(this.fanRunsTotal, this.mode === 'race' ? this.laps : 0) : 0,
       lights: { position, fanTarget, fanRuns, total: position + fanTarget + fanRuns },
       awards: [
         top((c) => c.shuntHits, (v) => `${v} hits`, 'Most Shunt Hits'),
@@ -1415,8 +1940,34 @@ export class Game {
         top((c) => c.damageTaken, (v) => `${v} damage taken`, 'Cleanest Driver', true),
       ],
       combat: Object.fromEntries(this.cars.map((c) => [c.name, c.combat])),
+      online: this.online,
     }
   }
+}
+
+/* ---------- Snapshot types ---------- */
+
+interface Snapshot {
+  ph: number
+  pt: number
+  rt: number
+  c: (number | string)[][]
+  p: number[][]
+  d: number[][]
+  k: string
+  fx: unknown[]
+  t: number
+}
+
+type FxEvent =
+  | ['b', number, number, number, number, number, number, number, number, number, number, number, number, number]
+  | ['s', string, number, number]
+  | ['r', number, number]
+  | ['x', number, number, number]
+  | ['f', string, number, number]
+
+function parseBay(s: string) {
+  return s.split(',').map((x) => (x ? { type: POWER_TYPES[Number(x[0])], count: Number(x.slice(1)) } : null))
 }
 
 /* ---------- Sky ---------- */

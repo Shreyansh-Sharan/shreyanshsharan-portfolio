@@ -1,15 +1,18 @@
 // The eight power-ups: firing (forward / backward), projectiles, hazards and their counters.
+// Only the host (or a solo game) simulates these; clients rebuild the visuals from snapshots.
 import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
 import { POWER_COLORS } from './track'
-import { Trail, glyphTexture } from './fx'
+import { Trail } from './fx'
 import { radialTexture } from './cars'
 import type { Car } from './car'
 import type { Game } from './game'
 
 export type ProjectileKind = 'shunt' | 'rshunt' | 'bolt' | 'mine'
+export const PROJECTILE_KINDS: ProjectileKind[] = ['shunt', 'rshunt', 'bolt', 'mine']
 
 export interface Projectile {
+  id: number
   kind: ProjectileKind
   owner: Car
   pos: THREE.Vector3
@@ -29,6 +32,7 @@ export interface Projectile {
 }
 
 export interface Dome {
+  id: number
   owner: Car
   pos: THREE.Vector3
   warn: number
@@ -37,6 +41,7 @@ export interface Dome {
   eventId: number
   mesh: THREE.Group
   bolt: THREE.Mesh
+  struck: boolean
 }
 
 export interface Ring {
@@ -46,7 +51,7 @@ export interface Ring {
 }
 
 const tmp = new THREE.Vector3()
-let nextEvent = 1
+let nextId = 1
 
 const orbGeo = new THREE.IcosahedronGeometry(0.55, 1)
 const boltGeo = new THREE.CapsuleGeometry(0.16, 1.4, 3, 6).rotateX(Math.PI / 2)
@@ -62,6 +67,68 @@ function glowSprite(color: string, size: number, intensity = 1.6) {
 
 function emissive(color: string, k = 2.5) {
   return new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(k), toneMapped: false })
+}
+
+/** Mesh and trail for a projectile (used by the simulation and by clients rebuilding snapshots). */
+export function projectileVisual(game: Game, kind: ProjectileKind, lobbed = false) {
+  const mesh = new THREE.Group()
+  let trail: Trail | null = null
+  if (kind === 'shunt' || kind === 'rshunt') {
+    mesh.add(new THREE.Mesh(orbGeo, emissive(POWER_COLORS.shunt, 2.6)), glowSprite(POWER_COLORS.shunt, 4.5))
+    trail = new Trail(POWER_COLORS.shunt, 0.9, 30, 2.4, true)
+  } else if (kind === 'bolt') {
+    mesh.add(new THREE.Mesh(boltGeo, emissive(POWER_COLORS.bolt, 3)), glowSprite(POWER_COLORS.bolt, 2.2))
+    trail = new Trail(POWER_COLORS.bolt, 0.35, 14, 2.6, true)
+  } else {
+    mesh.add(new THREE.Mesh(mineGeo, emissive(POWER_COLORS.mine, 1.6)), glowSprite(POWER_COLORS.mine, 3.2))
+    if (lobbed) trail = new Trail(POWER_COLORS.mine, 0.5, 18, 2.4, true)
+  }
+  game.scene.add(mesh)
+  if (trail) game.scene.add(trail.mesh)
+  return { mesh, trail }
+}
+
+export function domeVisual(game: Game, pos: THREE.Vector3) {
+  const mesh = new THREE.Group()
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(CONFIG.shock_dome_radius, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2) }, uAlpha: { value: 0 } },
+      vertexShader: `varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix*normal); vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vP;
+        void main(){ float rim = pow(1.0 - abs(vN.z), 2.0); float arcs = step(0.93, fract(sin(floor(vP.y*6.0 + uTime*20.0) * 12.9898 + floor(atan(vP.z, vP.x)*5.0)) * 43758.5));
+        gl_FragColor = vec4(uColor, (0.12 + rim*0.6 + arcs*0.8) * uAlpha); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
+    }),
+  )
+  mesh.add(dome)
+  mesh.add(glowSprite(POWER_COLORS.shock, 12, 0.8))
+  const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 80, 6).translate(0, 40, 0), emissive(POWER_COLORS.shock, 4))
+  mesh.add(bolt)
+  mesh.position.copy(pos)
+  game.scene.add(mesh)
+  return { mesh, bolt }
+}
+
+/** Visual state of a dome: the lightning strike while warning, then the crackling dome. */
+export function animateDome(game: Game, d: Dome, dt: number) {
+  const mat = (d.mesh.children[0] as THREE.Mesh).material as THREE.ShaderMaterial
+  mat.uniforms.uTime.value += dt
+  if (d.warn > 0) {
+    d.bolt.visible = Math.random() < 0.7
+    mat.uniforms.uAlpha.value = 0.15
+    return
+  }
+  if (!d.struck) {
+    d.struck = true
+    d.bolt.visible = false
+    game.fx.burst(d.pos.clone().setY(1), 40, 18, 0.6, 1.2, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2), 1, 0.8)
+    if (game.near(d.pos, 150)) game.audio.crackle()
+  }
+  mat.uniforms.uAlpha.value = Math.min(1, d.life * 2)
+  d.mesh.scale.setScalar(1 + Math.sin(mat.uniforms.uTime.value * 30) * 0.02)
+  if (Math.random() < dt * 8)
+    game.fx.emit(d.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 3, (Math.random() - 0.5) * 6)), new THREE.Vector3(0, 2, 0), 0.25, 0.8, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.5))
 }
 
 /** The car's chosen Shunt target: the rival nearest the centre of view (AI passes its own choice). */
@@ -95,7 +162,7 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
   car.consume()
   const f = car.forward
   const color = POWER_COLORS[type]
-  if (car.isPlayer || game.near(car.pos, 120)) game.audio.fire(type)
+  game.sfx(`fire:${type}`, car.pos)
   switch (type) {
     case 'shunt': {
       const fs = Math.max(0, car.forwardSpeed)
@@ -110,27 +177,18 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
     }
     case 'bolt':
       fireBolt(game, car, backward)
-      // Remaining bolts stay in the slot; the caller handles tap-or-hold.
       break
     case 'mine': {
-      const eventId = nextEvent++
-      const mesh = new THREE.Group()
-      mesh.add(new THREE.Mesh(mineGeo, emissive(color, 1.6)), glowSprite(color, 3.2))
-      game.scene.add(mesh)
       const from = car.pos.clone().setY(1)
       let to: THREE.Vector3
       if (backward) to = car.pos.clone().addScaledVector(f, -3.2)
       else to = game.track.point(car.s + CONFIG.mine_forward_range + Math.max(0, car.forwardSpeed) * 0.6, car.lateral)
       to.y = 0.55
+      const { mesh, trail } = projectileVisual(game, 'mine', !backward)
       const p: Projectile = {
-        kind: 'mine', owner: car, pos: from.clone(), vel: new THREE.Vector3(), heading: car.yaw, target: null,
-        life: CONFIG.mine_lifetime, hp: 2, weakened: false, hint: car.hint, age: 0, eventId,
-        lob: backward ? null : { from, to, t: 0, dur: 0.6 }, mesh, trail: null, dead: false,
-      }
-      if (backward) p.pos.copy(to)
-      else {
-        p.trail = new Trail(color, 0.5, 18, 2.4, true)
-        game.scene.add(p.trail.mesh)
+        id: nextId++, kind: 'mine', owner: car, pos: backward ? to.clone() : from.clone(), vel: new THREE.Vector3(), heading: car.yaw, target: null,
+        life: CONFIG.mine_lifetime, hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextId++,
+        lob: backward ? null : { from, to, t: 0, dur: 0.6 }, mesh, trail, dead: false,
       }
       mesh.position.copy(p.pos)
       game.projectiles.push(p)
@@ -147,7 +205,7 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
       else {
         car.airBrake = CONFIG.reverse_nitro_hold
         car.airBrakeResume = Math.max(car.forwardSpeed, kmh(CONFIG.reverse_nitro_speed))
-        game.audio.airBrake()
+        game.sfx('airbrake', car.pos)
       }
       break
     case 'shield':
@@ -155,10 +213,10 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
       break
     case 'repair':
       car.health = Math.min(CONFIG.max_health, car.health + CONFIG.repair_amount)
-      game.fx.burst(car.pos.clone().setY(1), 30, 6, 0.8, 1.2, new THREE.Color(color).multiplyScalar(2), 1, 1.5)
+      game.burst(car.pos.clone().setY(1), 30, 6, 0.8, 1.2, new THREE.Color(color).multiplyScalar(2), 1, 1.5)
       break
   }
-  game.onFired(car, type, backward)
+  game.onFired(car)
   return true
 }
 
@@ -166,36 +224,36 @@ export function fireBolt(game: Game, car: Car, backward: boolean, aimError = 0) 
   const f = car.forward
   const dir = f.clone().multiplyScalar(backward ? -1 : 1)
   if (aimError) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), aimError)
-  const mesh = new THREE.Group()
-  mesh.add(new THREE.Mesh(boltGeo, emissive(POWER_COLORS.bolt, 3)), glowSprite(POWER_COLORS.bolt, 2.2))
-  game.scene.add(mesh)
-  const trail = new Trail(POWER_COLORS.bolt, 0.35, 14, 2.6, true)
-  game.scene.add(trail.mesh)
+  const { mesh, trail } = projectileVisual(game, 'bolt')
   const v = car.vel.clone().add(dir.multiplyScalar(CONFIG.bolt_speed))
   game.projectiles.push({
-    kind: 'bolt', owner: car, pos: car.pos.clone().addScaledVector(f, backward ? -2.8 : 2.8).setY(0.9), vel: v,
+    id: nextId++, kind: 'bolt', owner: car, pos: car.pos.clone().addScaledVector(f, backward ? -2.8 : 2.8).setY(0.9), vel: v,
     heading: Math.atan2(v.x, v.z), target: null, life: CONFIG.bolt_lifetime, hp: 1, weakened: false, hint: car.hint, age: 0,
-    eventId: nextEvent++, lob: null, mesh, trail, dead: false,
+    eventId: nextId++, lob: null, mesh, trail, dead: false,
   })
 }
 
 function spawnOrb(game: Game, car: Car, kind: 'shunt' | 'rshunt', pos: THREE.Vector3, vel: THREE.Vector3, target: Car | null) {
-  const color = POWER_COLORS.shunt
-  const mesh = new THREE.Group()
-  mesh.add(new THREE.Mesh(orbGeo, emissive(color, 2.6)), glowSprite(color, 4.5))
+  const { mesh, trail } = projectileVisual(game, kind)
   mesh.position.copy(pos)
-  game.scene.add(mesh)
-  const trail = new Trail(color, 0.9, 30, 2.4, true)
-  game.scene.add(trail.mesh)
   game.projectiles.push({
-    kind, owner: car, pos, vel, heading: Math.atan2(vel.x, vel.z), target, life: CONFIG.shunt_lifetime,
-    hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextEvent++, lob: null, mesh, trail, dead: false,
+    id: nextId++, kind, owner: car, pos, vel, heading: Math.atan2(vel.x, vel.z), target, life: CONFIG.shunt_lifetime,
+    hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextId++, lob: null, mesh, trail, dead: false,
   })
 }
 
+export function bargeRing(game: Game, pos: THREE.Vector3) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.85, 1, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(POWER_COLORS.barge).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  )
+  ring.position.copy(pos).setY(0.6)
+  game.scene.add(ring)
+  game.rings.push({ pos: ring.position, t: 0, mesh: ring })
+}
+
 function barge(game: Game, car: Car) {
-  const eventId = nextEvent++
-  const color = POWER_COLORS.barge
+  const eventId = nextId++
   for (const o of game.cars) {
     if (o === car || !o.alive) continue
     const d = o.pos.distanceTo(car.pos)
@@ -210,53 +268,36 @@ function barge(game: Game, car: Car) {
   for (const p of game.projectiles) {
     if (p.owner !== car && !p.dead && p.pos.distanceTo(car.pos) < CONFIG.barge_radius) destroy(game, p)
   }
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.85, 1, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
-  )
-  ring.position.copy(car.pos).setY(0.6)
-  game.scene.add(ring)
-  game.rings.push({ pos: ring.position, t: 0, mesh: ring })
-  game.fx.burst(car.pos.clone().setY(0.8), 60, 26, 0.5, 1.4, new THREE.Color(color).multiplyScalar(2), 1, 0.15)
-  if (car.isPlayer) game.shake(0.35)
+  bargeRing(game, car.pos)
+  game.recordRing(car.pos)
+  game.burst(car.pos.clone().setY(0.8), 60, 26, 0.5, 1.4, new THREE.Color(POWER_COLORS.barge).multiplyScalar(2), 1, 0.15)
+  game.shakeFor(car, 0.35)
 }
 
 function shock(game: Game, car: Car) {
   const leader = game.cars.find((c) => c.place === 1) ?? car
-  const eventId = nextEvent++
+  const eventId = nextId++
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5)
   for (let k = 0; k < CONFIG.shock_domes; k++) {
     const s = leader.s + CONFIG.shock_first_offset + k * CONFIG.shock_spacing
     const lat = lanes[k % 3] * (game.track.half - 3.5) * 0.85 + (Math.random() - 0.5) * 2
     const pos = game.track.point(s, lat)
-    const mesh = new THREE.Group()
-    const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(CONFIG.shock_dome_radius, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.ShaderMaterial({
-        uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2) }, uAlpha: { value: 0 } },
-        vertexShader: `varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix*normal); vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-        fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vP;
-          void main(){ float rim = pow(1.0 - abs(vN.z), 2.0); float arcs = step(0.93, fract(sin(floor(vP.y*6.0 + uTime*20.0) * 12.9898 + floor(atan(vP.z, vP.x)*5.0)) * 43758.5));
-          gl_FragColor = vec4(uColor, (0.12 + rim*0.6 + arcs*0.8) * uAlpha); }`,
-        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
-      }),
-    )
-    mesh.add(dome)
-    mesh.add(glowSprite(POWER_COLORS.shock, 12, 0.8))
-    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 80, 6).translate(0, 40, 0), emissive(POWER_COLORS.shock, 4))
-    mesh.add(bolt)
-    mesh.position.copy(pos)
-    game.scene.add(mesh)
-    game.domes.push({ owner: car, pos, warn: CONFIG.shock_warning + k * 0.12, life: CONFIG.shock_lifetime, hitSet: new Set(), eventId, mesh, bolt })
+    const { mesh, bolt } = domeVisual(game, pos)
+    game.domes.push({ id: nextId++, owner: car, pos, warn: CONFIG.shock_warning + k * 0.12, life: CONFIG.shock_lifetime, hitSet: new Set(), eventId, mesh, bolt, struck: false })
   }
-  game.audio.crackle()
+  game.sfx('crackle', car.pos)
 }
 
 export function destroy(game: Game, p: Projectile) {
   if (p.dead) return
   p.dead = true
   const color = p.kind === 'bolt' ? POWER_COLORS.bolt : p.kind === 'mine' ? POWER_COLORS.mine : POWER_COLORS.shunt
-  game.fx.burst(p.pos, p.kind === 'bolt' ? 8 : 26, p.kind === 'bolt' ? 6 : 12, 0.45, p.kind === 'bolt' ? 0.5 : 1.1, new THREE.Color(color).multiplyScalar(2))
+  game.burst(p.pos, p.kind === 'bolt' ? 8 : 26, p.kind === 'bolt' ? 6 : 12, 0.45, p.kind === 'bolt' ? 0.5 : 1.1, new THREE.Color(color).multiplyScalar(2))
+}
+
+export function removeProjectileVisual(game: Game, p: Projectile) {
+  game.scene.remove(p.mesh)
+  if (p.trail) game.scene.remove(p.trail.mesh)
 }
 
 /** Advance projectiles, domes and rings; resolve every hit and counter. */
@@ -303,8 +344,7 @@ export function updateWeapons(game: Game, dt: number) {
     } else if (p.kind !== 'mine') p.pos.addScaledVector(p.vel, dt)
     if (p.kind === 'rshunt') p.vel.multiplyScalar(Math.max(0, 1 - dt * 0.4))
     p.mesh.position.copy(p.pos)
-    p.mesh.rotation.y = p.heading
-    if (p.kind === 'mine') p.mesh.rotation.y += dt * 3
+    p.mesh.rotation.y = p.kind === 'mine' ? p.mesh.rotation.y + dt * 3 : p.heading
     if (p.trail) p.trail.push(p.pos)
 
     // Walls stop straight-line shots.
@@ -353,32 +393,15 @@ export function updateWeapons(game: Game, dt: number) {
       }
     }
   }
-  for (const p of ps) {
-    if (!p.dead) continue
-    game.scene.remove(p.mesh)
-    if (p.trail) game.scene.remove(p.trail.mesh)
-  }
+  for (const p of ps) if (p.dead) removeProjectileVisual(game, p)
   game.projectiles = ps.filter((p) => !p.dead)
 
   // Shock domes.
   for (const d of game.domes) {
-    const mat = (d.mesh.children[0] as THREE.Mesh).material as THREE.ShaderMaterial
-    mat.uniforms.uTime.value += dt
-    if (d.warn > 0) {
-      d.warn -= dt
-      d.bolt.visible = Math.random() < 0.7
-      mat.uniforms.uAlpha.value = 0.15
-      if (d.warn <= 0) {
-        d.bolt.visible = false
-        game.fx.burst(d.pos.clone().setY(1), 40, 18, 0.6, 1.2, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2), 1, 0.8)
-        if (game.near(d.pos, 150)) game.audio.crackle()
-      }
-      continue
-    }
-    d.life -= dt
-    mat.uniforms.uAlpha.value = Math.min(1, d.life * 2)
-    d.mesh.scale.setScalar(1 + Math.sin(mat.uniforms.uTime.value * 30) * 0.02)
-    if (Math.random() < dt * 8) game.fx.emit(d.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 3, (Math.random() - 0.5) * 6)), new THREE.Vector3(0, 2, 0), 0.25, 0.8, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.5))
+    if (d.warn > 0) d.warn -= dt
+    else d.life -= dt
+    animateDome(game, d, dt)
+    if (d.warn > 0) continue
     for (const c of game.cars) {
       if (!c.alive || c === d.owner || d.hitSet.has(c)) continue
       if (c.pos.distanceTo(d.pos) < CONFIG.shock_dome_radius + 1.0) {
@@ -392,8 +415,10 @@ export function updateWeapons(game: Game, dt: number) {
     game.scene.remove(d.mesh)
     return false
   })
+  updateRings(game, dt)
+}
 
-  // Barge rings.
+export function updateRings(game: Game, dt: number) {
   for (const r of game.rings) {
     r.t += dt
     const k = r.t / 0.4
@@ -411,7 +436,7 @@ function hitCar(game: Game, p: Projectile, c: Car) {
   if (p.kind === 'mine') {
     // Blast catches everything nearby (multi-wreck possible).
     destroy(game, p)
-    game.fx.burst(p.pos.clone().setY(0.8), 50, 14, 0.7, 1.6, new THREE.Color(POWER_COLORS.mine).multiplyScalar(2.2), 1, 1)
+    game.burst(p.pos.clone().setY(0.8), 50, 14, 0.7, 1.6, new THREE.Color(POWER_COLORS.mine).multiplyScalar(2.2), 1, 1)
     for (const o of game.cars) {
       if (!o.alive || o.pos.distanceTo(p.pos) > CONFIG.mine_blast_radius) continue
       game.damage(o, CONFIG.mine_damage, { by: p.owner === o ? null : p.owner, weapon: 'mine', effect: 'spin', stun: CONFIG.mine_stun, eventId: p.eventId })
@@ -444,5 +469,3 @@ export function incomingShunt(game: Game, car: Car) {
   }
   return best ? { p: best, t: bestT } : null
 }
-
-export { glyphTexture }

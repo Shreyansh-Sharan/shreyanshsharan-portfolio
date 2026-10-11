@@ -139,7 +139,7 @@ export default function App() {
     case 'racer':
       screen = (
         <Suspense fallback={null}>
-          <Racer key={route.auto ?? 'menu'} auto={route.auto} onAccent={setAccent} />
+          <Racer key={route.auto ?? route.join ?? 'menu'} auto={route.auto} join={route.join} onAccent={setAccent} />
         </Suspense>
       )
       break

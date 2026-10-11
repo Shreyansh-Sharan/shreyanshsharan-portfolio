@@ -68,6 +68,8 @@ export interface Tile {
   accent: [string, string]
   // Optional cover image in /public (e.g. generated art). Falls back to the gradient art.
   cover?: string
+  // Also listed under the other tab (the profile appears in Career and Extras).
+  alsoIn?: 'career' | 'extras'
   action: TileAction
   stats: Stat[]
   activities: Activity[]
@@ -346,7 +348,7 @@ export const tiles: Tile[] = [
     period: 'Play now',
     genre: 'Shooter',
     blurb:
-      'A lightweight browser shooter on an original desert map with the classic two-site flow. Fight AI bots or invite friends with a code, and use dash, double jump, overshield and pulse scan.',
+      'A lightweight browser shooter on three original maps: Dunes, Harbor Night and Frost Outpost. Fight AI bots or invite friends with a code; headshots kill in one hit, and you have dash, double jump, overshield and pulse scan.',
     icon: Crosshair,
     accent: ['#9a3412', '#fdba74'],
     action: { kind: 'route', to: '#/arena', label: 'Play' },
@@ -402,12 +404,14 @@ export const tiles: Tile[] = [
   {
     id: 'profile',
     tab: 'extras',
+    alsoIn: 'career',
     title: 'Player Profile',
     tagline: 'About & Contact',
     org: 'Shreyansh Sharan',
     period: 'Online',
     genre: 'Profile',
-    blurb: 'Summary, education, hobbies and how to get in touch.',
+    blurb: 'Meet the player: a 3D avatar and intro clip, plus summary, education, hobbies and how to get in touch.',
+    cover: 'profile/poster.jpg',
     icon: User,
     accent: ['#334155', '#94a3b8'],
     action: { kind: 'route', to: '#/profile', label: 'View profile' },
