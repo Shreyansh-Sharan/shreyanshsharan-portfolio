@@ -3,7 +3,7 @@ import { Dices, Download, FileText, GraduationCap, Link as LinkIcon, Mail, MapPi
 import { profile, skillTree, tiles, trophies } from '../data/content'
 import { navigate } from '../lib/router'
 import { Page } from './Page'
-import { DISTRICTS, reset, stroll, type Move } from './profile/stroll'
+import { DISTRICTS, reset, stroll, type Move } from './profile/strollState'
 
 const accent = tiles.find((t) => t.id === 'profile')!.accent
 const Stroll = lazy(() => import('./profile/Stroll'))

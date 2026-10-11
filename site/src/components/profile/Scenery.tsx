@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GLTFLoader, MeshoptDecoder } from 'three-stdlib'
-import { DISTRICTS, stroll } from './stroll'
+import { DISTRICTS, stroll } from './strollState'
 
 // ---- Models: the same low-poly asset family as the open world (plus a few made for these streets). ----
 const base = import.meta.env.BASE_URL

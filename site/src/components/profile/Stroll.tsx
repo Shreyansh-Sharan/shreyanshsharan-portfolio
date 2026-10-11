@@ -5,7 +5,7 @@ import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Sky, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { DISTRICTS, isScrolling, stroll, type Move } from './stroll'
+import { DISTRICTS, isScrolling, stroll, type Move } from './strollState'
 import { Scenery } from './Scenery'
 
 const base = import.meta.env.BASE_URL
