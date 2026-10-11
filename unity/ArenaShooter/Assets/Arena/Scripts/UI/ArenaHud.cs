@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Arena.Core;
 using Arena.Game;
+using Arena.Map;
 using UnityEngine;
 
 namespace Arena.UI
@@ -10,6 +11,14 @@ namespace Arena.UI
     {
         public static bool MenuOpen { get; private set; }
         public static bool PointerOverUi { get; private set; }
+        /// <summary>True while a full-screen UI is up; the post-processing blurs the world behind it.</summary>
+        public static bool WantsBlur { get; private set; } = true;
+
+        const float TitleSeconds = 3.4f;
+        static float titleStart = -100f;
+
+        /// <summary>Plays the "Shreyansh Sharan presents" title card for the active map.</summary>
+        public static void ShowTitle() => titleStart = Time.unscaledTime;
 
         static float hitUntil, damageAt = -10f, toastUntil;
         static bool hitKill, hitHead;
@@ -45,6 +54,8 @@ namespace Arena.UI
         Texture2D white;
         GUIStyle label, title, big, small, button, field, center;
         GUIStyle bigLeft, bigRight, smallCenter, smallRight, smallTop, smallWrap, labelBold, code;
+        GUIStyle cardName, cardPresents, cardMap, cardLogo, mapButton;
+        bool wasPlaying;
         string nameField = "Player", codeField = "";
         float bots = 5;
         int difficulty = 1;
@@ -58,6 +69,14 @@ namespace Arena.UI
             codeField = LaunchOptions.Current.Code;
             bots = LaunchOptions.Current.Bots;
             difficulty = LaunchOptions.Current.Difficulty;
+            MapRuntime.Changed += OnMapChanged;
+        }
+
+        void OnDestroy() => MapRuntime.Changed -= OnMapChanged;
+
+        void OnMapChanged(MapDefinition map)
+        {
+            if (wasPlaying) ShowTitle();
         }
 
         void InitStyles()
@@ -80,12 +99,40 @@ namespace Arena.UI
             smallTop = new GUIStyle(small) { alignment = TextAnchor.UpperCenter };
             smallWrap = new GUIStyle(smallTop) { wordWrap = true };
             labelBold = new GUIStyle(label) { fontStyle = FontStyle.Bold };
+            mapButton = new GUIStyle(button) { fontSize = 16 };
+            cardName = new GUIStyle(center) { fontSize = 30, fontStyle = FontStyle.Bold };
+            cardPresents = new GUIStyle(center) { fontSize = 24, fontStyle = FontStyle.Italic };
+            cardMap = new GUIStyle(center) { fontSize = 112, fontStyle = FontStyle.Bold };
+            cardLogo = new GUIStyle(center) { fontSize = 40, fontStyle = FontStyle.Bold };
         }
 
         void Update()
         {
             var boot = ArenaBootstrap.Instance;
             MenuOpen = boot == null || !boot.InGame;
+
+            var me = Combatant.Local;
+            var match = MatchManager.Instance;
+            bool playing = !MenuOpen && me != null;
+            if (playing && !wasPlaying) ShowTitle();
+            wasPlaying = playing;
+
+            WantsBlur = !playing
+                || TitleAlpha(match) > 0.01f
+                || (match != null && match.Ended.Value)
+                || !me.Alive.Value
+                || !PlayerController.InputCaptured;
+        }
+
+        static float Fade(float t) =>
+            t < 0f || t > TitleSeconds ? 0f : Mathf.Min(Mathf.Clamp01(t / 0.4f), Mathf.Clamp01((TitleSeconds - t) / 0.7f));
+
+        /// <summary>The card shows when a match starts and over the last seconds of each intermission.</summary>
+        static float TitleAlpha(MatchManager match)
+        {
+            float a = Fade(Time.unscaledTime - titleStart);
+            if (match != null && match.Ended.Value) a = Mathf.Max(a, Fade(TitleSeconds - match.SecondsLeft));
+            return a;
         }
 
         void OnGUI()
@@ -99,7 +146,12 @@ namespace Arena.UI
             var boot = ArenaBootstrap.Instance;
             if (boot == null) return;
             if (!boot.InGame) DrawMenu(boot);
-            else DrawHud(boot);
+            else
+            {
+                DrawHud(boot);
+                float card = TitleAlpha(MatchManager.Instance);
+                if (card > 0.001f) DrawTitleCard(card);
+            }
 
             if (Event.current.type == EventType.Repaint)
             {
@@ -113,16 +165,25 @@ namespace Arena.UI
         void DrawMenu(ArenaBootstrap boot)
         {
             Fill(new Rect(0, 0, width, 1080), new Color(0.02f, 0.02f, 0.05f, 0.35f));
-            float w = 640, x = (width - w) / 2f, y = 150;
+            float w = 640, x = (width - w) / 2f, y = 110;
             Fill(new Rect(x - 30, y - 30, w + 60, 800), Panel);
 
             Text(new Rect(x, y, w, 80), "DUNES ARENA", title, Accent);
-            Text(new Rect(x, y + 80, w, 30), "A portfolio side quest: desert deathmatch with powers", center, Muted);
+            Text(new Rect(x, y + 80, w, 30), "By Shreyansh Sharan: three arenas, powers and bots", center, Muted);
             y += 140;
 
             Text(new Rect(x, y, 160, 44), "Name", label, Muted);
             nameField = GUI.TextField(new Rect(x + 160, y, w - 160, 44), nameField, 16, field);
             y += 64;
+
+            Text(new Rect(x, y, 160, 44), "Map", label, Muted);
+            int current = Mathf.Max(0, MapRuntime.Index);
+            var names = new string[Maps.All.Length];
+            for (int i = 0; i < names.Length; i++) names[i] = Maps.All[i].Name.ToUpperInvariant();
+            int picked = GUI.SelectionGrid(new Rect(x + 160, y, w - 160, 44), current, names, names.Length, mapButton);
+            if (picked != current) MapRuntime.Activate(picked);
+            Text(new Rect(x + 160, y + 46, w - 160, 26), Maps.Get(picked).Tagline, small, Muted);
+            y += 84;
 
             Text(new Rect(x, y, 160, 30), $"Bots: {Mathf.RoundToInt(bots)}", label, Muted);
             bots = GUI.HorizontalSlider(new Rect(x + 160, y + 10, w - 160, 30), bots, 0, 9);
@@ -157,6 +218,7 @@ namespace Arena.UI
                 Difficulty = difficulty,
                 Name = LaunchOptions.Sanitize(nameField),
                 Code = codeField.Trim().ToUpperInvariant(),
+                Map = MapRuntime.Current.Id,
             });
         }
 
@@ -378,6 +440,49 @@ namespace Arena.UI
             if (GUI.Button(leave, "LEAVE MATCH", button)) boot.Leave();
         }
 
+        // ---------------- Title card ----------------
+
+        void DrawTitleCard(float a)
+        {
+            var map = MapRuntime.Current;
+            float cx = width / 2f;
+            Fill(new Rect(0, 0, width, 1080), new Color(0.01f, 0.01f, 0.03f, 0.84f * a));
+            var accent = new Color(Accent.r, Accent.g, Accent.b, a);
+            var cyan = new Color(Cyan.r, Cyan.g, Cyan.b, a);
+
+            var logo = new Rect(cx - 44, 230, 88, 88);
+            Outline(logo, 3, cyan);
+            Text(logo, "SS", cardLogo, cyan);
+
+            float line = 560f * Mathf.SmoothStep(0f, 1f, a);
+            Fill(new Rect(cx - line / 2f, 340, line, 2), accent);
+            Text(new Rect(0, 352, width, 50), Spaced("SHREYANSH SHARAN"), cardName, new Color(1f, 1f, 1f, a));
+            Text(new Rect(0, 402, width, 36), "presents", cardPresents, new Color(1f, 1f, 1f, 0.6f * a));
+            Text(new Rect(0, 452, width, 140), map.Name.ToUpperInvariant(), cardMap, accent);
+            Text(new Rect(0, 596, width, 40), map.Tagline, center, new Color(1f, 1f, 1f, 0.85f * a));
+            Fill(new Rect(cx - line / 2f, 650, line, 2), cyan);
+        }
+
+        static string Spaced(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length * 2);
+            foreach (var ch in s)
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                if (ch == ' ') sb.Append("  ");
+                else sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
+        void Outline(Rect r, float t, Color c)
+        {
+            Fill(new Rect(r.x, r.y, r.width, t), c);
+            Fill(new Rect(r.x, r.yMax - t, r.width, t), c);
+            Fill(new Rect(r.x, r.y, t, r.height), c);
+            Fill(new Rect(r.xMax - t, r.y, t, r.height), c);
+        }
+
         // ---------------- Helpers ----------------
 
         void Fill(Rect r, Color c)
@@ -398,7 +503,7 @@ namespace Arena.UI
         static void Text(Rect r, string text, GUIStyle style, Color color)
         {
             var old = style.normal.textColor;
-            style.normal.textColor = new Color(0, 0, 0, 0.6f);
+            style.normal.textColor = new Color(0, 0, 0, 0.6f * color.a);
             GUI.Label(new Rect(r.x + 2, r.y + 2, r.width, r.height), text, style);
             style.normal.textColor = color;
             GUI.Label(r, text, style);

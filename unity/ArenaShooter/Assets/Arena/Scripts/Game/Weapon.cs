@@ -6,7 +6,7 @@ namespace Arena.Game
 {
     /// <summary>
     /// Hitscan pulse rifle. Players detect hits locally (instant feedback) and the server applies damage;
-    /// bots fire on the server. Overdrive doubles damage; headshots double it again.
+    /// bots fire on the server. Overdrive doubles damage; a headshot kills outright.
     /// </summary>
     public class Weapon : NetworkBehaviour
     {
@@ -90,7 +90,7 @@ namespace Arena.Game
                 if (target != null)
                 {
                     targetId = target.NetworkObjectId;
-                    headshot = hit.point.y > target.transform.position.y + 1.42f;
+                    headshot = target.IsHeadshot(hit.point);
                 }
                 else FxLibrary.Impact(hit.point, hit.normal);
             }
@@ -128,7 +128,7 @@ namespace Arena.Game
                 end = hit.point;
                 if (target != null)
                 {
-                    bool headshot = hit.point.y > target.transform.position.y + 1.42f;
+                    bool headshot = target.IsHeadshot(hit.point);
                     target.ServerDamage(DamageFor(headshot), me, headshot);
                 }
                 else impact = true;
@@ -175,6 +175,8 @@ namespace Arena.Game
                 && target != me
                 && Vector3.Distance(from, target.transform.position) < Range + 5f)
             {
+                // Loose check on the claimed headshot (positions differ a little between client and server).
+                headshot &= to.y > target.transform.position.y + Combatant.HeadHeight - 0.6f;
                 target.ServerDamage(DamageFor(headshot), me, headshot);
             }
             TracerRpc(from, to, targetId == ulong.MaxValue);

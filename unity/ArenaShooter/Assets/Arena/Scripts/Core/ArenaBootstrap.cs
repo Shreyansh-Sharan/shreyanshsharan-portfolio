@@ -1,4 +1,5 @@
 using System;
+using Arena.Map;
 using Unity.Netcode;
 using Unity.Netcode.Transports.SinglePlayer;
 using Unity.Netcode.Transports.UTP;
@@ -53,6 +54,7 @@ namespace Arena.Core
 
         void Start()
         {
+            MapRuntime.Activate(Maps.IndexOf(LaunchOptions.Current.Map));
             WebBridge.Post("ready");
             if (LaunchOptions.Current.Mode != LaunchMode.Menu) StartGame(LaunchOptions.Current);
         }
@@ -61,6 +63,8 @@ namespace Arena.Core
         {
             if (Busy || InGame) return;
             LaunchOptions.Current = options;
+            // Hosts (and solo) play their chosen map; joiners switch when the host's match syncs it.
+            if (options.Mode != LaunchMode.Join) MapRuntime.Activate(Maps.IndexOf(options.Map));
             Busy = true;
             JoinCode = "";
             try

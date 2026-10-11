@@ -21,14 +21,15 @@ namespace Arena.Game
 
         struct Skill
         {
-            public float Reaction, AimError, AimSettle, ViewRange, Speed;
+            public float Reaction, AimError, AimSettle, ViewRange, Speed, HeadAim;
         }
 
         static readonly Skill[] Skills =
         {
-            new Skill { Reaction = 0.65f, AimError = 7.5f, AimSettle = 0.35f, ViewRange = 40f, Speed = 4.8f },
-            new Skill { Reaction = 0.38f, AimError = 4.2f, AimSettle = 0.55f, ViewRange = 55f, Speed = 5.6f },
-            new Skill { Reaction = 0.2f, AimError = 2.2f, AimSettle = 0.75f, ViewRange = 70f, Speed = 6.2f },
+            // Headshots kill outright, so bots only rarely go for the head.
+            new Skill { Reaction = 0.65f, AimError = 7.5f, AimSettle = 0.35f, ViewRange = 40f, Speed = 4.8f, HeadAim = 0.02f },
+            new Skill { Reaction = 0.38f, AimError = 4.2f, AimSettle = 0.55f, ViewRange = 55f, Speed = 5.6f, HeadAim = 0.04f },
+            new Skill { Reaction = 0.2f, AimError = 2.2f, AimSettle = 0.75f, ViewRange = 70f, Speed = 6.2f, HeadAim = 0.07f },
         };
 
         NavMeshAgent agent;
@@ -101,7 +102,7 @@ namespace Arena.Game
             {
                 engagedFor += Time.deltaTime;
                 var eye = me.AimPoint;
-                var aimAt = target.transform.position + Vector3.up * (Random.value < 0.15f ? 1.6f : 1.15f);
+                var aimAt = target.transform.position + Vector3.up * (Random.value < skill.HeadAim ? 1.62f : 1.0f);
                 float settle = Mathf.Lerp(1.6f, skill.AimSettle, Mathf.Clamp01(engagedFor / 1.5f));
                 weapon.ServerFire(eye, (aimAt - eye).normalized, skill.AimError * settle);
             }
@@ -164,14 +165,15 @@ namespace Arena.Game
                 float bestDistance = float.MaxValue;
                 foreach (var p in Pickup.All)
                 {
-                    if (!p.Active.Value || p.Kind.Value != (byte)DunesLayout.PickupKind.Health) continue;
+                    if (!p.Active.Value || p.Kind.Value != (byte)PickupKind.Health) continue;
                     float d = Vector3.Distance(p.transform.position, transform.position);
                     if (d < bestDistance) { bestDistance = d; best = p; }
                 }
                 if (best != null) return best.transform.position;
             }
-            var points = DunesLayout.Waypoints;
-            return points[Random.Range(0, points.Length)] + new Vector3(Random.Range(-3f, 3f), 0, Random.Range(-3f, 3f));
+            var map = MapRuntime.Current;
+            var points = map.Waypoints;
+            return map.ToWorld(points[Random.Range(0, points.Length)]) + new Vector3(Random.Range(-3f, 3f), 0, Random.Range(-3f, 3f));
         }
 
         void MoveTo(Vector3 point)

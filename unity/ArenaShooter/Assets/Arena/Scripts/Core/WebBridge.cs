@@ -3,7 +3,11 @@ using UnityEngine;
 
 namespace Arena.Core
 {
-    /// <summary>Sends events to the hosting page (the portfolio site) via window.parent.postMessage.</summary>
+    /// <summary>
+    /// Sends events to the hosting page (the portfolio site) via window.parent.postMessage as
+    /// { source: 'arena', type, payload }. Types: ready, started (mode), code (join code), map (map id
+    /// once a match is running: dunes | harbor | frost), error, left. The page picks the map with ?map=.
+    /// </summary>
     public static class WebBridge
     {
 #if UNITY_WEBGL && !UNITY_EDITOR

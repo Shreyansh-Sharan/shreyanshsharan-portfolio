@@ -3,16 +3,18 @@ using UnityEngine;
 
 namespace Arena.Game
 {
-    /// <summary>Picks the spawn point furthest from living opponents, with a little randomness.</summary>
+    /// <summary>Picks the active map's spawn point furthest from living opponents, with a little randomness.</summary>
     public static class SpawnPicker
     {
         public static Vector3 Pick(Combatant self)
         {
-            var points = DunesLayout.SpawnPoints;
-            Vector3 best = points[Random.Range(0, points.Length)];
+            var map = MapRuntime.Current;
+            var points = map.SpawnPoints;
+            Vector3 best = map.ToWorld(points[Random.Range(0, points.Length)]);
             float bestScore = float.MinValue;
-            foreach (var p in points)
+            foreach (var local in points)
             {
+                var p = map.ToWorld(local);
                 float nearest = 200f;
                 foreach (var c in Combatant.All)
                 {

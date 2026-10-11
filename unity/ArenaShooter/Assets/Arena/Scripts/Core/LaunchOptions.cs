@@ -1,4 +1,5 @@
 using System;
+using Arena.Map;
 using UnityEngine;
 
 namespace Arena.Core
@@ -14,10 +15,11 @@ namespace Arena.Core
         public int Difficulty = 1; // 0 easy, 1 normal, 2 hard
         public string Name = "Player";
         public string Code = "";
+        public string Map = "dunes"; // dunes | harbor | frost (the host's choice; joiners follow the host)
 
         public static LaunchOptions Current = new LaunchOptions();
 
-        /// <summary>Parses ?mode=solo|host|join&amp;bots=5&amp;diff=1&amp;name=Ana&amp;code=ABC123.</summary>
+        /// <summary>Parses ?mode=solo|host|join&amp;bots=5&amp;diff=1&amp;name=Ana&amp;code=ABC123&amp;map=dunes|harbor|frost.</summary>
         public static LaunchOptions FromUrl(string url)
         {
             var o = new LaunchOptions();
@@ -56,6 +58,9 @@ namespace Arena.Core
                         break;
                     case "code":
                         o.Code = value.Trim().ToUpperInvariant();
+                        break;
+                    case "map":
+                        o.Map = Maps.Get(Maps.IndexOf(value.Trim())).Id;
                         break;
                 }
             }

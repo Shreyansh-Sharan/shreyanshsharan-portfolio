@@ -1,5 +1,6 @@
 using Arena.Core;
 using Arena.Fx;
+using Arena.Map;
 using Arena.UI;
 using Unity.Netcode;
 using Unity.Netcode.Components;
@@ -41,6 +42,7 @@ namespace Arena.Game
         public float ScanUntil { get; private set; }
         public bool Zoomed { get; private set; }
         public bool Moving { get; private set; }
+        public bool Dashing => Time.time < dashUntil;
 
         CharacterController cc;
         Combatant me;
@@ -66,6 +68,7 @@ namespace Arena.Game
             Local = this;
 
             var camGo = new GameObject("Player Camera");
+            camGo.SetActive(false);
             camGo.transform.SetParent(Head, false);
             Camera = camGo.AddComponent<Camera>();
             Camera.fieldOfView = 78f;
@@ -73,6 +76,8 @@ namespace Arena.Game
             Camera.farClipPlane = 400f;
             camGo.AddComponent<AudioListener>();
             camGo.tag = "MainCamera";
+            PostFx.Attach(Camera);
+            camGo.SetActive(true);
 
             // View model: the gun hangs in front of the camera.
             if (GunModel)
@@ -86,14 +91,25 @@ namespace Arena.Game
             var boot = ArenaBootstrap.Instance;
             if (boot && boot.MenuCamera) boot.MenuCamera.gameObject.SetActive(false);
 
+            MapRuntime.Changed += OnMapChanged;
+            TeleportToSpawn();
+        }
+
+        // A joining client may spawn before the host's map choice arrives; move over once it does.
+        void OnMapChanged(MapDefinition map) => TeleportToSpawn();
+
+        void TeleportToSpawn()
+        {
             var spawn = SpawnPicker.Pick(me);
-            var toCenter = new Vector3(-spawn.x, 0, -spawn.z);
+            var toCenter = MapRuntime.Current.Center - spawn;
+            toCenter.y = 0;
             Teleport(spawn, toCenter.sqrMagnitude > 0.01f ? Quaternion.LookRotation(toCenter).eulerAngles.y : 0f);
         }
 
         public override void OnNetworkDespawn()
         {
             if (!IsOwner) return;
+            MapRuntime.Changed -= OnMapChanged;
             if (Local == this) Local = null;
             if (Camera) Destroy(Camera.gameObject);
             var boot = ArenaBootstrap.Instance;
@@ -175,7 +191,7 @@ namespace Arena.Game
             if (Camera)
                 Camera.fieldOfView = Mathf.Lerp(Camera.fieldOfView, Zoomed ? 50f : 78f, Time.deltaTime * 14f);
 
-            if (transform.position.y < -20f) Teleport(SpawnPicker.Pick(me), yaw);
+            if (transform.position.y < -20f) TeleportToSpawn();
         }
 
         void Move(bool control)

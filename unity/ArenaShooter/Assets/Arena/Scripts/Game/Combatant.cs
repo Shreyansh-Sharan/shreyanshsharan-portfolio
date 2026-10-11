@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Arena.Core;
 using Arena.Fx;
+using Arena.Map;
 using Arena.UI;
 using Unity.Collections;
 using Unity.Netcode;
@@ -18,6 +19,8 @@ namespace Arena.Game
         public const int MaxShield = 100;
         public const float RespawnSeconds = 3f;
         public const float OvershieldCooldown = 16f;
+        /// <summary>Hitbox is 1.8 m tall; anything above this height (the top 0.35 m) is the head.</summary>
+        public const float HeadHeight = 1.45f;
 
         public static readonly Color[] Palette =
         {
@@ -30,6 +33,8 @@ namespace Arena.Game
         public bool IsBot;
         public Transform Eye;
         public Renderer[] BodyRenderers;
+        [Tooltip("How strongly the player colour tints the body: 1 for plain bodies, lower for textured characters.")]
+        public float BodyTint = 1f;
         public Renderer[] GunRenderers;
         public Collider HitCollider;
 
@@ -54,6 +59,8 @@ namespace Arena.Game
         public bool HasOverdrive => OverdriveUntil.Value > Now;
         public bool HasHaste => HasteUntil.Value > Now;
         public Vector3 AimPoint => Eye ? Eye.position : transform.position + Vector3.up * 1.5f;
+
+        public bool IsHeadshot(Vector3 hitPoint) => hitPoint.y > transform.position.y + HeadHeight;
 
         public override void OnNetworkSpawn()
         {
@@ -106,7 +113,7 @@ namespace Arena.Game
             {
                 if (!r) continue;
                 r.GetPropertyBlock(block);
-                block.SetColor("_Color", Color);
+                block.SetColor("_Color", Color.Lerp(Color.white, Color, BodyTint));
                 r.SetPropertyBlock(block);
             }
         }
@@ -134,9 +141,16 @@ namespace Arena.Game
             if (!IsServer || !Alive.Value || amount <= 0) return;
             if (MatchManager.Instance != null && MatchManager.Instance.Ended.Value) return;
 
-            int absorbed = Mathf.Min(Shield.Value, amount);
-            Shield.Value -= absorbed;
-            Health.Value = Mathf.Max(0, Health.Value - (amount - absorbed));
+            if (headshot)
+            {
+                Health.Value = 0; // headshots kill outright, shield or not
+            }
+            else
+            {
+                int absorbed = Mathf.Min(Shield.Value, amount);
+                Shield.Value -= absorbed;
+                Health.Value = Mathf.Max(0, Health.Value - (amount - absorbed));
+            }
             bool killed = Health.Value == 0;
 
             if (attacker != null && attacker != this) attacker.HitConfirmRpc(headshot, killed);
@@ -169,7 +183,8 @@ namespace Arena.Game
             Shield.Value = 0;
             OverdriveUntil.Value = 0;
             HasteUntil.Value = 0;
-            var toCenter = new Vector3(-point.x, 0, -point.z);
+            var toCenter = MapRuntime.Current.Center - point;
+            toCenter.y = 0;
             float yaw = toCenter.sqrMagnitude > 0.01f ? Quaternion.LookRotation(toCenter).eulerAngles.y : 0f;
             if (IsBot) GetComponent<BotBrain>().ServerRespawn(point);
             else TeleportRpc(point, yaw);

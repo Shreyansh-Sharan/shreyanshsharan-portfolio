@@ -12,7 +12,7 @@ namespace Arena.Game
     {
         public static readonly List<Pickup> All = new List<Pickup>();
 
-        [Tooltip("One visual per kind, in DunesLayout.PickupKind order.")]
+        [Tooltip("One visual per kind, in PickupKind order.")]
         public GameObject[] Visuals;
         public Transform Spinner;
         public Renderer Pad;
@@ -22,21 +22,21 @@ namespace Arena.Game
 
         double respawnAt;
 
-        public DunesLayout.PickupKind PickupKind => (DunesLayout.PickupKind)Kind.Value;
+        public PickupKind PickupKind => (PickupKind)Kind.Value;
 
-        public static string Label(DunesLayout.PickupKind kind) => kind switch
+        public static string Label(PickupKind kind) => kind switch
         {
-            DunesLayout.PickupKind.Health => "+50 HEALTH",
-            DunesLayout.PickupKind.Shield => "+50 SHIELD",
-            DunesLayout.PickupKind.Overdrive => "OVERDRIVE: DOUBLE DAMAGE",
+            PickupKind.Health => "+50 HEALTH",
+            PickupKind.Shield => "+50 SHIELD",
+            PickupKind.Overdrive => "OVERDRIVE: DOUBLE DAMAGE",
             _ => "HASTE: SPEED BOOST",
         };
 
-        public static Color Tint(DunesLayout.PickupKind kind) => kind switch
+        public static Color Tint(PickupKind kind) => kind switch
         {
-            DunesLayout.PickupKind.Health => new Color(0.3f, 1f, 0.45f),
-            DunesLayout.PickupKind.Shield => new Color(0.25f, 0.85f, 1f),
-            DunesLayout.PickupKind.Overdrive => new Color(1f, 0.55f, 0.1f),
+            PickupKind.Health => new Color(0.3f, 1f, 0.45f),
+            PickupKind.Shield => new Color(0.25f, 0.85f, 1f),
+            PickupKind.Overdrive => new Color(1f, 0.55f, 0.1f),
             _ => new Color(0.85f, 0.4f, 1f),
         };
 
@@ -101,23 +101,23 @@ namespace Arena.Game
         {
             switch (PickupKind)
             {
-                case DunesLayout.PickupKind.Health:
+                case PickupKind.Health:
                     if (c.Health.Value >= Combatant.MaxHealth) return false;
                     c.ServerHeal(50);
                     break;
-                case DunesLayout.PickupKind.Shield:
+                case PickupKind.Shield:
                     if (c.Shield.Value >= Combatant.MaxShield) return false;
                     c.ServerAddShield(50);
                     break;
-                case DunesLayout.PickupKind.Overdrive:
+                case PickupKind.Overdrive:
                     c.OverdriveUntil.Value = now + 10;
                     break;
-                case DunesLayout.PickupKind.Haste:
+                case PickupKind.Haste:
                     c.HasteUntil.Value = now + 8;
                     break;
             }
             Active.Value = false;
-            respawnAt = now + (PickupKind == DunesLayout.PickupKind.Health ? 15 : 25);
+            respawnAt = now + (PickupKind == PickupKind.Health ? 15 : 25);
             CollectedRpc(c.NetworkObjectId);
             return true;
         }

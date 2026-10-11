@@ -21,6 +21,8 @@ namespace Arena.Game
         public readonly NetworkVariable<double> RestartAt = new NetworkVariable<double>(0);
         public readonly NetworkVariable<bool> Ended = new NetworkVariable<bool>(false);
         public readonly NetworkVariable<FixedString32Bytes> Winner = new NetworkVariable<FixedString32Bytes>();
+        /// <summary>The host's map (index into Maps.All); every client activates the same one.</summary>
+        public readonly NetworkVariable<byte> MapIndex = new NetworkVariable<byte>(0);
 
         public struct KillEvent
         {
@@ -39,8 +41,15 @@ namespace Arena.Game
         {
             Instance = this;
             Ended.OnValueChanged += OnEndedChanged;
-            if (!IsServer) return;
+            MapIndex.OnValueChanged += OnMapChanged;
+            if (!IsServer)
+            {
+                OnMapChanged(0, MapIndex.Value);
+                return;
+            }
 
+            MapIndex.Value = (byte)Maps.IndexOf(LaunchOptions.Current.Map);
+            OnMapChanged(0, MapIndex.Value);
             EndsAt.Value = Now + MatchSeconds;
             SpawnPickups();
             SpawnBots(LaunchOptions.Current.Bots);
@@ -49,7 +58,14 @@ namespace Arena.Game
         public override void OnNetworkDespawn()
         {
             Ended.OnValueChanged -= OnEndedChanged;
+            MapIndex.OnValueChanged -= OnMapChanged;
             if (Instance == this) Instance = null;
+        }
+
+        void OnMapChanged(byte previous, byte current)
+        {
+            MapRuntime.Activate(current);
+            WebBridge.Post("map", MapRuntime.Current.Id);
         }
 
         void OnEndedChanged(bool previous, bool current)
@@ -60,9 +76,10 @@ namespace Arena.Game
         void SpawnPickups()
         {
             var prefab = ArenaBootstrap.Instance.PickupPrefab;
-            foreach (var (position, kind) in DunesLayout.Pickups)
+            var map = MapRuntime.Current;
+            foreach (var (position, kind) in map.Pickups)
             {
-                var go = Instantiate(prefab, position + Vector3.up * 0.9f, Quaternion.identity);
+                var go = Instantiate(prefab, map.ToWorld(position) + Vector3.up * 0.9f, Quaternion.identity);
                 go.GetComponent<NetworkObject>().Spawn(true);
                 go.GetComponent<Pickup>().Kind.Value = (byte)kind;
             }
