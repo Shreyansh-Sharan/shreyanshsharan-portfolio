@@ -470,7 +470,10 @@ function GolfHud({ hud }: { hud: Hud }) {
         {hud.board.map((r) => (
           <li key={r.id} className={r.me ? 'is-me' : ''}>
             <i style={{ background: r.color }} />
-            <span>{r.name}</span>
+            <span>
+              {r.name}
+              {r.me && <span className="muted"> (you)</span>}
+            </span>
             <span className="muted">{r.finished ? `#${r.place} in` : `${r.strokes} st`}</span>
             {r.points > 0 && <b>+{r.points}</b>}
           </li>
@@ -568,6 +571,7 @@ function Results({ result, online, onAgain, onMenu }: { result: HoleResult; onli
                 <td>{i === 0 ? <Trophy size={16} color="#facc15" /> : i + 1}</td>
                 <td>
                   <i className="bb-dot" style={{ background: r.color }} /> {r.name}
+                  {r.me && <span className="muted small"> (you)</span>}
                 </td>
                 <td>{r.place ? `${r.strokes} (${r.strokes - result.par >= 0 ? '+' : ''}${r.strokes - result.par})` : 'DNF'}</td>
                 <td className="muted small">{r.breakdown.map((b) => `${b.label} ${b.points >= 0 ? '+' : ''}${b.points}`).join(' · ') || '—'}</td>

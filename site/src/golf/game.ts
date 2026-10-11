@@ -451,8 +451,7 @@ export class Game {
       ballMesh.add(marker)
       const tee = this.course.tee.clone()
       // Bots get a little random spread in skill (decided by the host; clients never run them).
-      const name = slot.id === selfId && this.role !== 'solo' ? `${slot.name} (you)` : slot.name
-      const g = new Golfer(i, name, p.color, human, human ? 1 : THREE.MathUtils.clamp(skill + (Math.random() - 0.5) * 0.1, 0.2, 0.95), p.personality, rig, ballMesh, tee)
+      const g = new Golfer(i, slot.name, p.color, human, human ? 1 : THREE.MathUtils.clamp(skill + (Math.random() - 0.5) * 0.1, 0.2, 0.95), p.personality, rig, ballMesh, tee)
       g.remoteId = human ? slot.id : null
       // Balls in a row on the tee, golfers behind them.
       const x = (i - (count - 1) / 2) * 2
