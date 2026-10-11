@@ -56,7 +56,7 @@ export type TileAction =
   | { kind: 'iframe'; url: string; label: string }
   | { kind: 'soon'; label: string }
 
-export type TabId = 'profile' | 'career' | 'extras'
+export type TabId = 'profile' | 'career' | 'showcase' | 'extras'
 
 export interface Tile {
   id: string
@@ -345,7 +345,7 @@ export const tiles: Tile[] = [
   },
   {
     id: 'footballiq',
-    tab: 'career',
+    tab: 'showcase',
     title: 'FootballIQ',
     tagline: 'Every match, understood live',
     org: 'Independent · Product',

@@ -12,8 +12,9 @@ type Tab = Tile['tab']
 type Zone = 'tabs' | 'tiles' | 'actions' | 'cards'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'profile', label: 'Profile' },
+  { id: 'profile', label: 'Home' },
   { id: 'career', label: 'Career' },
+  { id: 'showcase', label: 'Showcase' },
   { id: 'extras', label: 'Extras' },
 ]
 

@@ -1243,7 +1243,10 @@ p {
 }
 
 .has-3d .page::before {
-  background: rgba(4, 6, 16, 0.42);
+  /* Strongly dim the world behind sub-pages so content reads clean; keep a faint hint of depth. */
+  background:
+    radial-gradient(90% 70% at 70% 30%, rgba(4, 6, 16, 0.78), rgba(4, 6, 16, 0.92)),
+    rgba(4, 6, 16, 0.9);
 }
 
 .has-3d .boot::before {
