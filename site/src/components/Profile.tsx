@@ -1,11 +1,10 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { Box, Download, FileText, Gem, Link as LinkIcon, Mail, MapPin, Video } from 'lucide-react'
+import { Download, FileText, Link as LinkIcon, Mail, MapPin } from 'lucide-react'
 import { profile, tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { Page } from './Page'
 
 const accent = tiles.find((t) => t.id === 'profile')!.accent
-const ProfileAvatar = lazy(() => import('./ProfileAvatar'))
 const LowPolyAvatar = lazy(() => import('./LowPolyAvatar'))
 const base = import.meta.env.BASE_URL
 
@@ -17,7 +16,6 @@ function canRender3D() {
   }
 }
 
-type View = 'lowpoly' | '3d' | 'video'
 type Move = import('./LowPolyAvatar').Move
 
 const MOVES: { id: Move; label: string }[] = [
@@ -32,56 +30,44 @@ const MOVES: { id: Move; label: string }[] = [
   { id: 'flip', label: 'Backflip' },
 ]
 
-/** The Higgsfield-generated avatars (low-poly with a move set, and detailed 3D) and the intro clip. */
+/** The visitor-facing avatar: the low-poly Higgsfield character with its move set. */
 function ProfileMedia() {
-  const [view, setView] = useState<View>(() => (canRender3D() ? 'lowpoly' : 'video'))
   const [move, setMove] = useState<Move>('idle')
   const [nonce, setNonce] = useState(0)
-  const tabs: [View, string, typeof Box][] = [
-    ['lowpoly', 'Low-poly avatar', Gem],
-    ['3d', '3D avatar', Box],
-    ['video', 'Intro video', Video],
-  ]
+
+  if (!canRender3D()) {
+    return (
+      <section className="profile-media">
+        <div className="profile-stage">
+          <img className="profile-poster" src={`${base}profile/poster.jpg`} alt={profile.name} />
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="profile-media">
-      <div className="seg seg-sm" role="tablist" aria-label="Avatar view">
-        {tabs.map(([id, label, Icon]) => (
-          <button key={id} role="tab" aria-selected={view === id} className={`seg-btn ${view === id ? 'is-active' : ''}`} onClick={() => setView(id)}>
-            <Icon size={14} /> {label}
+      <div className="profile-stage">
+        <Suspense fallback={<img className="profile-poster" src={`${base}profile/poster.jpg`} alt="" />}>
+          <LowPolyAvatar move={move} nonce={nonce} onDone={() => setMove('idle')} />
+        </Suspense>
+      </div>
+      <div className="chip-row lp-moves" role="group" aria-label="Animations">
+        {MOVES.map((m) => (
+          <button
+            key={m.id}
+            className={`chip lp-move ${move === m.id ? 'is-active' : ''}`}
+            aria-pressed={move === m.id}
+            onClick={() => {
+              setMove(m.id)
+              setNonce((n) => n + 1)
+            }}
+          >
+            {m.label}
           </button>
         ))}
       </div>
-      <div className="profile-stage">
-        {view === 'video' ? (
-          <video className="profile-video" src={`${base}profile/intro.mp4`} poster={`${base}profile/poster.jpg`} autoPlay muted loop playsInline />
-        ) : (
-          <Suspense fallback={<img className="profile-poster" src={`${base}profile/poster.jpg`} alt="" />}>
-            {view === 'lowpoly' ? <LowPolyAvatar move={move} nonce={nonce} onDone={() => setMove('idle')} /> : <ProfileAvatar />}
-          </Suspense>
-        )}
-      </div>
-      {view === 'lowpoly' && (
-        <div className="chip-row lp-moves" role="group" aria-label="Animations">
-          {MOVES.map((m) => (
-            <button
-              key={m.id}
-              className={`chip lp-move ${move === m.id ? 'is-active' : ''}`}
-              aria-pressed={move === m.id}
-              onClick={() => {
-                setMove(m.id)
-                setNonce((n) => n + 1)
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <p className="muted small">
-        {view === 'lowpoly'
-          ? 'Low-poly image, mesh, rig and every animation generated with Higgsfield from a photo and a frame of the intro clip.'
-          : '3D model, intro clip and textures generated with Higgsfield from a photo.'}
-      </p>
+      <p className="muted small">Low-poly avatar: image, mesh, rig and all nine animations generated with Higgsfield from a photo and a frame of the intro clip.</p>
     </section>
   )
 }

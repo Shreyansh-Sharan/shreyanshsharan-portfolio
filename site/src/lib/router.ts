@@ -9,6 +9,7 @@ export type Route =
   | { name: 'skills' }
   | { name: 'profile' }
   | { name: 'resume' }
+  | { name: 'embed'; id: string }
   | { name: 'arena'; join?: string }
   | { name: 'racer'; auto?: 'race' | 'combat'; join?: string }
   | { name: 'golf'; auto?: boolean }
@@ -31,6 +32,8 @@ export function parse(hash: string): Route {
       return { name: 'home', tile: parts[1] }
     case 'game':
       return parts[1] ? { name: 'game', id: parts[1] } : { name: 'home' }
+    case 'embed':
+      return parts[1] ? { name: 'embed', id: parts[1] } : { name: 'home' }
     case 'trophies':
     case 'skills':
     case 'profile':

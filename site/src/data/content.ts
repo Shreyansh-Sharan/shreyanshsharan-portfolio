@@ -8,6 +8,7 @@ import {
   Database,
   FileDown,
   FlaskConical,
+  Goal,
   GraduationCap,
   Layers,
   Presentation,
@@ -52,11 +53,14 @@ export type TileAction =
   | { kind: 'hub' }
   | { kind: 'route'; to: string; label: string }
   | { kind: 'download'; href: string; label: string }
+  | { kind: 'iframe'; url: string; label: string }
   | { kind: 'soon'; label: string }
+
+export type TabId = 'profile' | 'career' | 'showcase' | 'extras'
 
 export interface Tile {
   id: string
-  tab: 'career' | 'extras'
+  tab: TabId
   title: string
   tagline: string
   org: string
@@ -68,8 +72,8 @@ export interface Tile {
   accent: [string, string]
   // Optional cover image in /public (e.g. generated art). Falls back to the gradient art.
   cover?: string
-  // Also listed under the other tab (the profile appears in Career and Extras).
-  alsoIn?: 'career' | 'extras'
+  // Also listed under another tab.
+  alsoIn?: TabId
   action: TileAction
   stats: Stat[]
   activities: Activity[]
@@ -340,6 +344,37 @@ export const tiles: Tile[] = [
     activities: [{ title: 'Bachelor of Technology', detail: 'NIT Jalandhar, Punjab, India.' }],
   },
   {
+    id: 'footballiq',
+    tab: 'showcase',
+    title: 'FootballIQ',
+    tagline: 'Every match, understood live',
+    org: 'Independent · Product',
+    period: '2025 – Present',
+    genre: 'Live Football Analytics',
+    blurb:
+      'A live football analytics platform that turns event and 30 Hz tracking feeds into real-time, minute-by-minute ' +
+      'insight. Calibrated models and an AI strategist that cites its evidence power five synchronised views on one ' +
+      'clock: live match, pre-match intelligence, a tactical workbench, predictive coaching and a plain-language strategist. ' +
+      'Built on Microsoft Fabric and Foundry with StatsBomb events and PFF tracking data.',
+    icon: Goal,
+    accent: ['#065f46', '#34d399'],
+    cover: undefined,
+    action: { kind: 'iframe', url: 'https://footballiq.shreyanshsharan.com', label: 'Open FootballIQ' },
+    stats: [
+      { value: '30 Hz', label: 'Tracking data' },
+      { value: '5', label: 'Synchronised views' },
+      { value: '1', label: 'Clock across every view' },
+      { value: 'AI', label: 'Strategist that cites evidence' },
+    ],
+    activities: [
+      { title: 'Live Match', detail: 'Real-time event and 30 Hz tracking, analysed minute by minute as the match unfolds.' },
+      { title: 'Pre-match Intelligence', detail: 'Opponent and matchup scouting from calibrated models before kickoff.' },
+      { title: 'Tactical Workbench', detail: 'Compare windows of a match side by side to see how phases of play changed.' },
+      { title: 'Predictive & Coaching', detail: 'Model-driven predictions and coaching cues, with an AI strategist you query in plain language.' },
+    ],
+    stack: ['Microsoft Fabric', 'Microsoft Foundry', 'StatsBomb', 'PFF tracking', 'Calibrated models', 'LLM agents'],
+  },
+  {
     id: 'arena',
     tab: 'extras',
     title: 'Dunes Arena',
@@ -419,14 +454,13 @@ export const tiles: Tile[] = [
   },
   {
     id: 'profile',
-    tab: 'extras',
-    alsoIn: 'career',
+    tab: 'profile',
     title: 'Player Profile',
     tagline: 'About & Contact',
     org: 'Shreyansh Sharan',
     period: 'Online',
     genre: 'Profile',
-    blurb: 'Meet the player: a 3D avatar and intro clip, plus summary, education, hobbies and how to get in touch.',
+    blurb: 'Meet the player: an interactive 3D avatar, plus summary, education, hobbies and how to get in touch.',
     cover: 'profile/poster.jpg',
     icon: User,
     accent: ['#334155', '#94a3b8'],

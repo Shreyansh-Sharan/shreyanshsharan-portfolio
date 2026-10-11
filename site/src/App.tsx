@@ -10,10 +10,12 @@ import { GameHub } from './components/GameHub'
 import { Trophies } from './components/Trophies'
 import { Skills } from './components/Skills'
 import { Profile } from './components/Profile'
+import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
+import { CanvasErrorBoundary } from './world/CanvasErrorBoundary'
 import type { SceneMode } from './world/WorldCanvas'
 
 // The open world is a separate chunk so the first screen paints before three.js downloads.
@@ -131,6 +133,9 @@ export default function App() {
     case 'profile':
       screen = <Profile onAccent={setAccent} />
       break
+    case 'embed':
+      screen = <Embed id={route.id} onAccent={setAccent} />
+      break
     case 'resume':
       screen = <QuickView onAccent={setAccent} />
       break
@@ -157,11 +162,13 @@ export default function App() {
     <>
       {!hide2D && <Background accent={accent} />}
       {use3D && (
-        <Suspense fallback={null}>
-          <div className={`scene-layer ${ready3D ? 'is-ready' : ''}`}>
-            <WorldCanvas mode={mode} paused={gameRunning} onReady={() => setReady3D(true)} />
-          </div>
-        </Suspense>
+        <CanvasErrorBoundary>
+          <Suspense fallback={null}>
+            <div className={`scene-layer ${ready3D ? 'is-ready' : ''}`}>
+              <WorldCanvas mode={mode} paused={gameRunning} onReady={() => setReady3D(true)} />
+            </div>
+          </Suspense>
+        </CanvasErrorBoundary>
       )}
       <main className={`app ${playing ? 'is-hidden' : ''}`} aria-hidden={playing}>
         {screen}

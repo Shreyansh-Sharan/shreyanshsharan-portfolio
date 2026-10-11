@@ -9,6 +9,8 @@ import { Landmarks, Scatters } from './Models'
 import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
 import { Guide, Player, spawnPlayer } from './Characters'
+import { Critter } from './Critter'
+import { SpellFx } from './SpellFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
 
@@ -66,6 +68,15 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       onCreated={(state) => {
         // Test hook: `?snap` exposes the scene for automated checks.
         if (new URLSearchParams(window.location.search).has('snap')) (window as unknown as { __r3f: unknown }).__r3f = state
+        // Recover from a lost WebGL context instead of leaving a permanent black canvas.
+        const canvas = state.gl.domElement
+        canvas.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault()
+        })
+        canvas.addEventListener('webglcontextrestored', () => {
+          state.gl.setSize(state.size.width, state.size.height, false)
+          state.invalidate()
+        })
       }}
     >
       <color attach="background" args={['#9fc0de']} />
@@ -83,13 +94,16 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         <Ambient />
         <Guide />
         {playing && <Player />}
+        {playing && <Critter />}
+        {playing && <SpellFx />}
         <Preload all />
       </Suspense>
       <CameraRig playing={playing} mode={mode} />
       <Ready onReady={onReady} />
       <AdaptiveDpr pixelated={false} />
       <EffectComposer multisampling={high ? 4 : 0} enableNormalPass={false}>
-        {high ? <N8AO halfRes aoRadius={2.2} intensity={1.6} distanceFalloff={1.2} quality="medium" /> : <></>}
+        {/* Full-res AO: the half-res buffer could tile parts of the frame black on some drivers. */}
+        {high ? <N8AO aoRadius={2.2} intensity={1.6} distanceFalloff={1.2} quality="medium" /> : <></>}
         <Bloom mipmapBlur luminanceThreshold={0.92} luminanceSmoothing={0.12} intensity={0.7} />
         <Vignette offset={0.3} darkness={0.45} />
       </EffectComposer>
