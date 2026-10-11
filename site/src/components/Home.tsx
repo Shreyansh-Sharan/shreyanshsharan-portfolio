@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Volume2, VolumeX } from 'lucide-react'
+import { FileText, Mountain, Volume2, VolumeX } from 'lucide-react'
 import { profile, skillTree, tiles, trophies, type Activity, type Tile } from '../data/content'
 import { useActions, type Action } from '../lib/input'
 import { isMuted, play, setMuted } from '../lib/sound'
@@ -55,7 +55,15 @@ function useClock() {
   return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent: (a: [string, string], emblem: string) => void }) {
+export function Home({
+  initialTile,
+  onAccent,
+  onExplore,
+}: {
+  initialTile?: string
+  onAccent: (a: [string, string], emblem: string) => void
+  onExplore?: () => void
+}) {
   const start = tiles.find((t) => t.id === initialTile) ?? tiles[0]
   const [tab, setTab] = useState<Tab>(start.tab)
   const [indexByTab, setIndexByTab] = useState<Record<Tab, number>>(() => ({
@@ -228,6 +236,11 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
           ))}
         </nav>
         <div className="topbar-right">
+          {onExplore && (
+            <button className="pill pill-explore" onClick={onExplore} title="Explore the open world (⌘K / Ctrl+K)">
+              <Mountain size={16} /> <span className="hide-sm">Explore world</span> <kbd className="hide-sm">⌘K</kbd>
+            </button>
+          )}
           <button className="pill" onClick={openQuickView}>
             <FileText size={16} /> <span className="hide-sm">Quick View</span>
           </button>
@@ -330,7 +343,7 @@ export function Home({ initialTile, onAccent }: { initialTile?: string; onAccent
             </button>
           </div>
         </div>
-        <div className="hero-key" data-emblem-anchor>
+        <div className="hero-key">
           <TileArt tile={tile} variant="key" />
         </div>
       </section>

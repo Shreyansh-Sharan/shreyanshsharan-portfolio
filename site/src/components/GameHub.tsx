@@ -26,7 +26,7 @@ export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, s
     // key resets scroll position when moving between games
     <Page key={tile.id} onBack={() => navigate(`#/home/${tile.id}`)} className="hub">
       <header className="hub-hero" style={accentVars(tile.accent)}>
-        <div className="hub-key" data-emblem-anchor>
+        <div className="hub-key">
           <TileArt tile={tile} variant="key" />
         </div>
         <div className="hub-info">

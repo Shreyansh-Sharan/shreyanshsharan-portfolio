@@ -6,7 +6,15 @@ type Handler = (action: Action) => boolean | void
 
 const stack: { current: Handler }[] = []
 
+let suspended = false
+
+/** While exploring the 3D world, menu navigation is switched off. */
+export function setInputSuspended(value: boolean) {
+  suspended = value
+}
+
 function dispatch(action: Action): boolean {
+  if (suspended) return false
   const top = stack[stack.length - 1]
   return top ? top.current(action) !== false : false
 }
