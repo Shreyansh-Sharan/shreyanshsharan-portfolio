@@ -1,0 +1,455 @@
+// All portfolio content lives here. Edit this file to change what the site shows.
+import type { LucideIcon } from 'lucide-react'
+import {
+  Award,
+  Database,
+  FileDown,
+  Flag,
+  FlaskConical,
+  GraduationCap,
+  Layers,
+  Presentation,
+  Trophy,
+  User,
+  Warehouse,
+  ChartColumn,
+  Network,
+  Wine,
+} from 'lucide-react'
+
+export const profile = {
+  name: 'Shreyansh Sharan',
+  initials: 'SS',
+  headline: 'Solution Architect · Data & AI Platforms',
+  location: 'India',
+  // Replace these placeholders with your real details.
+  email: 'your.email@example.com',
+  linkedin: 'https://www.linkedin.com/in/your-handle',
+  github: 'https://github.com/your-handle',
+  resumePdf: 'Shreyansh_Sharan_Resume.pdf',
+  summary:
+    'Solution Architect with 8+ years across analytics, data engineering, DevOps and Generative AI. ' +
+    'Designed and delivered solutions for 30+ enterprise clients in Pharma, CPG/FMCG, Financial Services, ' +
+    'Agriculture and Construction. Architected an enterprise DevOps framework for Diageo now used by ' +
+    '1,000–2,000 developers across 7 business verticals, and built Omni Studio, a five-studio AI data ' +
+    'platform on Databricks, end to end.',
+  hobbies: ['Soccer', 'Formula 1', 'Video games', 'Badminton', 'Table tennis'],
+}
+
+export interface Stat {
+  value: string
+  label: string
+}
+
+export interface Activity {
+  title: string
+  detail: string
+}
+
+export type TileAction =
+  | { kind: 'hub' }
+  | { kind: 'route'; to: string; label: string }
+  | { kind: 'download'; href: string; label: string }
+  | { kind: 'soon'; label: string }
+
+export interface Tile {
+  id: string
+  tab: 'career' | 'extras'
+  title: string
+  tagline: string
+  org: string
+  period: string
+  genre: string
+  blurb: string
+  icon: LucideIcon
+  // Two hex colours: [deep, bright]. They drive the tile art and the animated background.
+  accent: [string, string]
+  // Optional cover image in /public (e.g. generated art). Falls back to the gradient art.
+  cover?: string
+  action: TileAction
+  stats: Stat[]
+  activities: Activity[]
+  achievements?: string[]
+  stack?: string[]
+}
+
+export const tiles: Tile[] = [
+  {
+    id: 'omni-studio',
+    tab: 'career',
+    title: 'Omni Studio',
+    tagline: "Director's Cut",
+    org: 'Polestar Analytics · Product',
+    period: '2025 – Present',
+    genre: 'Data & AI Platform',
+    blurb:
+      'A five-studio AI data platform on Databricks that takes a client from raw documents to governed ' +
+      'models, ML, self-explaining dashboards and agents. Architected and built end to end: front end, back end and APIs.',
+    icon: Layers,
+    accent: ['#5b21b6', '#22d3ee'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '5', label: 'Studios' },
+      { value: '1', label: 'Page-aware assistant (Omni)' },
+      { value: 'MCP', label: 'Server per studio' },
+      { value: 'E2E', label: 'Front end · back end · APIs' },
+    ],
+    activities: [
+      {
+        title: 'Foundation Studio',
+        detail:
+          'An AI builder that reads client BRD and source-to-target mapping documents and drafts a governed medallion model (Bronze, Silver, Gold star schema with SCD2), its transformations and deterministic Databricks SQL, with a person approving each stage before a 9-step deploy wizard.',
+      },
+      {
+        title: 'Governance Studio',
+        detail:
+          'A control plane that scans Databricks jobs, clusters, SQL history and notebooks across 12 collection targets, with column-level lineage, cost and LLM-spend budgets, right-sizing recommendations, access reviews and an immutable audit log.',
+      },
+      {
+        title: 'ML Studio',
+        detail:
+          'From a business question to a deployed model: problem framing, a sandboxed guided notebook with Optuna tuning, MLflow experiments, champion models, Databricks serving and drift monitoring.',
+      },
+      {
+        title: 'Insights Studio',
+        detail:
+          'A semantic layer (tables, knowledge graph, glossary, governed metrics, data-quality rules) with AI-built dashboards, "ask why" insights and natural-language-to-SQL over Unity Catalog.',
+      },
+      {
+        title: 'Agent Studio',
+        detail:
+          'Agents with models, tools and MCP skills that read and write across every studio, plus a live playground and full run traces.',
+      },
+      {
+        title: 'Omni assistant',
+        detail:
+          'A Ctrl+K assistant that opens anywhere, knows the current screen and engagement, and suggests page-aware prompts.',
+      },
+    ],
+    stack: ['Databricks', 'Unity Catalog', 'MLflow', 'Optuna', 'MCP', 'LLM agents', 'NL-to-SQL', 'Full-stack web'],
+  },
+  {
+    id: 'diageo-devops',
+    tab: 'career',
+    title: 'Diageo',
+    tagline: 'The DevOps Saga',
+    org: 'Polestar Analytics · Solution Architect',
+    period: '2025 – Present',
+    genre: 'Enterprise DevOps',
+    blurb:
+      "An enterprise Azure DevOps framework for the world's largest spirits and whisky company, standardising how data workloads are built, tested and released across the business.",
+    icon: Wine,
+    accent: ['#92400e', '#fbbf24'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '7', label: 'Business verticals' },
+      { value: '1–2K', label: 'Developers on the framework' },
+      { value: '<2h', label: 'Release lead time (from ~3 days)' },
+      { value: '−60%', label: 'Failed deployments' },
+    ],
+    activities: [
+      {
+        title: 'Framework architecture',
+        detail:
+          'Standardised CI/CD, branching, environment promotion and release governance for data workloads across Databricks, Azure Data Factory and Azure.',
+      },
+      {
+        title: 'Enterprise adoption',
+        detail:
+          'Rolled out across Supply, People, Legal, Finance, Customer, Consumer and more, used by 1,000–2,000 internal and vendor developers.',
+      },
+      {
+        title: 'Faster, safer releases',
+        detail: 'Cut release lead time from about 3 days to under 2 hours and failed deployments by about 60%.',
+      },
+      {
+        title: 'Reusable templates',
+        detail:
+          'Pipeline templates, quality gates and automated environment set-up cut onboarding a new project from 2 weeks to 2 days.',
+      },
+    ],
+    stack: ['Azure DevOps', 'YAML pipelines', 'CI/CD', 'Git branching', 'Databricks', 'Azure Data Factory'],
+  },
+  {
+    id: 'architect-mode',
+    tab: 'career',
+    title: 'Architect Mode',
+    tagline: 'Pre-Sales & Migrations',
+    org: 'Polestar Analytics · Solution Architect',
+    period: '2025 – Present',
+    genre: 'Strategy',
+    blurb:
+      'Leading pre-sales and solution design across CPG, FMCG and Financial Services, and writing target architectures for data, infrastructure and cloud migration programmes.',
+    icon: Presentation,
+    accent: ['#9f1239', '#fb7185'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '20+', label: 'Pre-sales opportunities' },
+      { value: '8', label: 'Client wins' },
+      { value: '3', label: 'Domains: CPG · FMCG · FS' },
+    ],
+    activities: [
+      {
+        title: 'Pre-sales leadership',
+        detail: 'Discovery calls, solution architecture, effort estimates and demos for 20+ opportunities, contributing to 8 client wins.',
+      },
+      {
+        title: 'Target architectures',
+        detail: 'Authored architectures for data engineering, infrastructure and cloud migration programmes.',
+      },
+      {
+        title: 'Migrations',
+        detail: 'Moved on-premises systems and legacy BI to Azure and the Databricks Lakehouse.',
+      },
+    ],
+    stack: ['Solution architecture', 'Azure', 'Databricks Lakehouse', 'Estimation', 'Demos'],
+  },
+  {
+    id: 'lakehouse-logistics',
+    tab: 'career',
+    title: 'Lakehouse Logistics',
+    tagline: 'Inventory Intelligence',
+    org: 'Polestar Analytics · Data Engineer',
+    period: '2024 – 2025',
+    genre: 'Data Engineering',
+    blurb:
+      "An inventory intelligence platform for one of the world's largest fertilizer companies: SAP data into a Databricks medallion Lakehouse feeding ML stock models and dashboards for inventory leaders.",
+    icon: Warehouse,
+    accent: ['#166534', '#a3e635'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '−18%', label: 'Stock-outs' },
+      { value: '−12%', label: 'Excess inventory holding' },
+      { value: '40+', label: 'ADF pipelines' },
+      { value: '50M+', label: 'Rows processed daily' },
+    ],
+    activities: [
+      {
+        title: 'SAP to Lakehouse',
+        detail: 'Ingested SAP (ECC/S4) data through Azure Data Factory into a Databricks Bronze/Silver/Gold Lakehouse.',
+      },
+      {
+        title: 'ML stock rebalancing',
+        detail: 'ML-driven rebalancing used by inventory managers and leadership: about 18% fewer stock-outs and 12% less excess inventory.',
+      },
+      {
+        title: 'Pipelines at scale',
+        detail: '40+ parameterised ADF pipelines and PySpark jobs processing 50M+ rows a day, with incremental loads and data-quality checks.',
+      },
+      {
+        title: 'More clients',
+        detail:
+          "Data engineering for Financial Services and CPG clients and one of the world's largest construction companies; Spark tuning cut job run time by about 35%.",
+      },
+    ],
+    stack: ['Azure Data Factory', 'Databricks', 'PySpark', 'Delta Lake', 'SAP', 'ML'],
+  },
+  {
+    id: 'qlik-legends',
+    tab: 'career',
+    title: 'Qlik Legends',
+    tagline: '30 Clients Campaign',
+    org: 'Polestar Analytics · Qlik Developer → Architect → Admin',
+    period: '2021 – 2024',
+    genre: 'Business Intelligence',
+    blurb:
+      'Delivered Qlik solutions for 25–30 clients across domains as developer, solution architect and platform administrator.',
+    icon: ChartColumn,
+    accent: ['#115e59', '#2dd4bf'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '25–30', label: 'Clients' },
+      { value: '150+', label: 'Dashboards' },
+      { value: '2,000+', label: 'Users administered' },
+      { value: '−40%', label: 'Reload times' },
+    ],
+    activities: [
+      {
+        title: 'Dashboards',
+        detail: '150+ Qlik Sense and QlikView dashboards across sales, finance, supply chain and operations.',
+      },
+      {
+        title: 'Performance',
+        detail: 'Optimised data models to cut reload times by about 40%.',
+      },
+      {
+        title: 'Platform administration',
+        detail: 'Ran multi-node Qlik Sense for 2,000+ users: security rules, streams, licences, scheduling and upgrades.',
+      },
+      {
+        title: 'Migrations & mentoring',
+        detail: 'Led QlikView to Qlik Sense migrations and mentored junior developers.',
+      },
+    ],
+    stack: ['Qlik Sense', 'QlikView', 'QMC / QRS', 'Data modelling', 'Set analysis'],
+  },
+  {
+    id: 'wipro-origins',
+    tab: 'career',
+    title: 'Wipro',
+    tagline: 'Origins',
+    org: 'Wipro Limited · Pharma analytics',
+    period: '2018 – 2021',
+    genre: 'Analytics & Automation',
+    blurb:
+      'Two chapters with two pharmaceutical clients: building sales and pharmacy dashboards, then architecting and automating the whole Qlik delivery lifecycle.',
+    icon: FlaskConical,
+    accent: ['#1e40af', '#38bdf8'],
+    action: { kind: 'hub' },
+    stats: [
+      { value: '2', label: 'Pharma clients' },
+      { value: '2d → 30m', label: 'Provisioning time' },
+      { value: '−80%', label: 'Manual admin effort' },
+      { value: '3', label: 'Awards' },
+    ],
+    activities: [
+      {
+        title: 'Chapter 1 · Qlik Developer (2018–2020)',
+        detail: 'Built sales, insights and pharmacy performance dashboards for sales leadership and field teams: 50+ dashboards and reports.',
+      },
+      {
+        title: 'Chapter 2 · Qlik Solution Architect & Automation (2020–2021)',
+        detail:
+          'Automated project creation, streams, dashboard publishing and access management with Python and Selenium, turning a 2-day process into about 30 minutes.',
+      },
+      {
+        title: 'Platform design',
+        detail: "Designed the solution architecture and governance model for the client's Qlik platform.",
+      },
+    ],
+    achievements: ['Most Innovative Award', 'Key Player, Pharmaceutical Vertical', 'Best New Recruit 2018'],
+    stack: ['Qlik Sense', 'Python', 'Selenium', 'Automation'],
+  },
+  {
+    id: 'nit-academy',
+    tab: 'career',
+    title: 'NIT Jalandhar',
+    tagline: 'Academy',
+    org: 'Dr. B. R. Ambedkar National Institute of Technology',
+    period: '2014 – 2018',
+    genre: 'Education',
+    blurb: 'Bachelor of Technology (B.Tech) from Dr. B. R. Ambedkar National Institute of Technology, Jalandhar, Punjab.',
+    icon: GraduationCap,
+    accent: ['#3730a3', '#a5b4fc'],
+    action: { kind: 'hub' },
+    stats: [{ value: 'B.Tech', label: 'Degree' }],
+    activities: [{ title: 'Bachelor of Technology', detail: 'NIT Jalandhar, Punjab, India.' }],
+  },
+  {
+    id: 'trophies',
+    tab: 'extras',
+    title: 'Trophies',
+    tagline: 'Certifications & Awards',
+    org: 'Anthropic · Databricks · Microsoft · Qlik · Wipro',
+    period: '11 earned',
+    genre: 'Collection',
+    blurb: 'Every certification and award, collected as trophies.',
+    icon: Trophy,
+    accent: ['#a16207', '#fde047'],
+    action: { kind: 'route', to: '#/trophies', label: 'View trophies' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'skill-tree',
+    tab: 'extras',
+    title: 'Skill Tree',
+    tagline: 'Loadout',
+    org: 'Data · DevOps · GenAI · ML · BI',
+    period: '6 branches',
+    genre: 'Skills',
+    blurb: 'The full loadout: data and cloud, DevOps, Generative AI, ML, BI and languages.',
+    icon: Network,
+    accent: ['#075985', '#7dd3fc'],
+    action: { kind: 'route', to: '#/skills', label: 'Open skill tree' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'profile',
+    tab: 'extras',
+    title: 'Player Profile',
+    tagline: 'About & Contact',
+    org: 'Shreyansh Sharan',
+    period: 'Online',
+    genre: 'Profile',
+    blurb: 'Summary, education, hobbies and how to get in touch.',
+    icon: User,
+    accent: ['#334155', '#94a3b8'],
+    action: { kind: 'route', to: '#/profile', label: 'View profile' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'resume',
+    tab: 'extras',
+    title: 'Resume',
+    tagline: 'Download PDF',
+    org: '2 pages',
+    period: 'PDF',
+    genre: 'Document',
+    blurb: 'The full resume as a PDF, or read it as a plain page with Quick View.',
+    icon: FileDown,
+    accent: ['#475569', '#e2e8f0'],
+    action: { kind: 'download', href: 'Shreyansh_Sharan_Resume.pdf', label: 'Download PDF' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'sports-complex',
+    tab: 'extras',
+    title: 'Sports Complex',
+    tagline: 'Coming Soon',
+    org: 'F1 · Soccer · Badminton · Table tennis',
+    period: 'In development',
+    genre: '3D World',
+    blurb: 'A small 3D sports complex to explore: an F1 track for experience, a stadium for achievements and a rally hall for skills.',
+    icon: Flag,
+    accent: ['#991b1b', '#f97316'],
+    action: { kind: 'soon', label: 'Coming soon' },
+    stats: [],
+    activities: [],
+  },
+]
+
+export type TrophyTier = 'platinum' | 'gold' | 'silver' | 'bronze'
+
+export interface TrophyItem {
+  name: string
+  issuer: string
+  tier: TrophyTier
+  kind: 'Certification' | 'Award'
+  icon: LucideIcon
+}
+
+export const trophies: TrophyItem[] = [
+  { name: 'Claude Certified Solutions Architect', issuer: 'Anthropic', tier: 'platinum', kind: 'Certification', icon: Award },
+  { name: 'Azure Solutions Architect Expert', issuer: 'Microsoft', tier: 'platinum', kind: 'Certification', icon: Award },
+  { name: 'Databricks Certified Generative AI Engineer Associate', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Award },
+  { name: 'Databricks Solutions Architect', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Award },
+  { name: 'Databricks Certified Data Engineer', issuer: 'Databricks', tier: 'gold', kind: 'Certification', icon: Database },
+  { name: 'Azure AI Engineer Associate', issuer: 'Microsoft', tier: 'gold', kind: 'Certification', icon: Award },
+  { name: 'Qlik Certified Solution Architect', issuer: 'Qlik', tier: 'silver', kind: 'Certification', icon: Award },
+  { name: 'Qlik Certified Developer', issuer: 'Qlik', tier: 'silver', kind: 'Certification', icon: Award },
+  { name: 'Most Innovative Award', issuer: 'Wipro', tier: 'gold', kind: 'Award', icon: Trophy },
+  { name: 'Key Player, Pharmaceutical Vertical', issuer: 'Wipro', tier: 'silver', kind: 'Award', icon: Trophy },
+  { name: 'Best New Recruit 2018', issuer: 'Wipro', tier: 'bronze', kind: 'Award', icon: Trophy },
+]
+
+export const skillTree: { branch: string; skills: string[] }[] = [
+  {
+    branch: 'Data & Cloud',
+    skills: ['Databricks Lakehouse', 'Unity Catalog', 'Delta Lake', 'PySpark', 'Azure Data Factory', 'ADLS Gen2', 'Azure Synapse', 'SAP integration'],
+  },
+  {
+    branch: 'DevOps',
+    skills: ['Azure DevOps', 'YAML pipelines', 'CI/CD', 'Git branching strategy', 'Release governance', 'Environment promotion'],
+  },
+  {
+    branch: 'Generative AI',
+    skills: ['Claude', 'LLM agents', 'Model Context Protocol', 'Tool calling', 'RAG', 'NL-to-SQL', 'Databricks Mosaic AI'],
+  },
+  { branch: 'Machine Learning', skills: ['Feature engineering', 'scikit-learn', 'Optuna', 'MLflow', 'Forecasting', 'Recommenders'] },
+  { branch: 'BI & Analytics', skills: ['Qlik Sense', 'QlikView', 'Qlik administration', 'Power BI', 'Semantic layers'] },
+  { branch: 'Languages & Apps', skills: ['Python', 'SQL', 'Spark SQL', 'REST APIs', 'Full-stack web', 'Selenium'] },
+]
