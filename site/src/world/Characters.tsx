@@ -1,15 +1,19 @@
-// The generated, rigged characters: the player (the visitor's low-poly avatar, with idle, walk, run,
-// jump and spell-cast clips) and the waving guide.
+// The rigged characters: the player (the visitor's low-poly avatar: walk, run, fly, jump, a melee combo, a stomp
+// and the spell cast) and the waving guide.
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useAnimations, useGLTF } from '@react-three/drei'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
-import { REGIONS, ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
+import { ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
-import { neonBlocks } from './Ambient'
-import { controls, moveAxes } from './controls'
+import { GUIDE_SPOT } from './layout'
+import { resolve } from './colliders'
+import { animals } from './wildlife'
+import { controls, flyAxis, moveAxes, pollPad } from './controls'
+import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type HitShape } from './combat'
+import { emit, SHAPE, type Emit } from './particles'
 import { MISSIONS, INTERACT_DISTANCE } from './missions'
 import { lastCast } from './spells'
 import { world } from './store'
@@ -21,6 +25,20 @@ export const player = {
   camYaw: Math.PI,
   camPitch: 0.32,
   speed: 0,
+  /** Vertical velocity (negative while falling), read by the animals' bounce check. */
+  vy: 0,
+  /** Upward speed to apply on the next frame after landing on an animal (0 = none). */
+  bounce: 0,
+  /** Flying, and how fast (0..1), for the camera and the speed lines. */
+  flying: false,
+  fly: 0,
+  /** Shove from an enemy bump, m/s on the ground plane (decays). */
+  knock: new THREE.Vector2(),
+  /** Bumped per melee swing / stomp landing, for the swoosh and shockwave visuals (PlayerFx.tsx). */
+  swoosh: { n: 0, move: 'punch' as string },
+  stomp: { n: 0 },
+  /** Height of the ground under the player (for the contact shadow while airborne). */
+  ground: 0,
 }
 
 /**
@@ -66,8 +84,7 @@ export function Guide() {
     const a = actions[names[0]]
     a?.reset().setLoop(THREE.LoopRepeat, Infinity).play()
   }, [actions, names])
-  const hub = REGIONS[0]
-  const x = hub.center[0] - 3, z = hub.center[1] + 9
+  const { x, z } = GUIDE_SPOT
   return (
     <group ref={group} position={[x, heightAt(x, z), z]} rotation={[0, Math.PI * 0.08, 0]}>
       <primitive object={model} />
@@ -77,29 +94,99 @@ export function Guide() {
 
 /* ---------- Player ---------- */
 
-// Solid landmarks (buildings): a radius roughly matching each landmark's footprint so the player
-// can't walk through them. Scaled up from the old 0.62 factor which let the player clip into buildings.
-const CIRCLE_COLLIDERS = REGIONS.flatMap((r) =>
-  r.landmarks.map((l) => ({ x: r.center[0] + l.at[0], z: r.center[1] + l.at[1], r: (l.pad ?? 4) * 0.95 })),
-)
-
-// Neon skyline towers are rectangular; collide against their footprints so the player can't walk through.
-const BOX_COLLIDERS = neonBlocks().map((b) => ({ x: b.x, z: b.z, hw: b.w / 2 + 0.4, hd: b.d / 2 + 0.4 }))
-
 /** The player character: the low-poly avatar from the profile page (one Meshy rig, all clips on one skeleton). */
 const AVATAR_URL = `${import.meta.env.BASE_URL}profile/lowpoly.glb`
-const AVATAR_CLIPS = { idle: /\|Idle\|/, walk: /Casual_Walk/, run: /RunFast/, jump: /Regular_Jump/, spell: /Charged_Spell_Cast/ }
+const AVATAR_CLIPS = {
+  idle: /\|Idle\|/,
+  walk: /Casual_Walk/,
+  run: /RunFast/,
+  jump: /Regular_Jump/,
+  spell: /Charged_Spell_Cast/,
+  fly: /\|Fall1\|/,
+  hover: /\|Swim_Idle\|/,
+  punch: /Kung_Fu_Punch/,
+  kick: /Roundhouse_Kick/,
+  dash: /Flying_Fist_Kick/,
+  spin: /360_Power_Spin_Jump/,
+  cheer: /Victory_Cheer/,
+}
 type Anim = keyof typeof AVATAR_CLIPS
+/** If a clip is missing from the model, play this one instead. */
+const FALLBACK: Partial<Record<Anim, Anim>> = { fly: 'run', hover: 'idle', punch: 'spell', kick: 'spell', dash: 'run', spin: 'spell', cheer: 'spell' }
+const ONCE = new Set<Anim>(['jump', 'spell', 'punch', 'kick', 'dash', 'spin', 'cheer'])
+/** Clips whose hips must stay over the feet (physics owns where the body goes). */
+const PINNED = new Set<Anim>(['punch', 'kick', 'dash', 'spin', 'fly', 'hover', 'cheer'])
 /** Regular_Jump: crouch, take-off ~0.45 s, peak 0.83 s, landing ~1.25 s. Physics owns the height, so play from take-off. */
 const JUMP_FROM = 0.42
 /** The spell clip is long (2.7 s); play it briskly so a cast reads as a flick of the wrists. */
 const SPELL_SPEED = 1.6
 
+/** Movement tiers (m/s): walk < run < fly (about 2.5x a run). */
+const WALK = 4.6
+const RUN = 9
+const FLY = 22
+const FLY_BOOST = 30
+/** Flight ceiling above the ground, and absolute. */
+const FLY_CEILING = 60
+const FLY_MAX_Y = 95
+
+type Move = 'punch' | 'kick' | 'spin' | 'dash'
+interface MoveSpec {
+  dur: number
+  /** Active window (seconds into the move) when it can connect. */
+  hit: [number, number]
+  range: number
+  arc: number
+  damage: number
+  knock: number
+  lift: number
+  /** What a follow-up press during this move chains into. */
+  next?: Move
+  /** How much walking is allowed while it plays (0 = rooted). */
+  move: number
+}
+
+/** The melee set: punch -> roundhouse -> 360 spin combo, plus a dash attack while running. */
+const MOVES: Record<Move, MoveSpec> = {
+  punch: { dur: 0.42, hit: [0.1, 0.26], range: 1.8, arc: 1.0, damage: 1, knock: 5, lift: 3, next: 'kick', move: 0.25 },
+  kick: { dur: 0.6, hit: [0.16, 0.38], range: 2.3, arc: 1.5, damage: 1, knock: 8, lift: 4.5, next: 'spin', move: 0.2 },
+  spin: { dur: 0.78, hit: [0.12, 0.58], range: 2.9, arc: Math.PI, damage: 2, knock: 9, lift: 6, move: 0.35 },
+  dash: { dur: 0.58, hit: [0.04, 0.4], range: 2.1, arc: 1.2, damage: 2, knock: 10, lift: 5, move: 0 },
+}
+
+/** The player's footprint radius for collisions. */
+const PLAYER_RADIUS = 0.4
+
+const dust = new THREE.Color('#cdbf9f')
+const wind = new THREE.Color('#dff3ff')
+const fxOpts: Emit = { count: 0, x: 0, y: 0, z: 0, speed: [0, 0], color: dust, size: [0, 0], life: [0, 0] }
+function puff(count: number, x: number, y: number, z: number, color: THREE.Color, speed: number, life: number, size: number, smoke: boolean) {
+  fxOpts.count = count
+  fxOpts.x = x
+  fxOpts.y = y
+  fxOpts.z = z
+  fxOpts.color = color
+  fxOpts.color2 = undefined
+  fxOpts.spread = smoke ? 0.4 : 0.15
+  fxOpts.up = smoke ? 0.15 : 0.2
+  fxOpts.speed = [speed * 0.5, speed]
+  fxOpts.size = [size * 0.7, size]
+  fxOpts.life = [life * 0.6, life]
+  fxOpts.shape = smoke ? SHAPE.smoke : SHAPE.glow
+  fxOpts.grow = smoke
+  fxOpts.drag = smoke ? 3 : 1
+  fxOpts.gravity = 0
+  fxOpts.hdr = smoke ? 1 : 1.6
+  emit(fxOpts)
+}
+
+const hitShape: HitShape = { x: 0, y: 0, z: 0, yaw: 0, arc: 0, range: 0, damage: 0, knock: 0, lift: 0, swing: 0 }
+
 export function Player() {
   const gltf = useGLTF(AVATAR_URL, false, true)
   const model = useMemo(() => {
     const root = prepare(gltf.scene, 1.8, 1.75)
-    // Flat shading for the faceted low-poly look.
+    // Flat shading for the faceted low-poly look (lit by the sky environment map).
     root.traverse((o) => {
       const m = o as THREE.Mesh
       if (m.isMesh) {
@@ -117,9 +204,12 @@ export function Player() {
     model.traverse((o) => {
       if (!h && (o as THREE.Bone).isBone && o.name === 'Hips') h = o
     })
-    return h ? { bone: h as THREE.Object3D, restY: (h as THREE.Object3D).position.y } : null
+    const bone = h as THREE.Object3D | null
+    return bone ? { bone, rest: bone.position.clone() } : null
   }, [model])
   const group = useRef<THREE.Group>(null)
+  const tilt = useRef<THREE.Group>(null)
+  const shadow = useRef<THREE.Mesh>(null)
   const clips = useMemo(() => {
     const out: THREE.AnimationClip[] = []
     for (const [name, re] of Object.entries(AVATAR_CLIPS)) {
@@ -131,127 +221,384 @@ export function Player() {
     }
     return out
   }, [gltf])
-  const { actions } = useAnimations(clips, group)
-  const state = useRef({ vy: 0, grounded: true, current: '' as string, near: null as string | null, teleportN: 0, castN: lastCast()?.n ?? 0, casting: 0 })
+  const { actions, mixer } = useAnimations(clips, group)
+  const state = useRef({
+    vy: 0,
+    grounded: true,
+    current: '' as string,
+    near: null as string | null,
+    teleportN: 0,
+    castN: lastCast()?.n ?? 0,
+    casting: 0,
+    flying: false,
+    flyVel: new THREE.Vector3(),
+    bank: 0,
+    pitch: 0,
+    lastYaw: 0,
+    move: null as Move | null,
+    moveT: 0,
+    queued: false,
+    swing: 0,
+    stomp: false,
+    cheerN: world.get().cheer?.n ?? 0,
+    cheering: 0,
+    trail: 0,
+  })
 
   useEffect(() => {
     state.current.teleportN = world.get().teleport?.n ?? 0
-    // Bouncing on the critter launches the player upward (Mario-style).
-    const onBounce = () => {
-      state.current.vy = 10
-      state.current.grounded = false
+    return () => {
+      player.flying = false
+      player.fly = 0
     }
-    window.addEventListener('critter-bounce', onBounce)
-    return () => window.removeEventListener('critter-bounce', onBounce)
   }, [])
 
-  const fadeTo = (name: Anim, from = 0) => {
+  /** Cross-fade to a clip (or its fallback); `restart` replays a one-shot that's already current. */
+  const fadeTo = (want: Anim, from = 0, restart = false) => {
     const s = state.current
-    if (s.current === name) return
+    const name: Anim = actions[want] ? want : (FALLBACK[want] ?? want)
+    if (s.current === name && !restart) return
     const next = actions[name]
     if (!next) return
-    const once = name === 'jump' || name === 'spell'
+    const once = ONCE.has(name)
     next.reset().setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity)
     next.clampWhenFinished = once
     next.time = from
-    next.setEffectiveWeight(1).fadeIn(0.2).play()
-    if (s.current) actions[s.current]?.fadeOut(0.2)
+    next.timeScale = 1
+    next.setEffectiveWeight(1).fadeIn(0.12).play()
+    if (s.current && s.current !== name) actions[s.current]?.fadeOut(0.12)
     s.current = name
+  }
+  /** Play a one-shot clip squeezed into `dur` seconds. */
+  const playMove = (anim: Anim, dur: number) => {
+    fadeTo(anim, 0, true)
+    const a = actions[state.current.current]
+    if (a) a.timeScale = a.getClip().duration / dur
+  }
+
+  /** Start a melee move, turning to the nearest enemy close by (friendly auto-aim). */
+  const startMove = (m: Move) => {
+    const s = state.current
+    s.move = m
+    s.moveT = 0
+    s.queued = false
+    s.swing = newSwing()
+    const e = nearestEnemy(player.pos.x, player.pos.z, 4.5)
+    if (e) player.yaw = Math.atan2(e.pos.x - player.pos.x, e.pos.z - player.pos.z)
+    player.swoosh = { n: player.swoosh.n + 1, move: m }
+    playMove(m, MOVES[m].dur)
   }
 
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 0.05)
+    const raw = Math.min(rawDt, 0.05)
+    // Hit-stop freezes the action (and the animation) for a beat when a blow lands.
+    const dt = gameDt(raw)
+    mixer.timeScale = dt > 0 ? 1 : 0
     const s = state.current
     const g = group.current
     if (!g) return
+    pollPad()
 
     const tp = world.get().teleport
     if (tp && tp.n !== s.teleportN) {
       s.teleportN = tp.n
       player.pos.set(tp.x, heightAt(tp.x, tp.z), tp.z)
+      s.flying = false
     }
 
     const modalOpen = world.get().open !== null
     const { x, y, run } = modalOpen ? { x: 0, y: 0, run: false } : moveAxes()
-    const speed = (run ? 9 : 4.6) * Math.min(1, Math.hypot(x, y))
-    if (speed > 0.1) {
-      // Move relative to the camera's heading.
-      const fwd = new THREE.Vector3(-Math.sin(player.camYaw), 0, -Math.cos(player.camYaw))
-      const right = new THREE.Vector3(-fwd.z, 0, fwd.x)
-      const dir = fwd.multiplyScalar(y).add(right.multiplyScalar(x)).normalize()
-      const nx = player.pos.x + dir.x * speed * dt, nz = player.pos.z + dir.z * speed * dt
-      const deep = heightAt(nx, nz) < WATER_LEVEL - 0.9
-      const outside = Math.hypot(nx, nz) > ISLAND_RADIUS + 10
-      if (!deep && !outside) {
-        player.pos.x = nx
-        player.pos.z = nz
-      }
-      const targetYaw = Math.atan2(dir.x, dir.z)
-      let d = targetYaw - player.yaw
-      d = Math.atan2(Math.sin(d), Math.cos(d))
-      player.yaw += d * Math.min(1, dt * 12)
-    }
-    // Push out of circular landmark footprints.
-    for (const c of CIRCLE_COLLIDERS) {
-      const dx = player.pos.x - c.x, dz = player.pos.z - c.z
-      const d = Math.hypot(dx, dz)
-      if (d < c.r && d > 1e-3) {
-        player.pos.x = c.x + (dx / d) * c.r
-        player.pos.z = c.z + (dz / d) * c.r
-      }
-    }
-    // Push out of rectangular neon-tower footprints (resolve along the shallower axis).
-    const pr = 0.4 // player radius padding
-    for (const b of BOX_COLLIDERS) {
-      const dx = player.pos.x - b.x, dz = player.pos.z - b.z
-      const px = b.hw + pr - Math.abs(dx)
-      const pz = b.hd + pr - Math.abs(dz)
-      if (px > 0 && pz > 0) {
-        if (px < pz) player.pos.x = b.x + Math.sign(dx || 1) * (b.hw + pr)
-        else player.pos.z = b.z + Math.sign(dz || 1) * (b.hd + pr)
-      }
+    const mag = Math.min(1, Math.hypot(x, y))
+    // Input direction relative to the camera: forward is (-sin, -cos) of its yaw, right is perpendicular.
+    const fx = -Math.sin(player.camYaw), fz = -Math.cos(player.camYaw)
+    let dx = fx * y - fz * x, dz = fz * y + fx * x
+    const len = Math.hypot(dx, dz) || 1
+    dx /= len
+    dz /= len
+
+    // ---- Take off / land. ----
+    if (controls.fly) {
+      controls.fly = false
+      if (!modalOpen && !s.flying && !s.move) {
+        s.flying = true
+        s.grounded = false
+        s.stomp = false
+        s.vy = Math.max(s.vy, 7)
+        const sp = (run ? RUN : WALK) * mag
+        s.flyVel.set(dx * sp, 0, dz * sp)
+        puff(14, player.pos.x, player.pos.y + 0.2, player.pos.z, dust, 3, 0.7, 0.6, true)
+        puff(10, player.pos.x, player.pos.y + 1, player.pos.z, wind, 4, 0.4, 0.18, false)
+      } else if (s.flying) s.flying = false
     }
 
-    // Gravity and jumping.
-    const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9)
-    if (controls.jump && s.grounded && !modalOpen) {
-      s.vy = 7.5
-      s.grounded = false
+    // ---- Attacks. ----
+    const wantAttack = controls.attack && !modalOpen
+    const wantSpin = controls.spin && !modalOpen
+    controls.attack = controls.spin = false
+    if (wantAttack || wantSpin) {
+      if (s.flying || !s.grounded) {
+        // From the air: dive into a ground stomp.
+        if (!s.stomp) {
+          s.flying = false
+          s.stomp = true
+          s.move = null
+          s.vy = -26
+          s.flyVel.set(0, 0, 0)
+          fadeTo('dash', 0, true)
+        }
+      } else if (s.move) {
+        const spec = MOVES[s.move]
+        if (spec.next && s.moveT > spec.hit[0]) s.queued = true
+      } else if (wantSpin) startMove('spin')
+      else if (player.speed > 6.5) startMove('dash')
+      else startMove('punch')
     }
-    controls.jump = false
-    s.vy -= 22 * dt
-    player.pos.y += s.vy * dt
-    if (player.pos.y <= ground) {
-      player.pos.y = ground
-      s.vy = 0
-      s.grounded = true
+
+    let speed = 0
+    const prevX = player.pos.x, prevZ = player.pos.z
+    if (s.flying) {
+      // ---- Flight: fastest way across the island, with altitude control and a hover. ----
+      const max = run ? FLY_BOOST : FLY
+      const k = Math.min(1, dt * 2.4)
+      s.flyVel.x += (dx * max * mag - s.flyVel.x) * k
+      s.flyVel.z += (dz * max * mag - s.flyVel.z) * k
+      player.pos.x += s.flyVel.x * dt
+      player.pos.z += s.flyVel.z * dt
+      const axis = modalOpen ? 0 : flyAxis()
+      controls.jump = false
+      const target = axis * 10 + (axis === 0 ? Math.sin(performance.now() / 420) * 0.35 : 0)
+      s.vy += (target - s.vy) * Math.min(1, dt * 4)
+      player.pos.y += s.vy * dt
+      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
+      const ceiling = Math.min(ground + FLY_CEILING, FLY_MAX_Y)
+      if (player.pos.y > ceiling) {
+        player.pos.y = ceiling
+        s.vy = Math.min(s.vy, 0)
+      }
+      if (player.pos.y <= ground + 0.02) {
+        player.pos.y = ground
+        // Touchdown: descending onto the ground lands (over water you just skim).
+        if (axis < 0 && ground > WATER_LEVEL + 0.1) {
+          s.flying = false
+          s.grounded = true
+          s.vy = 0
+          puff(12, player.pos.x, ground + 0.1, player.pos.z, dust, 3, 0.6, 0.5, true)
+        } else s.vy = Math.max(s.vy, 0)
+      }
+      speed = Math.hypot(s.flyVel.x, s.flyVel.z)
+      if (speed > 1) player.yaw = turnTowards(player.yaw, Math.atan2(s.flyVel.x, s.flyVel.z), dt * 6)
+    } else {
+      // ---- On foot. ----
+      const spec = s.move ? MOVES[s.move] : null
+      speed = (run ? RUN : WALK) * mag * (spec ? spec.move : 1)
+      if (s.move === 'dash' && s.moveT < 0.38) {
+        // The flying fist kick lunges forward.
+        speed = 13
+        dx = Math.sin(player.yaw)
+        dz = Math.cos(player.yaw)
+      }
+      if (speed > 0.1) {
+        const nx = player.pos.x + dx * speed * dt, nz = player.pos.z + dz * speed * dt
+        const deep = heightAt(nx, nz) < WATER_LEVEL - 0.9
+        const outside = Math.hypot(nx, nz) > ISLAND_RADIUS + 10
+        if (!deep && !outside) {
+          player.pos.x = nx
+          player.pos.z = nz
+        }
+        if (!s.move) player.yaw = turnTowards(player.yaw, Math.atan2(dx, dz), dt * 12)
+      }
     }
+    // Shoved by an enemy bump.
+    if (player.knock.lengthSq() > 0.01) {
+      player.pos.x += player.knock.x * dt
+      player.pos.z += player.knock.y * dt
+      player.knock.multiplyScalar(Math.exp(-dt * 6))
+    }
+    // Keep inside the island while flying out over the sea.
+    const fromCentre = Math.hypot(player.pos.x, player.pos.z)
+    if (fromCentre > ISLAND_RADIUS + 40) {
+      player.pos.x *= (ISLAND_RADIUS + 40) / fromCentre
+      player.pos.z *= (ISLAND_RADIUS + 40) / fromCentre
+    }
+
+    // Solid world: buildings, trees, rocks, bushes, the neon skyline and the guide (spatial-grid lookup).
+    // Props are only solid up to their tops, so you can fly (or jump) over them but never through them.
+    const bx = player.pos.x, bz = player.pos.z
+    if (resolve(player.pos, PLAYER_RADIUS, player.pos.y) && s.flying) {
+      // Hitting a wall in flight kills the speed into it (you slide along instead of grinding).
+      const nx = player.pos.x - bx, nz = player.pos.z - bz
+      const l = Math.hypot(nx, nz)
+      const vn = l > 1e-4 ? (s.flyVel.x * nx + s.flyVel.z * nz) / l : 0
+      if (vn < 0) {
+        s.flyVel.x -= (vn * nx) / l
+        s.flyVel.z -= (vn * nz) / l
+      }
+    }
+    // Animals are solid too, unless you're above them (jumping over, or landing on one to bounce).
+    for (const a of animals()) {
+      if (player.pos.y - a.pos.y > a.spec.height * a.scale * 0.6) continue
+      const r = a.spec.radius * a.scale + PLAYER_RADIUS
+      const ax = player.pos.x - a.pos.x, az = player.pos.z - a.pos.z
+      const d2 = ax * ax + az * az
+      if (d2 >= r * r) continue
+      const d = Math.sqrt(d2)
+      if (d < 1e-4) player.pos.x += r
+      else {
+        player.pos.x = a.pos.x + (ax / d) * r
+        player.pos.z = a.pos.z + (az / d) * r
+      }
+    }
+    // Never get shoved into deep water on foot: keep last frame's (already resolved) spot instead.
+    if (!s.flying && heightAt(player.pos.x, player.pos.z) < WATER_LEVEL - 0.9) {
+      player.pos.x = prevX
+      player.pos.z = prevZ
+    }
+
+    // ---- Gravity, jumping, bouncing off an animal's back, and the stomp landing. ----
+    if (!s.flying) {
+      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9)
+      if (controls.jump && s.grounded && !modalOpen && !s.move) {
+        s.vy = 7.5
+        s.grounded = false
+      }
+      controls.jump = false
+      if (player.bounce > 0) {
+        s.vy = player.bounce
+        s.grounded = false
+        s.stomp = false
+        player.bounce = 0
+      }
+      s.vy -= 22 * dt
+      player.pos.y += s.vy * dt
+      if (player.pos.y <= ground) {
+        player.pos.y = ground
+        s.vy = 0
+        s.grounded = true
+        if (s.stomp) {
+          // Ground stomp: a shockwave that pops everything around.
+          s.stomp = false
+          hitShape.x = player.pos.x
+          hitShape.y = player.pos.y
+          hitShape.z = player.pos.z
+          hitShape.yaw = player.yaw
+          hitShape.arc = Math.PI
+          hitShape.range = 3.8
+          hitShape.damage = 2
+          hitShape.knock = 9
+          hitShape.lift = 7
+          hitShape.swing = newSwing()
+          hitEnemies(hitShape)
+          impact(0.05, 0.55)
+          player.stomp = { n: player.stomp.n + 1 }
+          puff(22, player.pos.x, ground + 0.15, player.pos.z, dust, 6, 0.8, 0.7, true)
+          s.move = null
+          fadeTo('idle')
+        }
+      } else s.grounded = false
+    }
+    player.vy = s.vy
     player.speed = speed
+    player.flying = s.flying
+    player.fly = s.flying ? Math.min(1, speed / FLY_BOOST) : 0
 
+    // ---- Melee move timeline: hits during the active window, combo chaining at the end. ----
+    if (s.move) {
+      const spec = MOVES[s.move]
+      s.moveT += dt
+      if (s.moveT >= spec.hit[0] && s.moveT <= spec.hit[1]) {
+        const reach = s.move === 'spin' ? 0 : spec.range * 0.35
+        hitShape.x = player.pos.x + Math.sin(player.yaw) * reach
+        hitShape.y = player.pos.y
+        hitShape.z = player.pos.z + Math.cos(player.yaw) * reach
+        hitShape.yaw = player.yaw
+        hitShape.arc = spec.arc
+        hitShape.range = spec.range
+        hitShape.damage = spec.damage
+        hitShape.knock = spec.knock
+        hitShape.lift = spec.lift
+        hitShape.swing = s.swing
+        hitEnemies(hitShape)
+      }
+      if (s.moveT >= spec.dur) {
+        const next = s.queued ? spec.next : undefined
+        s.move = null
+        if (next) startMove(next)
+      }
+    }
+
+    // ---- Body: position, facing, and the flight tilt (nose-down when flying fast, banking into turns). ----
     g.position.copy(player.pos)
     g.rotation.y = player.yaw
+    // The contact shadow stays on the ground below, shrinking with altitude.
+    player.ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
+    const alt = player.pos.y - player.ground
+    if (shadow.current) {
+      shadow.current.position.y = 0.03 - alt
+      shadow.current.scale.setScalar(Math.max(0.35, 1 - alt * 0.03))
+      shadow.current.visible = alt < 40
+    }
+    let yawRate = player.yaw - s.lastYaw
+    yawRate = Math.atan2(Math.sin(yawRate), Math.cos(yawRate)) / Math.max(dt, 1e-3)
+    s.lastYaw = player.yaw
+    const pitchTo = s.flying ? THREE.MathUtils.clamp(speed / FLY, 0, 1) * 1.22 : s.stomp ? 0.5 : 0
+    const bankTo = s.flying ? THREE.MathUtils.clamp(-yawRate * 0.18, -0.6, 0.6) : 0
+    s.pitch += (pitchTo - s.pitch) * Math.min(1, raw * 5)
+    s.bank += (bankTo - s.bank) * Math.min(1, raw * 4)
+    if (tilt.current) tilt.current.rotation.set(s.pitch, 0, s.bank)
+    // A wind trail streams off the hands and feet at speed.
+    if (s.flying && speed > 8) {
+      s.trail += raw
+      if (s.trail > 0.03) {
+        s.trail = 0
+        puff(1, player.pos.x + Math.cos(player.yaw) * 0.5, player.pos.y + 0.9, player.pos.z - Math.sin(player.yaw) * 0.5, wind, 0.4, 0.45, 0.16, false)
+        puff(1, player.pos.x - Math.cos(player.yaw) * 0.5, player.pos.y + 0.9, player.pos.z + Math.sin(player.yaw) * 0.5, wind, 0.4, 0.45, 0.16, false)
+      }
+    }
 
     // A new spell cast plays the casting clip (moving cancels it; the spell itself still fires).
     const cast = lastCast()
     if (cast && cast.n !== s.castN) {
       s.castN = cast.n
-      s.casting = (actions.spell?.getClip().duration ?? 0) / SPELL_SPEED
-      s.current = '' // restart even if a cast is already playing
-      fadeTo('spell')
-      if (actions.spell) actions.spell.timeScale = SPELL_SPEED
+      if (!s.move && !s.flying) {
+        s.casting = (actions.spell?.getClip().duration ?? 0) / SPELL_SPEED
+        fadeTo('spell', 0, true)
+        if (actions.spell) actions.spell.timeScale = SPELL_SPEED
+      }
     }
     if (s.casting > 0) {
       s.casting -= dt
-      if (speed > 0.1 || !s.grounded) s.casting = 0
+      if (speed > 0.1 || !s.grounded || s.move) s.casting = 0
+    }
+    // A won mission: a victory cheer.
+    const cheer = world.get().cheer
+    if (cheer && cheer.n !== s.cheerN) {
+      s.cheerN = cheer.n
+      if (!s.flying) {
+        s.cheering = 2.6
+        playMove('cheer', 2.6)
+      }
+    }
+    if (s.cheering > 0) {
+      s.cheering -= dt
+      if (speed > 0.1 || s.move || s.flying) s.cheering = 0
     }
 
-    // Animation: airborne → jump, casting → spell, otherwise walk / run / idle by speed.
-    if (!s.grounded) {
+    // Animation priority: attacks, stomp, flight, airborne, cheer, cast, then walk / run / idle by speed.
+    if (s.move) {
+      // The move's clip is already playing.
+    } else if (s.stomp) {
+      // Diving: keep the flying-kick pose.
+    } else if (s.flying) {
+      if (speed > 4) {
+        fadeTo('fly')
+        if (actions.fly) actions.fly.timeScale = 1
+      } else fadeTo('hover')
+    } else if (!s.grounded) {
       fadeTo('jump', JUMP_FROM)
       // Physics owns the height: keep the clip's crouch but drop its own upward hip travel.
       if (actions.jump) actions.jump.timeScale = 1.1
-    } else if (s.casting > 0) {
-      // Keep playing the cast.
+    } else if (s.cheering > 0 || s.casting > 0) {
+      // Keep playing it.
     } else if (speed > 2.5) {
       fadeTo('run')
       if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / 7, 0.7, 1.35)
@@ -259,6 +606,9 @@ export function Player() {
       fadeTo('walk')
       if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / 1.4, 0.6, 1.6)
     } else fadeTo('idle')
+
+    // The mission fight (enemies, waves) runs off the player's clock.
+    stepCombat(dt, raw, player)
 
     // Nearest mission within reach.
     let near: string | null = null
@@ -270,6 +620,7 @@ export function Player() {
         near = m.tile.id
       }
     }
+    if (s.flying || world.get().fight) near = null
     if (near !== s.near) {
       s.near = near
       world.set({ near })
@@ -277,21 +628,40 @@ export function Player() {
     world.setPlayer({ x: player.pos.x, z: player.pos.z, heading: player.camYaw })
   })
 
-  // After the mixer (useAnimations updates in its own frame callback), cap the jump clip's hip lift.
+  // After the mixer (useAnimations updates in its own frame callback): physics owns where the body is, so
+  // cap the jump clip's hip lift and pin the hips of moves that travel on their own.
   useFrame(() => {
-    if (hips && state.current.current === 'jump') hips.bone.position.y = Math.min(hips.bone.position.y, hips.restY)
+    if (!hips) return
+    const cur = state.current.current as Anim
+    if (cur === 'jump') hips.bone.position.y = Math.min(hips.bone.position.y, hips.rest.y)
+    if (PINNED.has(cur)) {
+      hips.bone.position.x = hips.rest.x
+      hips.bone.position.z = hips.rest.z
+      if (cur === 'fly' || cur === 'hover') hips.bone.position.y = hips.rest.y
+    }
   }, 1)
 
   return (
-    <group ref={group}>
-      <primitive object={model} />
+    <group ref={group} name="player">
+      {/* Flight tilt pivots around the waist. */}
+      <group ref={tilt} position={[0, 0.95, 0]}>
+        <group position={[0, -0.95, 0]}>
+          <primitive object={model} />
+        </group>
+      </group>
       {/* Soft contact shadow so the player reads as grounded even without shadow maps. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+      <mesh ref={shadow} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
         <circleGeometry args={[0.55, 24]} />
         <meshBasicMaterial color="#000" transparent opacity={0.25} depthWrite={false} />
       </mesh>
     </group>
   )
+}
+
+function turnTowards(from: number, to: number, k: number) {
+  let d = to - from
+  d = Math.atan2(Math.sin(d), Math.cos(d))
+  return from + d * Math.min(1, k)
 }
 
 useGLTF.preload(modelUrl('guide'), false, true)

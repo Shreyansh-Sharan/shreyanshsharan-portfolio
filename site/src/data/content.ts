@@ -582,6 +582,7 @@ export const tiles: Tile[] = [
   {
     id: 'trophies',
     tab: 'extras',
+    alsoIn: 'profile',
     title: 'Trophies',
     tagline: 'Certifications & Awards',
     org: 'Anthropic · Databricks · Microsoft · Qlik · Wipro',
@@ -597,6 +598,7 @@ export const tiles: Tile[] = [
   {
     id: 'skill-tree',
     tab: 'extras',
+    alsoIn: 'profile',
     title: 'Skill Tree',
     tagline: 'Loadout',
     org: 'Data · DevOps · GenAI · ML · BI',
@@ -612,12 +614,15 @@ export const tiles: Tile[] = [
   {
     id: 'profile',
     tab: 'profile',
+    alsoIn: 'career',
     title: 'Player Profile',
     tagline: 'About & Contact',
     org: 'Shreyansh Sharan',
     period: 'Online',
     genre: 'Profile',
-    blurb: 'Meet the player: an interactive 3D avatar, plus summary, education, hobbies and how to get in touch.',
+    blurb:
+      'Solution Architect with 8+ years across analytics, data engineering, DevOps and Generative AI, delivering for 30+ enterprise clients. ' +
+      'Meet the player: an interactive 3D avatar, plus summary, education, hobbies and how to get in touch.',
     cover: 'profile/poster.jpg',
     icon: User,
     accent: ['#334155', '#94a3b8'],
@@ -628,6 +633,7 @@ export const tiles: Tile[] = [
   {
     id: 'resume',
     tab: 'extras',
+    alsoIn: 'profile',
     title: 'Resume',
     tagline: 'Download PDF',
     org: '2 pages',

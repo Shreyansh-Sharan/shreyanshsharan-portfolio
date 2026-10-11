@@ -28,6 +28,8 @@ function previewCards(tile: Tile): Activity[] {
       return skillTree.slice(0, 4).map((b) => ({ title: b.branch, detail: b.skills.slice(0, 4).join(' · ') }))
     case 'profile':
       return [
+        { title: 'Role', detail: profile.headline },
+        { title: 'Experience', detail: '8+ years · 30+ enterprise clients across Pharma, CPG/FMCG, Financial Services, Agriculture and Construction' },
         { title: 'Hobbies', detail: profile.hobbies.join(' · ') },
         { title: 'Education', detail: 'B.Tech, NIT Jalandhar' },
         { title: 'Based in', detail: profile.location },

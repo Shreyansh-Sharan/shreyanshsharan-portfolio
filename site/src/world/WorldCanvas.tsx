@@ -6,11 +6,18 @@ import { Bloom, EffectComposer, N8AO, Vignette } from '@react-three/postprocessi
 import * as THREE from 'three'
 import { buildTerrain } from './terrain'
 import { Landmarks, Scatters } from './Models'
+import { Vegetation } from './Vegetation'
 import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
-import { Guide, Player, spawnPlayer } from './Characters'
-import { Critter } from './Critter'
+import { Guide, Player, player, spawnPlayer } from './Characters'
+import { animals } from './wildlife'
+import { colliderList } from './colliders'
+import { castSpell, spellById, type SpellId } from './spells'
+import { Animals } from './Animals'
 import { SpellFx } from './SpellFx'
+import { Enemies } from './Enemies'
+import { endFight, enemies, fight, results } from './combat'
+import { PlayerFx } from './PlayerFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
 
@@ -58,6 +65,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
 
   useEffect(() => {
     if (playing) spawnPlayer()
+    // Leaving explore mode abandons any mission fight in progress.
+    else if (fight) endFight()
   }, [playing])
 
   useEffect(() => {
@@ -92,7 +101,11 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       aria-hidden="true"
       onCreated={(state) => {
         // Test hook: `?snap` exposes the scene for automated checks.
-        if (new URLSearchParams(window.location.search).has('snap')) (window as unknown as { __r3f: unknown }).__r3f = state
+        if (new URLSearchParams(window.location.search).has('snap')) {
+          const w = window as unknown as { __r3f: unknown; __world: unknown }
+          w.__r3f = state
+          w.__world = { player, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results }
+        }
         // Recover from a lost WebGL context instead of leaving a permanent black canvas.
         const canvas = state.gl.domElement
         canvas.addEventListener('webglcontextlost', (e) => {
@@ -116,11 +129,14 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <Suspense fallback={null}>
         <Landmarks />
         <Scatters />
+        <Vegetation grass={playing} />
         <Ambient />
         <Guide />
         {playing && <Player />}
-        {playing && <Critter />}
+        <Animals casting={playing} />
         {playing && <SpellFx />}
+        {playing && <Enemies />}
+        {playing && <PlayerFx />}
         <Preload all />
       </Suspense>
       <CameraRig playing={playing} mode={mode} />

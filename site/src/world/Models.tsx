@@ -1,10 +1,11 @@
-import { Suspense, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { AVAILABLE_MODELS, REGIONS, type Landmark, type ModelName, type Region, type Scatter } from './regions'
-import { flatness, heightAt, isNearPad, mulberry32 } from './terrain'
-import { MISSIONS } from './missions'
+import { AVAILABLE_MODELS, REGIONS, type Landmark, type ModelName, type Region } from './regions'
+import { heightAt } from './terrain'
+import { scatterLayout, type ScatterName } from './layout'
+import { boxCollider, circleCollider, landmarkKey, setLandmarkCollider, setScatterFactor } from './colliders'
 
 export const modelUrl = (name: string) => `${import.meta.env.BASE_URL}world/models/${name}.glb`
 
@@ -32,11 +33,68 @@ export function useModel(name: ModelName, height: number) {
   }, [gltf, height])
 }
 
-function LandmarkModel({ region, l }: { region: Region; l: Landmark }) {
+const vtx = new THREE.Vector3()
+const rel = new THREE.Matrix4()
+const inv = new THREE.Matrix4()
+
+/**
+ * Ground footprint of a model in its own frame: the bounds of the vertices below `sliceTop`, so a
+ * crane's jib or a tree's canopy doesn't inflate what you bump into at walking height.
+ */
+function baseFootprint(obj: THREE.Object3D, sliceTop: number) {
+  obj.updateWorldMatrix(true, true)
+  inv.copy(obj.matrixWorld).invert()
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+  const xs: number[] = [], zs: number[] = []
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    const pos = m.geometry.attributes.position as THREE.BufferAttribute
+    rel.multiplyMatrices(inv, m.matrixWorld)
+    for (let i = 0; i < pos.count; i++) {
+      vtx.fromBufferAttribute(pos, i).applyMatrix4(rel)
+      if (vtx.y > sliceTop) continue
+      minX = Math.min(minX, vtx.x)
+      maxX = Math.max(maxX, vtx.x)
+      minZ = Math.min(minZ, vtx.z)
+      maxZ = Math.max(maxZ, vtx.z)
+      xs.push(vtx.x)
+      zs.push(vtx.z)
+    }
+  })
+  if (!xs.length) return null
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2
+  let rmax = 0
+  for (let i = 0; i < xs.length; i++) rmax = Math.max(rmax, Math.hypot(xs[i] - cx, zs[i] - cz))
+  return { cx, cz, hx: (maxX - minX) / 2, hz: (maxZ - minZ) / 2, rmax }
+}
+
+function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; index: number }) {
   const obj = useModel(l.model, l.height)
   const ref = useRef<THREE.Group>(null)
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
   const y = heightAt(x, z)
+  const footprint = useMemo(() => baseFootprint(obj, Math.min(2.5, l.height * 0.35)), [obj, l.height])
+
+  // Report the measured footprint so the player bumps into the building itself, not its flattened pad.
+  useEffect(() => {
+    const f = footprint
+    if (!f) return
+    const yaw = ((l.rot ?? 0) * Math.PI) / 180
+    const c = Math.cos(yaw), s = Math.sin(yaw)
+    const wx = x + f.cx * c + f.cz * s, wz = z - f.cx * s + f.cz * c
+    const avg = (f.hx + f.hz) / 2
+    const top = y + l.height + (l.anim === 'float' ? 1.2 : 0)
+    // Round bases (stills, silos, domes) get a circle; spinning ones too, sized to their sweep.
+    const collider =
+      l.anim === 'spin'
+        ? circleCollider(x, z, Math.hypot(f.cx, f.cz) + f.rmax * 0.9, top)
+        : f.rmax < avg * 1.18
+          ? circleCollider(wx, wz, f.rmax * 0.92, top)
+          : boxCollider(wx, wz, f.hx * 0.94, f.hz * 0.94, yaw, top)
+    setLandmarkCollider(landmarkKey(region.id, index), collider)
+  }, [footprint, x, y, z, l.rot, l.anim, l.height, region.id, index])
+
   useFrame(({ clock }) => {
     const g = ref.current
     if (!g || !l.anim) return
@@ -56,44 +114,19 @@ export function Landmarks() {
   return (
     <>
       {REGIONS.flatMap((r) =>
-        r.landmarks
-          .filter((l) => AVAILABLE_MODELS.has(l.model))
-          .map((l, i) => (
+        r.landmarks.map((l, i) =>
+          AVAILABLE_MODELS.has(l.model) ? (
             <Suspense key={`${r.id}-${i}`} fallback={null}>
-              <LandmarkModel region={r} l={l} />
+              <LandmarkModel region={r} l={l} index={i} />
             </Suspense>
-          )),
+          ) : null,
+        ),
       )}
     </>
   )
 }
 
 /* ---------- Scatter (instanced) ---------- */
-
-function scatterTransforms(region: Region, s: Scatter, seed: number) {
-  const rnd = mulberry32(seed)
-  const out: THREE.Matrix4[] = []
-  const q = new THREE.Quaternion()
-  let tries = 0
-  while (out.length < s.count && tries++ < s.count * 12) {
-    const a = rnd() * Math.PI * 2
-    const r = Math.sqrt(rnd()) * s.radius
-    const x = region.center[0] + Math.cos(a) * r, z = region.center[1] + Math.sin(a) * r
-    const h = heightAt(x, z)
-    const minH = s.model === 'palm' ? 0.9 : 1.6
-    if (h < minH || isNearPad(x, z, s.model === 'rock' || s.model === 'bush' ? 1.5 : 4)) continue
-    if (s.model !== 'rock' && flatness(x, z) < 0.78) continue
-    if (region.biome === 'speedway' || region.biome === 'neon') continue
-    if (Math.hypot(x, z) < 20 && region.id !== 'hub') continue
-    // Keep the ground around mission beacons (and the spawn points next to them) clear.
-    if (MISSIONS.some((m) => Math.hypot(x - m.x, z - m.z) < 10)) continue
-    const height = THREE.MathUtils.lerp(s.height[0], s.height[1], rnd())
-    q.setFromEuler(new THREE.Euler(s.model === 'rock' ? rnd() * 0.6 : 0, rnd() * Math.PI * 2, 0))
-    const sx = s.model === 'rock' ? 0.8 + rnd() * 0.8 : 1
-    out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, h - 0.15, z), q, new THREE.Vector3(height * sx, height, height * sx)))
-  }
-  return out
-}
 
 function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.Matrix4[] }) {
   const gltf = useGLTF(modelUrl(name), false, true)
@@ -113,6 +146,19 @@ function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.M
     })
     return list
   }, [gltf])
+
+  // Trunk/base radius as a fraction of height, from the vertices in the bottom tenth of the model.
+  useEffect(() => {
+    let r = 0
+    for (const p of parts) {
+      const pos = p.geometry.attributes.position as THREE.BufferAttribute
+      for (let i = 0; i < pos.count; i++) {
+        vtx.fromBufferAttribute(pos, i).applyMatrix4(p.local)
+        if (vtx.y < 0.1) r = Math.max(r, Math.hypot(vtx.x, vtx.z))
+      }
+    }
+    if (r > 0) setScatterFactor(name, THREE.MathUtils.clamp(r * 0.9, 0.04, 0.3))
+  }, [parts, name])
 
   return (
     <>
@@ -166,27 +212,35 @@ function InstancedPrimitive({ kind, matrices }: { kind: 'rock' | 'bush'; matrice
   return <primitive object={mesh} />
 }
 
+/** Side of the square chunks props are batched in: each chunk is frustum-culled on its own (camera and shadows). */
+const CHUNK = 110
+
+/** Split each model's instances into spatial chunks, one instanced mesh per (model, chunk). */
+function chunkLayout() {
+  const out: { key: string; name: ScatterName; matrices: THREE.Matrix4[] }[] = []
+  for (const [name, matrices] of scatterLayout()) {
+    const byCell = new Map<string, THREE.Matrix4[]>()
+    for (const m of matrices) {
+      const cell = `${Math.floor(m.elements[12] / CHUNK)},${Math.floor(m.elements[14] / CHUNK)}`
+      const list = byCell.get(cell) ?? []
+      list.push(m)
+      byCell.set(cell, list)
+    }
+    for (const [cell, list] of byCell) out.push({ key: `${name}:${cell}`, name, matrices: list })
+  }
+  return out
+}
+
 export function Scatters() {
-  const groups = useMemo(() => {
-    const byModel = new Map<string, THREE.Matrix4[]>()
-    REGIONS.forEach((r, ri) =>
-      r.scatter.forEach((s, si) => {
-        if (s.model !== 'rock' && s.model !== 'bush' && !AVAILABLE_MODELS.has(s.model)) return
-        const list = byModel.get(s.model) ?? []
-        list.push(...scatterTransforms(r, s, 1000 + ri * 97 + si * 13))
-        byModel.set(s.model, list)
-      }),
-    )
-    return [...byModel.entries()]
-  }, [])
+  const chunks = useMemo(chunkLayout, [])
 
   return (
     <>
-      {groups.map(([name, matrices]) =>
+      {chunks.map(({ key, name, matrices }) =>
         name === 'rock' || name === 'bush' ? (
-          <InstancedPrimitive key={name} kind={name} matrices={matrices} />
+          <InstancedPrimitive key={key} kind={name} matrices={matrices} />
         ) : (
-          <Suspense key={name} fallback={null}>
+          <Suspense key={key} fallback={null}>
             <InstancedModel name={name as ModelName} matrices={matrices} />
           </Suspense>
         ),

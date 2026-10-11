@@ -18,6 +18,10 @@ export interface WorldState {
   assetsReady: boolean
   /** Asked to start exploring (e.g. from the boot screen) before the world finished loading. */
   requestPlay: boolean
+  /** The mission fight in progress, for the HUD counter (see combat.ts). */
+  fight: { tile: string; name: string; wave: number; waves: number; left: number; total: number } | null
+  /** The last mission won, for the celebration banner (n increments per win). */
+  cheer: { n: number; name: string } | null
 }
 
 function readDone(): string[] {
@@ -38,6 +42,8 @@ let state: WorldState = {
   teleport: null,
   assetsReady: false,
   requestPlay: false,
+  fight: null,
+  cheer: null,
 }
 
 const listeners = new Set<() => void>()

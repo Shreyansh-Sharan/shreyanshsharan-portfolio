@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { Cloud, Clouds, Environment as Env, Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { WATER_LEVEL } from './regions'
+import { skyFlash } from './particles'
 
 /** Where the camera is looking; the sun's shadow box follows it. Written by the camera rig. */
 export const lookTarget = new THREE.Vector3()
@@ -12,11 +13,14 @@ export const SUN_DIR = new THREE.Vector3(0.62, 0.3, -0.42).normalize()
 
 export function Lighting({ shadows, live = true }: { shadows: boolean; live?: boolean }) {
   const sun = useRef<THREE.DirectionalLight>(null)
+  const sky = useRef<THREE.HemisphereLight>(null)
   const target = useMemo(() => new THREE.Object3D(), [])
   const frame = useRef(0)
   useFrame(({ gl }) => {
     const s = sun.current
     if (!s) return
+    // A lightning strike lights up the whole scene for an instant (no extra light, so no shader recompiles).
+    if (sky.current) sky.current.intensity = 0.55 + skyFlash.value * 1.3
     // The 2048 px soft shadow map is the costliest pass: redraw it every frame only while exploring;
     // during the fly-over a few refreshes a second look the same.
     gl.shadowMap.autoUpdate = live
@@ -30,7 +34,7 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
   })
   return (
     <>
-      <hemisphereLight args={['#bcd7ff', '#5d4b33', 0.55]} />
+      <hemisphereLight ref={sky} args={['#bcd7ff', '#5d4b33', 0.55]} />
       <directionalLight
         ref={sun}
         target={target}
