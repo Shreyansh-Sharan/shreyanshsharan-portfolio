@@ -9,8 +9,9 @@ import { CARS, DRIVERS, radialTexture, type CarModel } from './cars'
 import { Car } from './car'
 import { Track, buildTrackScene, mulberry32, POWER_COLORS, type PowerType } from './track'
 import { arenaEnvironment, buildArenaScene, dustBowl, freeSpawn } from './arena'
+import { Kit, buildCircuitScene, circuitEnvironment, circuitFor, type Scenery } from './circuits'
 import type { RacerAssets } from './assets'
-import { Particles, Trail, glyphTexture, fanRunTexture } from './fx'
+import { Particles, Trail, glyphTexture, fanRunTexture, speedLines } from './fx'
 import { RacerAudio } from './audio'
 import { aiDrive } from './ai'
 import { POWER_NAMES } from './save'
@@ -37,7 +38,7 @@ export interface GameOptions {
   assets?: RacerAssets
   laps?: number
   minutes?: number // Deathmatch time limit
-  map?: MapId // Deathmatch map (the Dust Bowl, or the circuit by default)
+  map?: MapId // the circuit (Race, Deathmatch; Combat Points starts its rotation here), or the Dust Bowl (Deathmatch)
   bots?: number // AI rivals in a solo race
   net?: { link: Link; setup: MatchSetup }
 }
@@ -101,6 +102,8 @@ export interface Hud {
   lap: number
   laps: number
   speed: number
+  topSpeed: number // km/h, for the speedo's scale
+  needleShake: number // degrees
   nitro: number
   boosting: boolean
   health: number
@@ -182,7 +185,11 @@ function pick(weights: Partial<Record<PowerType, number>>, rnd: () => number) {
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100
-const TRACK_NAMES = ['Harbor Loop', 'Harbor Loop Reverse', 'Harbor Loop Overdrive']
+const fxAt = new THREE.Vector3()
+const gritP = new THREE.Vector3()
+const gritV = new THREE.Vector3()
+const sparkCol = new THREE.Color(3, 1.9, 0.8)
+const NITRO_TINT = new THREE.Color(POWER_COLORS.nitro)
 
 export class Game {
   readonly opts: GameOptions
@@ -270,6 +277,14 @@ export class Game {
   private ro: ResizeObserver
   private camPos = new THREE.Vector3()
   private camLook = new THREE.Vector3()
+  private scenery: Scenery | null = null
+  // Sense of speed: the vignette tightens, streaks rush past the edges, the FOV kicks on a boost.
+  private vignette: VignetteEffect
+  private readonly streaks = speedLines()
+  private fovKick = 0
+  private wasNitro = false
+  private wasBoost = false
+  private dustColor = new THREE.Color(0.55, 0.55, 0.58)
   private hidden = () => {
     if (document.hidden && this.phase !== 'finished' && this.role === 'solo') this.setPaused(true)
   }
@@ -284,6 +299,9 @@ export class Game {
     this.timeLimit =
       opts.mode === 'deathmatch' ? (opts.minutes ?? CONFIG.deathmatch_minutes) * 60 : opts.mode === 'combat' ? CONFIG.combat_track_time_limit : Infinity
     const arena = opts.mode === 'deathmatch' && opts.map === 'bowl' ? dustBowl() : null
+    // Combat Points visits every circuit in turn, starting with the chosen one.
+    const circuit = circuitFor(opts.mode, opts.map, opts.round)
+    const daylight = !arena && circuit.id !== 'harbor'
 
     // Renderer and post-processing: bloom does the neon, tone mapping happens at the end of the chain.
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, depth: true })
@@ -293,12 +311,15 @@ export class Game {
     container.appendChild(this.renderer.domElement)
     this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 4 })
     this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.vignette = new VignetteEffect({ darkness: 0.5, offset: 0.3 })
     this.composer.addPass(
       new EffectPass(
         this.camera,
         // The sunlit bowl is bright everywhere: only the neon and fire should bloom.
-        new BloomEffect({ luminanceThreshold: arena ? 0.95 : 0.75, luminanceSmoothing: 0.2, intensity: arena ? 1.0 : 1.35, mipmapBlur: true, radius: 0.7 }),
-        new VignetteEffect({ darkness: 0.5, offset: 0.3 }),
+        new BloomEffect({
+          luminanceThreshold: arena ? 0.95 : daylight ? 0.9 : 0.75, luminanceSmoothing: 0.2, intensity: arena ? 1.0 : daylight ? 1.1 : 1.35, mipmapBlur: true, radius: 0.7,
+        }),
+        this.vignette,
         new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }),
       ),
     )
@@ -310,6 +331,9 @@ export class Game {
       // Late-afternoon desert: warm sun, haze, a bright reflection environment.
       this.scene.environmentIntensity = 0.7
       arenaEnvironment(this.scene)
+    } else if (daylight) {
+      // Each circuit brings its own sky, fog and sun.
+      circuitEnvironment(this.scene, circuit.id)
     } else {
       // Night sky, fog, moonlight and a dim reflection environment for the paint.
       this.scene.background = new THREE.Color('#0b0820')
@@ -322,16 +346,24 @@ export class Game {
       this.scene.add(skyDome())
     }
 
-    const round = opts.round
     if (arena) {
       this.track = new Track('Dust Bowl', false, arena)
       buildArenaScene(arena, this.scene, opts.assets)
     } else {
-      this.track = new Track(opts.mode === 'combat' ? TRACK_NAMES[round % 3] : 'Harbor Loop', opts.mode === 'combat' && round % 3 === 1)
-      buildTrackScene(this.track, this.scene, opts.assets)
+      this.track = new Track(circuit.name, false, null, circuit)
+      if (circuit.id === 'harbor') {
+        buildTrackScene(this.track, this.scene, opts.assets)
+        const extra = new THREE.Group()
+        new Kit(this.track, extra).roadside({ post: '#1e2433', reflector: '#22d3ee', step: 12 })
+        this.scene.add(extra)
+      }
+      else this.scenery = buildCircuitScene(this.track, this.scene, opts.assets)
     }
     this.dust = arena ? new Particles(1600, false) : null
-    this.scene.add(this.fx.points, this.smoke.points)
+    this.scene.add(this.fx.points, this.smoke.points, this.streaks.mesh)
+    // Road grit thrown up at speed, tinted by the surface.
+    const grit: Record<string, string> = { river: '#c9c1b2', gothic: '#a8987e', pier: '#8c8a86', harbor: '#5c5f6e', bowl: '#c9a06c' }
+    this.dustColor.set(grit[this.track.id] ?? '#888888')
     if (this.dust) this.scene.add(this.dust.points)
 
     this.spawnCars()
@@ -389,6 +421,7 @@ export class Game {
       car.remoteId = slot.kind === 'human' && !isLocal ? slot.id : null
       car.human = slot.kind === 'human'
       car.ai.laneOffset = (rnd() - 0.5) * 6
+      car.terrain = this.track.elevated ? this.track : null
       if (isLocal) this.player = car
       const arena = this.track.arena
       if (arena) {
@@ -460,6 +493,7 @@ export class Game {
       pool.position.y = 0.05
       group.add(glyph, orb, pool)
       group.position.copy(pos)
+      group.position.y += this.track.heightAt(pos.x, pos.z)
       this.scene.add(group)
       this.pickups.push({ s: slot.s, lateral: slot.lateral, row: Math.max(0, rowS.indexOf(slot.s)), type, available: true, timer: 0, pos, group })
     }
@@ -480,6 +514,7 @@ export class Game {
       )
       group.add(sprite, beam)
       group.position.copy(this.track.point(s, 0))
+      group.position.y += this.track.heightAtS(s)
       group.visible = false
       this.scene.add(group)
       this.fanIcons.push({ s, lap, state: 'waiting', group })
@@ -756,7 +791,10 @@ export class Game {
   }
 
   /** Effects: run locally and, on the host, recorded for clients. */
-  burst(p: THREE.Vector3, n: number, speed: number, life: number, size: number, color: THREE.Color, alpha = 1, up = 0.4, grow = 0) {
+  burst(at: THREE.Vector3, n: number, speed: number, life: number, size: number, color: THREE.Color, alpha = 1, up = 0.4, grow = 0) {
+    // Heights are relative to the road under the point.
+    const p = fxAt.copy(at)
+    p.y += this.track.heightAt(p.x, p.z)
     this.fx.burst(p, n, speed, life, size, color, alpha, up, grow)
     if (this.role === 'host') this.fxLog.push(['b', r2(p.x), r2(p.y), r2(p.z), n, speed, life, size, r2(color.r), r2(color.g), r2(color.b), alpha, up, grow])
   }
@@ -1032,14 +1070,16 @@ export class Game {
       fans: this.player.fans,
       projectiles: this.projectiles.length,
       domes: this.domes.length,
-      map: this.track.arena ? 'bowl' : 'harbor',
+      map: this.track.id,
+      track: this.track.name,
       usage: this.usage,
       feed: this.killFeed.map((k) => k.text),
       cars: this.cars.map((c) => ({
         name: c.name, ctl: c.controller, place: c.place, lap: c.lap, cp: c.cpPassed, s: Math.round(c.s), kmh: Math.round(toKmh(c.speed)), hp: c.health,
         bay: c.bay.map((b) => (b ? `${b.type}x${b.count}` : '-')).join(','), hits: c.hits, wrecks: c.wrecksDealt, wrecked: c.wrecksTaken,
         damage: +c.damageDealt.toFixed(1), combat: c.combat, finished: c.finished, lat: +c.lateral.toFixed(1), x: Math.round(c.pos.x), z: Math.round(c.pos.z),
-        r: Math.round(Math.hypot(c.pos.x, c.pos.z)), ram: +c.ram.toFixed(1),
+        r: Math.round(Math.hypot(c.pos.x, c.pos.z)), ram: +c.ram.toFixed(1), y: +c.groundY.toFixed(1), air: +c.maxAir.toFixed(2), branch: c.branch,
+        resets: c.resets, slow: +c.slowTime.toFixed(1), rev: +c.reverseTime.toFixed(1), shortcuts: c.ai.shortcuts, ft: c.finished ? +c.finishTime.toFixed(1) : null,
       })),
     }
   }
@@ -1077,7 +1117,7 @@ export class Game {
         this.setPhase('race')
         this.launch()
       }
-    } else if (this.phase === 'race') this.raceTime += dt
+    } else this.raceTime += dt // keeps counting after the finish, so later finishers get real times
 
     const local = this.paused ? IDLE : this.readLocal(dt, pressed, pad)
     this.lookBack = local.look
@@ -1184,7 +1224,7 @@ export class Game {
     // Projectiles drift between snapshots; domes, rings and beams animate locally.
     for (const pr of this.projectiles) {
       if (!pr.lob && pr.kind !== 'mine' && pr.kind !== 'oil') pr.pos.addScaledVector(pr.vel, dt)
-      animateProjectile(pr, dt)
+      animateProjectile(pr, dt, this.track.heightAt(pr.pos.x, pr.pos.z))
     }
     for (const d of this.domes) {
       if (d.warn > 0) d.warn -= dt
@@ -1254,6 +1294,15 @@ export class Game {
   /* ---------- Simulation ---------- */
 
   private afterStep(c: Car, dt: number) {
+    // Scraping a wall at speed throws sparks from that side (local effect only).
+    if (c.alive && c.wallImpact > 0.2 && c.speed > 10 && Math.random() < 0.7 && c.pos.distanceToSquared(this.camera.position) < 10000) {
+      const sd = Math.sign(c.lateral || 1)
+      gritP.set(c.pos.x - Math.cos(c.yaw) * sd, 0.4 + c.groundY, c.pos.z + Math.sin(c.yaw) * sd)
+      for (let k = 0; k < 3; k++) {
+        gritV.copy(c.vel).multiplyScalar(0.5).add(fxAt.set((Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6))
+        this.fx.emit(gritP, gritV, 0.25 + Math.random() * 0.2, 0.22, sparkCol, 1, 0, 1.5)
+      }
+    }
     // Wall hits: damage above the threshold, instant reset on a head-on hit.
     if (c.alive && c.wallImpact > 0) {
       const sp = c.speed
@@ -1270,6 +1319,11 @@ export class Game {
       }
       // A head-on into a circuit barrier resets the car; in an arena it just bounces off.
       if (c.alive && !this.track.arena && c.wallImpact > Math.max(25, before * 0.8)) this.instantReset(c)
+    }
+    // Test counters: crawling or rolling backwards mid-race (not while wrecked, spun out or finished).
+    if (c.alive && this.phase === 'race' && !c.finished && c.stun <= 0 && this.raceTime > 4) {
+      if (c.speed < 3) c.slowTime += dt
+      if (c.forwardSpeed < -1) c.reverseTime += dt
     }
     // Stuck or off course: reset.
     if (c.alive && this.phase === 'race' && c.speed < 1.5 && (c.input.throttle > 0 || c.controller === 'ai')) {
@@ -1401,8 +1455,12 @@ export class Game {
 
   private instantReset(c: Car) {
     if (!c.alive || this.phase === 'intro' || this.phase === 'countdown') return
+    c.resets++
     if (this.track.arena) this.arenaSpawn(c)
-    else {
+    else if (c.branch >= 0 && c.bi >= 0) {
+      // On a shortcut: back onto its centre, facing along it.
+      c.placeOnBranch(this.track, c.branch, c.bi, THREE.MathUtils.clamp(c.lateral * 0.5, -3, 3))
+    } else {
       const s = this.track.s[c.hint]
       c.placeAt(this.track, s, THREE.MathUtils.clamp(c.lateral * 0.5, -4, 4))
       c.s = s
@@ -1732,7 +1790,9 @@ export class Game {
     this.ui(victim, ['say', 'WRECKED', '#ef4444', CONFIG.respawn_delay])
   }
 
-  private wreckSmoke(at: THREE.Vector3) {
+  private wreckSmoke(pos: THREE.Vector3) {
+    const at = fxAt.copy(pos)
+    at.y += this.track.heightAt(at.x, at.z)
     for (let k = 0; k < 30; k++)
       this.smoke.emit(at, new THREE.Vector3((Math.random() - 0.5) * 6, 3 + Math.random() * 4, (Math.random() - 0.5) * 6), 2.2, 3, new THREE.Color(0.08, 0.07, 0.09), 0.8, 1.6, 0.8)
   }
@@ -1815,21 +1875,33 @@ export class Game {
     for (const c of this.cars) {
       const f = c.forward
       const frac = c.health / CONFIG.max_health
-      const hood = c.pos.clone().addScaledVector(f, 1.3).setY(1.0)
+      const gy = c.groundY
+      const hood = c.pos.clone().addScaledVector(f, 1.3).setY(1.0 + gy)
       if (c.alive && frac < CONFIG.smoke_below && Math.random() < dt * 18)
         this.smoke.emit(hood, new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.5, (Math.random() - 0.5) * 1.5).addScaledVector(c.vel, 0.3), 1.2, 1.4, smokeCol, 0.55, 2)
       if ((c.alive && frac < CONFIG.fire_below) || c.wrecked > 0)
         if (Math.random() < dt * 30) this.fx.emit(hood, new THREE.Vector3(Math.random() - 0.5, 3, Math.random() - 0.5).addScaledVector(c.vel, 0.5), 0.45, 1.0, fireCol, 0.9, 0.5)
       if (c.drifting && c.speed > 10 && Math.random() < dt * 40) {
         for (const side of [-0.9, 0.9]) {
-          const p = c.pos.clone().addScaledVector(f, -1.4).addScaledVector(c.right, side).setY(0.3)
+          const p = c.pos.clone().addScaledVector(f, -1.4).addScaledVector(c.right, side).setY(0.3 + gy)
           this.smoke.emit(p, new THREE.Vector3((Math.random() - 0.5) * 2, 1.2, (Math.random() - 0.5) * 2), 0.9, 1.6, new THREE.Color(0.5, 0.5, 0.56), 0.35, 2.2, 1.2)
+        }
+      }
+      // At speed: grit off the rear tyres (more on a slide), only for cars near the camera.
+      if (!this.dust && c.alive && c.speed > c.baseTop * 0.5 && c.pos.distanceToSquared(this.camera.position) < 6400) {
+        const rate = (c.speed / Math.max(1, c.baseTop)) * (c.drifting ? 34 : 12)
+        if (Math.random() < dt * rate) {
+          for (const side of [-0.85, 0.85]) {
+            gritP.set(c.pos.x - f.x * 1.6 - Math.cos(c.yaw) * side, 0.25 + gy, c.pos.z - f.z * 1.6 + Math.sin(c.yaw) * side)
+            gritV.copy(c.vel).multiplyScalar(0.12).add(fxAt.set((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2))
+            this.smoke.emit(gritP, gritV, 0.45 + Math.random() * 0.3, 0.55, this.dustColor, 0.3, 1.8, 2.5)
+          }
         }
       }
       const trails = this.nitroTrails.get(c)!
       if (c.nitro > 0 && c.alive) {
-        trails.forEach((t, i) => t.push(c.pos.clone().addScaledVector(f, -c.model.shape.len / 2 - 0.1).addScaledVector(c.right, i ? 0.55 : -0.55).setY(0.55)))
-        if (Math.random() < dt * 40) this.fx.emit(c.pos.clone().addScaledVector(f, -c.model.shape.len / 2).setY(0.5), f.clone().multiplyScalar(-6), 0.25, 0.9, new THREE.Color(POWER_COLORS.nitro).multiplyScalar(2))
+        trails.forEach((t, i) => t.push(c.pos.clone().addScaledVector(f, -c.model.shape.len / 2 - 0.1).addScaledVector(c.right, i ? 0.55 : -0.55).setY(0.55 + gy)))
+        if (Math.random() < dt * 40) this.fx.emit(c.pos.clone().addScaledVector(f, -c.model.shape.len / 2).setY(0.5 + gy), f.clone().multiplyScalar(-6), 0.25, 0.9, new THREE.Color(POWER_COLORS.nitro).multiplyScalar(2))
       } else trails.forEach((t) => t.fadeOut(0.85))
     }
     if (this.dust) this.kickDust(dt)
@@ -1881,6 +1953,7 @@ export class Game {
       p.group.children[1].position.y = p.group.children[0].position.y
     }
     for (const f of this.fanIcons) if (f.group.visible) f.group.rotation.y += dt
+    this.scenery?.update(t, dt)
   }
 
   private updateCamera(dt: number) {
@@ -1891,8 +1964,8 @@ export class Game {
     if (this.phase === 'intro') {
       const a = this.phaseTime * 0.35 + 0.6
       const c = p.pos
-      wantPos = new THREE.Vector3(c.x + Math.sin(a) * 26, 9 - this.phaseTime * 0.8, c.z + Math.cos(a) * 26)
-      wantLook = c.clone().setY(1)
+      wantPos = new THREE.Vector3(c.x + Math.sin(a) * 26, 9 - this.phaseTime * 0.8 + p.groundY, c.z + Math.cos(a) * 26)
+      wantLook = c.clone().setY(1 + p.groundY)
       cam.position.lerp(wantPos, this.phaseTime < 0.05 ? 1 : k)
       cam.lookAt(wantLook)
       cam.fov = 55
@@ -1912,9 +1985,11 @@ export class Game {
       wantPos = p.pos.clone().addScaledVector(f, 6.5).setY(2.6 + gy)
       wantLook = p.pos.clone().addScaledVector(f, -20).setY(1 + gy)
     } else {
-      const dist = 7.0 + sf * 1.4
-      wantPos = p.pos.clone().addScaledVector(f, -dist).setY(2.55 + sf * 0.3 + gy)
-      wantLook = p.pos.clone().addScaledVector(f, 6).setY(1.1 + gy)
+      // Faster: the chase camera drops back and down, and looks further ahead.
+      const k = Math.min(1, sf)
+      const dist = 6.6 + k * 2.2 + (p.nitro > 0 ? 0.5 : 0)
+      wantPos = p.pos.clone().addScaledVector(f, -dist).setY(2.65 - k * 0.45 + gy)
+      wantLook = p.pos.clone().addScaledVector(f, 6 + k * 4).setY(1.1 + gy)
     }
     const snap = this.phaseTime < 0.05 && this.phase === 'countdown'
     this.camPos.lerp(wantPos, snap ? 1 : this.lookBack ? 1 : k)
@@ -1925,10 +2000,32 @@ export class Game {
       cam.position.y += (Math.random() - 0.5) * this.shakeAmt * 0.6
       this.shakeAmt = Math.max(0, this.shakeAmt - dt * 1.8)
     }
+    // A light buzz at speed (smooth noise, not random jitter), stronger on Nitro.
+    const buzz = p.wrecked > 0 ? 0 : Math.max(0, Math.min(1.2, sf) - 0.55) * 0.08 + (p.nitro > 0 ? 0.04 : 0)
+    if (buzz > 0) {
+      const t = this.time
+      cam.position.x += (Math.sin(t * 41.3) + Math.sin(t * 27.1 + 1.3)) * buzz * 0.5
+      cam.position.y += (Math.sin(t * 37.7 + 0.4) + Math.sin(t * 19.9)) * buzz * 0.35
+    }
     cam.lookAt(this.camLook)
-    const fov = 62 + sf * 16 + (p.nitro > 0 ? 9 : 0) + (p.boost > 0 ? 4 : 0)
-    cam.fov += (fov - cam.fov) * Math.min(1, dt * 4)
+    // Field of view widens from 60° towards 80° at top speed; Nitro and boosts kick it wider for a moment.
+    if (p.nitro > 0 && !this.wasNitro) this.fovKick = 13
+    else if (p.boost > 0 && !this.wasBoost) this.fovKick = Math.max(this.fovKick, 7)
+    this.wasNitro = p.nitro > 0
+    this.wasBoost = p.boost > 0
+    this.fovKick *= Math.exp(-dt * 3.2)
+    const fov = 60 + Math.min(1, sf) * 20 + (p.nitro > 0 ? 6 : 0) + this.fovKick
+    cam.fov += (fov - cam.fov) * Math.min(1, dt * (this.fovKick > 2 ? 12 : 4))
     cam.updateProjectionMatrix()
+    // Streaks past the edges of the view and a tighter vignette, from about half of top speed.
+    const amt = p.wrecked > 0 ? 0 : THREE.MathUtils.smoothstep(sf, 0.45, 1.0) * 0.75 + (p.nitro > 0 ? 0.5 : 0) + (p.boost > 0 ? 0.25 : 0)
+    const u = this.streaks.uniforms
+    u.uAmt.value += (amt - u.uAmt.value) * Math.min(1, dt * 6)
+    u.uTime.value += dt
+    u.uAspect.value = cam.aspect
+    u.uColor.value.setRGB(0.9, 0.95, 1).lerp(NITRO_TINT, p.nitro > 0 ? 0.6 : 0)
+    this.streaks.mesh.visible = u.uAmt.value > 0.02
+    this.vignette.darkness = 0.5 + u.uAmt.value * 0.28
   }
 
   private drawMinimap() {
@@ -1987,6 +2084,24 @@ export class Game {
       g.strokeStyle = 'rgba(34,211,238,0.85)'
       g.lineWidth = 2.5
       g.stroke()
+      // Shortcuts: a thinner, dashed line.
+      for (const b of this.track.branches) {
+        g.beginPath()
+        for (let k = 0; k < b.n; k += 2) {
+          if (k === 0) g.moveTo(X(b.px[k]), Y(b.pz[k]))
+          else g.lineTo(X(b.px[k]), Y(b.pz[k]))
+        }
+        g.lineTo(X(b.px[b.n - 1]), Y(b.pz[b.n - 1]))
+        g.strokeStyle = 'rgba(15,23,42,0.85)'
+        g.lineWidth = 6
+        g.setLineDash([])
+        g.stroke()
+        g.strokeStyle = 'rgba(253,224,71,0.85)'
+        g.lineWidth = 2
+        g.setLineDash([5, 4])
+        g.stroke()
+        g.setLineDash([])
+      }
     }
     for (const p of this.projectiles) {
       if (p.kind !== 'mine' && p.kind !== 'oil') continue
@@ -2038,7 +2153,7 @@ export class Game {
     if (slot?.type === 'shunt' && p.alive && this.phase === 'race') {
       const t = lockTarget(this, p)
       if (t) {
-        const v = t.pos.clone().setY(1.2).project(this.camera)
+        const v = t.pos.clone().setY(1.2 + t.groundY).project(this.camera)
         if (v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1) {
           reticle = { x: (v.x * 0.5 + 0.5) * this.container.clientWidth, y: (-v.y * 0.5 + 0.5) * this.container.clientHeight, name: t.name }
         }
@@ -2065,6 +2180,9 @@ export class Game {
       lap: THREE.MathUtils.clamp(p.lap, 1, this.laps),
       laps: this.laps,
       speed: Math.round(toKmh(Math.max(0, p.forwardSpeed))),
+      topSpeed: Math.round(toKmh(p.baseTop)),
+      // The speedo needle trembles near the top end (and on Nitro).
+      needleShake: (Math.random() - 0.5) * (Math.max(0, p.speed / Math.max(1, p.baseTop) - 0.75) * 14 + (p.nitro > 0 ? 4 : 0)),
       nitro: p.nitro,
       boosting: p.boost > 0,
       health: p.health,

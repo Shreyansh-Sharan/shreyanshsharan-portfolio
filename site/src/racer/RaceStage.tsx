@@ -271,7 +271,10 @@ function RaceHud({ hud, mode, round }: { hud: Hud; mode: Mode; round: number }) 
         </div>
 
         <div className="vr-speed">
-          <strong>{hud.speed}</strong>
+          <Speedo hud={hud} />
+          <strong style={hud.speed >= hud.topSpeed * 0.94 || hud.nitro > 0 ? { textShadow: `0 0 18px ${hud.nitro > 0 ? '#3dff8a' : '#ffb35c'}` } : undefined}>
+            {hud.speed}
+          </strong>
           <span>km/h</span>
           <div className={`vr-nitro ${hud.nitro > 0 ? 'on' : ''} ${hud.boosting ? 'boost' : ''}`}>
             <i style={{ width: `${Math.min(1, hud.nitro / CONFIG.nitro_duration) * 100}%` }} />
@@ -284,3 +287,25 @@ function RaceHud({ hud, mode, round }: { hud: Hud; mode: Mode; round: number }) 
 }
 
 /* ---------- Results ---------- */
+
+/** Arc speedo: the needle sweeps to the car's top speed, trembles near it, and the dial glows at the top end. */
+function Speedo({ hud }: { hud: Hud }) {
+  const f = Math.min(1.12, hud.speed / Math.max(1, hud.topSpeed))
+  const hot = f >= 0.94 || hud.nitro > 0
+  const glow = hud.nitro > 0 ? '#3dff8a' : '#ffb35c'
+  const deg = -120 + Math.min(1.08, f) * 240 + hud.needleShake
+  const arc = (a0: number, a1: number) => {
+    const p = (a: number) => [Math.sin((a * Math.PI) / 180) * 44, -Math.cos((a * Math.PI) / 180) * 44]
+    const [x0, y0] = p(a0), [x1, y1] = p(a1)
+    return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A 44 44 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`
+  }
+  return (
+    <svg width={120} height={74} viewBox="-60 -54 120 74" aria-hidden style={{ display: 'block', marginLeft: 'auto', filter: hot ? `drop-shadow(0 0 6px ${glow})` : undefined }}>
+      <path d={arc(-120, 120)} stroke="rgba(255,255,255,0.18)" strokeWidth={6} fill="none" strokeLinecap="round" />
+      <path d={arc(84, 120)} stroke="rgba(248,113,113,0.55)" strokeWidth={6} fill="none" strokeLinecap="round" />
+      {f > 0.01 && <path d={arc(-120, Math.min(120, -120 + f * 240))} stroke={hot ? glow : '#e2e8f0'} strokeWidth={6} fill="none" strokeLinecap="round" />}
+      <line x1={0} y1={0} x2={0} y2={-40} stroke={hot ? glow : '#ffffff'} strokeWidth={3} strokeLinecap="round" transform={`rotate(${deg.toFixed(1)})`} />
+      <circle r={4} fill="#ffffff" />
+    </svg>
+  )
+}

@@ -3,7 +3,7 @@
 // On an arena track (the Dust Bowl) shots fly in the open and stop at the rim and the obstacles.
 import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
-import { POWER_COLORS, type PowerType } from './track'
+import { POWER_COLORS, newLoc, type PowerType } from './track'
 import { Trail } from './fx'
 import { radialTexture } from './cars'
 import { arenaBlocked, onFloor } from './arena'
@@ -64,6 +64,7 @@ export interface Beam {
 
 const tmp = new THREE.Vector3()
 const UP = new THREE.Vector3(0, 1, 0)
+const where = newLoc()
 let nextId = 1
 
 const orbGeo = new THREE.IcosahedronGeometry(0.55, 1)
@@ -161,6 +162,7 @@ export function domeVisual(game: Game, pos: THREE.Vector3) {
   const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 80, 6).translate(0, 40, 0), emissive(POWER_COLORS.shock, 4))
   mesh.add(bolt)
   mesh.position.copy(pos)
+  mesh.position.y += game.track.heightAt(pos.x, pos.z)
   game.scene.add(mesh)
   return { mesh, bolt }
 }
@@ -177,13 +179,13 @@ export function animateDome(game: Game, d: Dome, dt: number) {
   if (!d.struck) {
     d.struck = true
     d.bolt.visible = false
-    game.fx.burst(d.pos.clone().setY(1), 40, 18, 0.6, 1.2, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2), 1, 0.8)
+    game.fx.burst(d.mesh.position.clone().setY(d.mesh.position.y + 1), 40, 18, 0.6, 1.2, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.2), 1, 0.8)
     if (game.near(d.pos, 150)) game.audio.crackle()
   }
   mat.uniforms.uAlpha.value = Math.min(1, d.life * 2)
   d.mesh.scale.setScalar(1 + Math.sin(mat.uniforms.uTime.value * 30) * 0.02)
   if (Math.random() < dt * 8)
-    game.fx.emit(d.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 3, (Math.random() - 0.5) * 6)), new THREE.Vector3(0, 2, 0), 0.25, 0.8, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.5))
+    game.fx.emit(d.mesh.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 3, (Math.random() - 0.5) * 6)), new THREE.Vector3(0, 2, 0), 0.25, 0.8, new THREE.Color(POWER_COLORS.shock).multiplyScalar(2.5))
 }
 
 /** The car's chosen Shunt target: the rival nearest the centre of view (AI passes its own choice). */
@@ -229,13 +231,14 @@ function aheadPoint(game: Game, car: Car, dist: number) {
   return onFloor(a, car.pos.clone().addScaledVector(car.forward, dist).setY(0))
 }
 
-/** True where a shot would hit a barrier: off the road on a circuit, the rim or an obstacle in an arena. */
+/** True where a shot would hit a barrier: off every road (shortcuts included) on a circuit, the rim or an obstacle
+ * in an arena. */
 function walled(game: Game, p: { pos: THREE.Vector3; hint: number }, pad = 0.6) {
   const a = game.track.arena
   if (a) return arenaBlocked(a, p.pos.x, p.pos.z)
-  const n = game.track.nearest(p.pos.x, p.pos.z, p.hint)
-  p.hint = n.i
-  return Math.abs(n.lateral) > game.track.half + pad
+  const off = game.track.offRoad(p.pos.x, p.pos.z, p.hint, pad, where)
+  p.hint = where.i
+  return off
 }
 
 export function fire(game: Game, car: Car, backward: boolean, target?: Car | null) {
@@ -452,6 +455,9 @@ function railShot(game: Game, car: Car) {
     const t = tmp.dot(dir)
     if (t >= 0 && t <= len && tmp.addScaledVector(dir, -t).lengthSq() < 2.25) destroy(game, p)
   }
+  // Drawn at the height of the road under each end.
+  from.y += game.track.heightAt(from.x, from.z)
+  to.y += game.track.heightAt(to.x, to.z)
   railBeam(game, from, to)
   game.recordBeam(from, to)
   game.sfx('railshot', car.pos)
@@ -496,15 +502,16 @@ export function updateBeams(game: Game, dt: number) {
   })
 }
 
-/** Place and spin a projectile's mesh (host and clients). */
-export function animateProjectile(p: Projectile, dt: number) {
+/** Place and spin a projectile's mesh (host and clients); `ground` is the road height under it. */
+export function animateProjectile(p: Projectile, dt: number, ground = 0) {
   p.mesh.position.copy(p.pos)
+  p.mesh.position.y += ground
   p.mesh.rotation.y = p.kind === 'mine' ? p.mesh.rotation.y + dt * 3 : p.heading
   if (p.kind === 'oil') {
     p.mesh.children[0].visible = !p.lob
     p.mesh.children[1].visible = !!p.lob
   }
-  if (p.trail) p.trail.push(p.pos)
+  if (p.trail) p.trail.push(p.mesh.position)
 }
 
 export function bargeRing(game: Game, pos: THREE.Vector3) {
@@ -512,7 +519,7 @@ export function bargeRing(game: Game, pos: THREE.Vector3) {
     new THREE.RingGeometry(0.85, 1, 48).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: new THREE.Color(POWER_COLORS.barge).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   )
-  ring.position.copy(pos).setY(0.6)
+  ring.position.copy(pos).setY(0.6 + game.track.heightAt(pos.x, pos.z))
   game.scene.add(ring)
   game.rings.push({ pos: ring.position, t: 0, mesh: ring })
 }
@@ -553,7 +560,7 @@ function shock(game: Game, car: Car) {
       onFloor(arena, pos, CONFIG.shock_dome_radius)
     } else {
       const s = leader.s + CONFIG.shock_first_offset + k * CONFIG.shock_spacing
-      const lat = lanes[k % 3] * (game.track.half - 3.5) * 0.85 + (Math.random() - 0.5) * 2
+      const lat = lanes[k % 3] * (game.track.halfAt(s) - 3.5) * 0.85 + (Math.random() - 0.5) * 2
       pos = game.track.point(s, lat)
     }
     const { mesh, bolt } = domeVisual(game, pos)
@@ -627,7 +634,7 @@ export function updateWeapons(game: Game, dt: number) {
       // Never slower than its base speed; keeps any extra speed it was launched with.
       const speed = Math.max(CONFIG.shunt_speed, sp - dt * 4)
       p.vel.set(Math.sin(p.heading) * speed, 0, Math.cos(p.heading) * speed)
-      if (Math.abs(n.lateral) > track.half - 0.4) {
+      if (Math.abs(n.lateral) > track.hw[n.i] - 0.4 && track.offRoad(p.pos.x, p.pos.z, p.hint, -0.4, where) && where.branch < 0) {
         // Hug the wall rather than leaving the road.
         const sign = Math.sign(n.lateral)
         p.pos.x += track.tz[n.i] * sign * 0.3
@@ -648,7 +655,7 @@ export function updateWeapons(game: Game, dt: number) {
       }
     } else if (p.kind !== 'mine' && p.kind !== 'oil') p.pos.addScaledVector(p.vel, dt)
     if (p.kind === 'rshunt') p.vel.multiplyScalar(Math.max(0, 1 - dt * 0.4))
-    animateProjectile(p, dt)
+    animateProjectile(p, dt, track.heightAt(p.pos.x, p.pos.z))
 
     // Walls stop straight-line shots (and, in an arena, homing Shunts).
     if ((p.kind === 'bolt' || p.kind === 'rshunt' || p.kind === 'flak' || (p.kind === 'shunt' && track.arena)) && !p.lob && walled(game, p)) {

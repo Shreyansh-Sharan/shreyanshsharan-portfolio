@@ -229,8 +229,18 @@ function localJoin(code: string): Promise<Link> {
 /* ---------- Protocol ---------- */
 
 export type NetMode = 'race' | 'deathmatch'
-/** Deathmatch map: the city circuit, or the Dust Bowl arena. Races always use the circuit. */
-export type MapId = 'harbor' | 'bowl'
+/** The circuit (Race and Deathmatch), or the Dust Bowl arena (Deathmatch only). Clients build the same one. */
+export type MapId = 'harbor' | 'river' | 'gothic' | 'pier' | 'bowl'
+
+/** Menu copy and accent colour per map. */
+export const MAP_INFO: Record<MapId, { name: string; blurb: string; color: string }> = {
+  harbor: { name: 'Harbor Loop', blurb: 'Neon docks at night', color: '#22d3ee' },
+  river: { name: 'Concrete River', blurb: 'Storm channel, downtown, sunset', color: '#fb923c' },
+  gothic: { name: 'Gothic Quarter', blurb: 'Cobbled old town, seafront', color: '#facc15' },
+  pier: { name: 'Pier & Promenade', blurb: 'Seafront, pier, terraces', color: '#5eead4' },
+  bowl: { name: 'Dust Bowl', blurb: 'Open desert arena', color: '#f97316' },
+}
+export const CIRCUIT_MAPS: MapId[] = ['harbor', 'river', 'gothic', 'pier']
 
 export interface MatchSettings {
   mode: NetMode

@@ -1,4 +1,6 @@
 // Track: a closed spline from which the road, walls, checkpoints, pickups, AI line and scenery derive.
+// A circuit can climb and dip (a height per control point), change width, and branch into shortcuts that leave the
+// main road and rejoin it further on. Physics stays flat: heights only lift what is drawn.
 // An arena (the Dust Bowl) is a Track with an `arena` layout: physics, respawns and AI use that instead of the road.
 import * as THREE from 'three'
 import { CONFIG } from './config'
@@ -28,14 +30,89 @@ const HARBOR: [number, number][] = [
   [-60, 120], [-80, 40],
 ]
 
+export type CircuitId = 'harbor' | 'river' | 'gothic' | 'pier'
+
+/** A control point: x, z, then optionally the road height (m) and width (m) there. */
+export type CtrlPoint = [number, number, number?, number?]
+
+/** A shortcut leaves the main road at control point `from`, follows `via` and rejoins at control point `to`. */
+export interface ShortcutDef {
+  from: number
+  to: number
+  via: CtrlPoint[]
+  width: number
+  ai: number // chance an AI driver takes it (scaled by skill)
+}
+
+export interface CircuitDef {
+  id: CircuitId
+  name: string
+  points: CtrlPoint[]
+  width: number // default road width, m
+  shortcuts?: ShortcutDef[]
+}
+
+export const HARBOR_CIRCUIT: CircuitDef = { id: 'harbor', name: 'Harbor Loop', points: HARBOR, width: CONFIG.track_width }
+
 export interface PickupSlot {
   s: number
   lateral: number
   kind: 'any' | 'weapon' | 'support'
 }
 
+/** A sampled shortcut. `ms` maps each sample to a distance along the main road, so lap progress keeps counting. */
+export interface Branch {
+  n: number
+  px: Float32Array
+  pz: Float32Array
+  tx: Float32Array
+  tz: Float32Array
+  h: Float32Array
+  s: Float32Array
+  ms: Float32Array
+  curv: Float32Array
+  length: number
+  half: number
+  sFrom: number // main-road distance where it splits off
+  sTo: number // and where it rejoins
+  ai: number
+}
+
+/** Where a point sits relative to the roads (filled in by Track.locate, reused to avoid allocations). */
+export interface Loc {
+  i: number // main-road sample (a shortcut maps to the main-road sample it is level with)
+  lateral: number // from the centre of the road it is on
+  branch: number // -1 on the main road
+  bi: number // shortcut sample
+  over: number // metres past the nearest barrier (0 when on a road)
+  nx: number // that barrier's outward normal
+  nz: number
+}
+
+export const newLoc = (): Loc => ({ i: 0, lateral: 0, branch: -1, bi: -1, over: 0, nx: 0, nz: 0 })
+
+/** Height and width along a sampled Catmull-Rom curve: uniform Catmull-Rom through the control heights (so a ramp
+ * keeps its slope over a crest and launches the cars), smoothstep between control widths. */
+function profile(curve: THREE.CatmullRomCurve3, closed: boolean, ctrlH: number[], ctrlW: number[], n: number) {
+  const N = ctrlH.length
+  const segs = closed ? N : N - 1
+  const h = new Float32Array(n), w = new Float32Array(n)
+  const at = (arr: number[], k: number) => (closed ? arr[((k % N) + N) % N] : arr[THREE.MathUtils.clamp(k, 0, N - 1)])
+  for (let i = 0; i < n; i++) {
+    const t = curve.getUtoTmapping(i / n, 0)
+    const p = Math.min(segs - 1e-6, t * segs)
+    const k = Math.floor(p), f = p - k
+    const h0 = at(ctrlH, k - 1), h1 = at(ctrlH, k), h2 = at(ctrlH, k + 1), h3 = at(ctrlH, k + 2)
+    const f2 = f * f, f3 = f2 * f
+    h[i] = 0.5 * (2 * h1 + (h2 - h0) * f + (2 * h0 - 5 * h1 + 4 * h2 - h3) * f2 + (3 * h1 - h0 - 3 * h2 + h3) * f3)
+    w[i] = THREE.MathUtils.lerp(at(ctrlW, k), at(ctrlW, k + 1), f * f * (3 - 2 * f))
+  }
+  return { h, w }
+}
+
 export class Track {
   readonly name: string
+  readonly id: CircuitId | 'bowl'
   readonly reversed: boolean
   readonly n: number
   readonly length: number
@@ -45,22 +122,33 @@ export class Track {
   readonly tz: Float32Array
   readonly curv: Float32Array
   readonly s: Float32Array
-  readonly half = CONFIG.track_width / 2
+  /** Road height (m) and half-width (m) per sample. */
+  readonly py: Float32Array
+  readonly hw: Float32Array
+  /** The widest the road gets, halved (AI and weapons use the local width where it matters). */
+  readonly half: number
+  readonly elevated: boolean
+  readonly branches: Branch[] = []
   readonly checkpoints: number[] = []
   readonly pickups: PickupSlot[] = []
   readonly fanRuns: number[] = []
   readonly step: number
   /** Open arena (no road): cars are bounded by the bowl, there are no laps, checkpoints or racing line. */
   readonly arena: ArenaLayout | null
+  /** Height of the nearest road, on a grid (lifts pickups, shots and effects onto hills). */
+  private field: { x0: number; z0: number; res: number; nx: number; nz: number; h: Float32Array } | null = null
 
-  constructor(name: string, reversed = false, arena: ArenaLayout | null = null) {
+  constructor(name: string, reversed = false, arena: ArenaLayout | null = null, circuit: CircuitDef = HARBOR_CIRCUIT) {
     this.name = name
     this.reversed = reversed
     this.arena = arena
+    this.id = arena ? 'bowl' : circuit.id
     // An arena keeps a small circular centreline so anything that asks for `s` still gets a sane answer.
-    const ring: [number, number][] = Array.from({ length: 24 }, (_, k) => [Math.cos((k / 24) * Math.PI * 2) * 40, Math.sin((k / 24) * Math.PI * 2) * 40])
-    const pts = (arena ? ring : reversed ? [...HARBOR].reverse() : HARBOR).map(([x, z]) => new THREE.Vector3(x, 0, z))
+    const ring: CtrlPoint[] = Array.from({ length: 24 }, (_, k) => [Math.cos((k / 24) * Math.PI * 2) * 40, Math.sin((k / 24) * Math.PI * 2) * 40])
+    const ctrl = arena ? ring : reversed ? [...circuit.points].reverse() : circuit.points
+    const pts = ctrl.map(([x, z]) => new THREE.Vector3(x, 0, z))
     const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5)
+    curve.arcLengthDivisions = Math.max(200, ctrl.length * 40)
     const approx = curve.getLength()
     this.n = Math.round(approx / 2)
     const sp = curve.getSpacedPoints(this.n)
@@ -70,6 +158,12 @@ export class Track {
     this.tz = new Float32Array(this.n)
     this.curv = new Float32Array(this.n)
     this.s = new Float32Array(this.n)
+    const width = arena ? CONFIG.track_width : circuit.width
+    const prof = profile(curve, true, ctrl.map((c) => c[2] ?? 0), ctrl.map((c) => c[3] ?? width), this.n)
+    this.py = prof.h
+    this.hw = prof.w.map((v) => v / 2)
+    this.half = Math.max(...this.hw)
+    this.elevated = this.py.some((v) => Math.abs(v) > 0.01)
     for (let i = 0; i < this.n; i++) {
       this.px[i] = sp[i].x
       this.pz[i] = sp[i].z
@@ -95,19 +189,164 @@ export class Track {
     }
     if (arena) return
 
+    for (const sc of reversed ? [] : (circuit.shortcuts ?? [])) this.branches.push(this.buildBranch(ctrl, sc))
+    if (this.elevated || this.branches.length) this.field = this.heightField()
+
     for (let s = 150; s < this.length - 20; s += 150) this.checkpoints.push(this.index(s))
 
-    // Pickup rows every ~320 m, 3–5 icons across the road; support rows after the twistiest section.
+    // Pickup rows every ~320 m, 3–5 icons across the road; support rows after the twistiest section. Rows are kept
+    // off tight corners and the crest of a jump.
     const twistiest = this.twistiestRegion()
     let row = 0
-    for (let s = 140; s < this.length - 80; s += 300 + ((row * 37) % 60)) {
+    for (let s0 = 140; s0 < this.length - 80; s0 += 300 + ((row * 37) % 60)) {
+      let s = s0
+      while (s < s0 + 120 && (this.curv[this.index(s)] > 0.012 || Math.abs(this.slope(s)) > 0.045)) s += 8
       const width = 3 + (row % 3)
       const kind: PickupSlot['kind'] = Math.abs(s - twistiest) < 260 && s > twistiest ? 'support' : 'any'
-      for (let k = 0; k < width; k++) this.pickups.push({ s, lateral: (k - (width - 1) / 2) * 3.4, kind })
+      const gap = Math.min(3.4, (this.hw[this.index(s)] * 2 - 4.4) / (width - 1))
+      for (let k = 0; k < width; k++) this.pickups.push({ s, lateral: (k - (width - 1) / 2) * gap, kind })
       row++
     }
     // Fan Runs on the two longest straights.
     this.fanRuns.push(...this.longStraights(2))
+  }
+
+  /** Sample a shortcut: it starts and ends on the main road's centreline, overlapping it for a few metres. */
+  private buildBranch(ctrl: CtrlPoint[], sc: ShortcutDef): Branch {
+    const near = (x: number, z: number) => {
+      let best = 0, bd = Infinity
+      for (let i = 0; i < this.n; i++) {
+        const d = (x - this.px[i]) ** 2 + (z - this.pz[i]) ** 2
+        if (d < bd) {
+          bd = d
+          best = i
+        }
+      }
+      return best
+    }
+    const ia = near(ctrl[sc.from][0], ctrl[sc.from][1]), ib = near(ctrl[sc.to][0], ctrl[sc.to][1])
+    const lead = 26
+    const a0 = this.index(this.s[ia] - lead), b1 = this.index(this.s[ib] + lead)
+    const pt = (i: number): CtrlPoint => [this.px[i], this.pz[i], this.py[i]]
+    const raw: CtrlPoint[] = [pt(a0), pt(ia), ...sc.via, pt(ib), pt(b1)]
+    // Heights the definition leaves out are interpolated between the ends by distance.
+    const cum = [0]
+    for (let k = 1; k < raw.length; k++) cum.push(cum[k - 1] + Math.hypot(raw[k][0] - raw[k - 1][0], raw[k][1] - raw[k - 1][1]))
+    const hA = this.py[ia], hB = this.py[ib]
+    const ctrlH = raw.map((c, k) => c[2] ?? THREE.MathUtils.lerp(hA, hB, (cum[k] - cum[1]) / (cum[raw.length - 2] - cum[1])))
+    const curve = new THREE.CatmullRomCurve3(raw.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal', 0.5)
+    curve.arcLengthDivisions = 400
+    const n = Math.max(8, Math.round(curve.getLength() / 2))
+    const sp = curve.getSpacedPoints(n - 1)
+    const prof = profile(curve, false, ctrlH, ctrlH.map(() => sc.width), n)
+    const b: Branch = {
+      n, px: new Float32Array(n), pz: new Float32Array(n), tx: new Float32Array(n), tz: new Float32Array(n), h: prof.h,
+      s: new Float32Array(n), ms: new Float32Array(n), curv: new Float32Array(n), length: 0, half: sc.width / 2,
+      sFrom: this.s[a0], sTo: this.s[b1], ai: sc.ai,
+    }
+    // The last sample sits on the curve's end; heights at both ends match the main road exactly.
+    b.h[n - 1] = this.py[b1]
+    b.h[0] = this.py[a0]
+    for (let k = 0; k < n; k++) {
+      b.px[k] = sp[k].x
+      b.pz[k] = sp[k].z
+    }
+    let acc = 0
+    for (let k = 0; k < n; k++) {
+      const j = Math.min(n - 1, k + 1), i0 = j === k ? k - 1 : k
+      const dx = b.px[j] - b.px[i0], dz = b.pz[j] - b.pz[i0]
+      const len = Math.hypot(dx, dz) || 1
+      b.tx[k] = dx / len
+      b.tz[k] = dz / len
+      b.s[k] = acc
+      if (k < n - 1) acc += Math.hypot(b.px[k + 1] - b.px[k], b.pz[k + 1] - b.pz[k])
+    }
+    b.length = acc
+    for (let k = 0; k < n; k++) {
+      b.ms[k] = b.sFrom + ((b.sTo - b.sFrom) * b.s[k]) / acc
+      const p = Math.max(0, k - 3), q = Math.min(n - 1, k + 3)
+      let d = Math.atan2(b.tz[q], b.tx[q]) - Math.atan2(b.tz[p], b.tx[p])
+      d = Math.atan2(Math.sin(d), Math.cos(d))
+      b.curv[k] = Math.abs(d) / Math.max(1, b.s[q] - b.s[p])
+    }
+    return b
+  }
+
+  /** Nearest-road height on a 3 m grid around the circuit. */
+  private heightField() {
+    const res = 3, margin = 60
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+    for (let i = 0; i < this.n; i++) {
+      x0 = Math.min(x0, this.px[i])
+      x1 = Math.max(x1, this.px[i])
+      z0 = Math.min(z0, this.pz[i])
+      z1 = Math.max(z1, this.pz[i])
+    }
+    x0 -= margin
+    z0 -= margin
+    const nx = Math.ceil((x1 + margin - x0) / res) + 1, nz = Math.ceil((z1 + margin - z0) / res) + 1
+    const h = new Float32Array(nx * nz)
+    const dist = new Float32Array(nx * nz).fill(1e9)
+    const splat = (x: number, z: number, y: number, half: number) => {
+      const r = half + 30
+      const ci = Math.round((x - x0) / res), cj = Math.round((z - z0) / res), cr = Math.ceil(r / res)
+      for (let j = Math.max(0, cj - cr); j <= Math.min(nz - 1, cj + cr); j++)
+        for (let i = Math.max(0, ci - cr); i <= Math.min(nx - 1, ci + cr); i++) {
+          const d = Math.hypot(x0 + i * res - x, z0 + j * res - z) - half
+          const k = j * nx + i
+          if (d < dist[k]) {
+            dist[k] = d
+            h[k] = y
+          }
+        }
+    }
+    for (let i = 0; i < this.n; i++) splat(this.px[i], this.pz[i], this.py[i], this.hw[i])
+    for (const b of this.branches) for (let k = 0; k < b.n; k++) splat(b.px[k], b.pz[k], b.h[k], b.half)
+    return { x0, z0, res, nx, nz, h }
+  }
+
+  /** Height of the nearest road at (x, z): 0 on a flat circuit. */
+  heightAt(x: number, z: number) {
+    const f = this.field
+    if (!f || !this.elevated) return 0
+    const gx = THREE.MathUtils.clamp((x - f.x0) / f.res, 0, f.nx - 1.001), gz = THREE.MathUtils.clamp((z - f.z0) / f.res, 0, f.nz - 1.001)
+    const i = Math.floor(gx), j = Math.floor(gz)
+    const fx = gx - i, fz = gz - j
+    const k = j * f.nx + i
+    const a = f.h[k] + (f.h[k + 1] - f.h[k]) * fx
+    const b = f.h[k + f.nx] + (f.h[k + f.nx + 1] - f.h[k + f.nx]) * fx
+    return a + (b - a) * fz
+  }
+
+  /** Exact road height under a car that knows its main-road sample `i` (and shortcut sample, if on one). */
+  heightOn(x: number, z: number, i: number, branch: number, bi: number) {
+    if (branch >= 0 && bi >= 0) {
+      const b = this.branches[branch]
+      const k = (x - b.px[bi]) * b.tx[bi] + (z - b.pz[bi]) * b.tz[bi] >= 0 ? Math.min(bi, b.n - 2) : Math.max(0, bi - 1)
+      const f = THREE.MathUtils.clamp(((x - b.px[k]) * b.tx[k] + (z - b.pz[k]) * b.tz[k]) / Math.max(1e-3, b.s[k + 1] - b.s[k]), 0, 1)
+      return b.h[k] + (b.h[k + 1] - b.h[k]) * f
+    }
+    if (i < 0) return this.heightAt(x, z)
+    const k = (x - this.px[i]) * this.tx[i] + (z - this.pz[i]) * this.tz[i] >= 0 ? i : (i - 1 + this.n) % this.n
+    const k2 = (k + 1) % this.n
+    const f = THREE.MathUtils.clamp(((x - this.px[k]) * this.tx[k] + (z - this.pz[k]) * this.tz[k]) / this.step, 0, 1)
+    return this.py[k] + (this.py[k2] - this.py[k]) * f
+  }
+
+  /** Road height at a distance along the main road. */
+  heightAtS(s: number) {
+    const i = this.index(s)
+    const f = THREE.MathUtils.clamp((((s % this.length) + this.length) % this.length - this.s[i]) / this.step, 0, 1)
+    return this.py[i] + (this.py[(i + 1) % this.n] - this.py[i]) * f
+  }
+
+  /** Rise per metre along the main road at s. */
+  slope(s: number) {
+    return (this.heightAtS(s + 4) - this.heightAtS(s - 4)) / 8
+  }
+
+  halfAt(s: number) {
+    return this.hw[this.index(s)]
   }
 
   index(s: number) {
@@ -117,22 +356,121 @@ export class Track {
 
   /** Closest centreline sample, searching near `hint` (or everywhere when hint < 0). */
   nearest(x: number, z: number, hint = -1) {
-    let best = 0, bestD = Infinity
-    const scan = (i: number) => {
-      const dx = x - this.px[i], dz = z - this.pz[i]
-      const d = dx * dx + dz * dz
-      if (d < bestD) {
-        bestD = d
-        best = i
-      }
-    }
-    if (hint < 0) for (let i = 0; i < this.n; i++) scan(i)
-    else for (let k = -40; k <= 40; k++) scan((hint + k + this.n) % this.n)
+    const best = this.nearestIndex(x, z, hint)
     const dx = x - this.px[best], dz = z - this.pz[best]
     // Right-hand normal of the tangent (x, z) is (-z, x).
     const lateral = dx * -this.tz[best] + dz * this.tx[best]
     const along = dx * this.tx[best] + dz * this.tz[best]
     return { i: best, lateral, s: this.s[best] + along }
+  }
+
+  private nearestIndex(x: number, z: number, hint: number) {
+    let best = 0, bestD = Infinity
+    if (hint < 0) {
+      for (let i = 0; i < this.n; i++) {
+        const d = (x - this.px[i]) ** 2 + (z - this.pz[i]) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+    } else {
+      for (let k = -40; k <= 40; k++) {
+        const i = (hint + k + this.n) % this.n
+        const d = (x - this.px[i]) ** 2 + (z - this.pz[i]) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+    }
+    return best
+  }
+
+  private branchNearest(b: Branch, x: number, z: number) {
+    let best = 0, bestD = Infinity
+    for (let k = 0; k < b.n; k++) {
+      const d = (x - b.px[k]) ** 2 + (z - b.pz[k]) ** 2
+      if (d < bestD) {
+        bestD = d
+        best = k
+      }
+    }
+    return best
+  }
+
+  /**
+   * Which road a point is on, allowing `pad` metres inside the barriers (negative: outside them). Off every road,
+   * `over` and the normal say how far past the nearest barrier it is. No allocations: fills `out`.
+   */
+  locate(x: number, z: number, hint: number, pad: number, out: Loc) {
+    const i = this.nearestIndex(x, z, hint)
+    const lat = (x - this.px[i]) * -this.tz[i] + (z - this.pz[i]) * this.tx[i]
+    const lim = this.hw[i] - pad
+    out.i = i
+    out.lateral = lat
+    out.branch = -1
+    out.bi = -1
+    out.over = 0
+    if (Math.abs(lat) <= lim) return out
+    let over = Math.abs(lat) - lim
+    const sg = Math.sign(lat)
+    out.nx = -this.tz[i] * sg
+    out.nz = this.tx[i] * sg
+    for (let k = 0; k < this.branches.length; k++) {
+      const b = this.branches[k]
+      const j = this.branchNearest(b, x, z)
+      const bl = (x - b.px[j]) * -b.tz[j] + (z - b.pz[j]) * b.tx[j]
+      const bo = Math.abs(bl) - (b.half - pad)
+      // Past either end of a shortcut it is the main road's business.
+      const inside = j > 0 && j < b.n - 1
+      if (bo <= 0 && inside) {
+        out.branch = k
+        out.bi = j
+        out.lateral = bl
+        out.i = this.index(b.ms[j])
+        out.over = 0
+        return out
+      }
+      if (inside && bo < over) {
+        over = bo
+        const s2 = Math.sign(bl)
+        out.nx = -b.tz[j] * s2
+        out.nz = b.tx[j] * s2
+        out.branch = k
+        out.bi = j
+        out.lateral = bl
+        out.i = this.index(b.ms[j])
+      }
+    }
+    out.over = over
+    return out
+  }
+
+  /** True if (x, z) is more than `pad` metres outside every road (shots hitting a barrier). */
+  offRoad(x: number, z: number, hint: number, pad: number, scratch: Loc) {
+    return this.locate(x, z, hint, -pad, scratch).over > 0
+  }
+
+  /** A point `u` metres along shortcut `b`, `lateral` from its centre (heading in `out.y` is not used). */
+  branchPoint(b: Branch, u: number, lateral = 0, out = new THREE.Vector3()) {
+    const uu = THREE.MathUtils.clamp(u, 0, b.length)
+    let k = Math.min(b.n - 2, Math.floor((uu / b.length) * (b.n - 1)))
+    while (k > 0 && b.s[k] > uu) k--
+    while (k < b.n - 2 && b.s[k + 1] < uu) k++
+    const f = THREE.MathUtils.clamp((uu - b.s[k]) / Math.max(1e-3, b.s[k + 1] - b.s[k]), 0, 1)
+    const x = b.px[k] + (b.px[k + 1] - b.px[k]) * f, z = b.pz[k] + (b.pz[k + 1] - b.pz[k]) * f
+    return out.set(x - b.tz[k] * lateral, 0, z + b.tx[k] * lateral)
+  }
+
+  /** Max curvature over [u, u + span] along a shortcut. */
+  branchCurvatureAhead(b: Branch, u: number, span: number) {
+    let m = 0
+    for (let d = 0; d < span; d += 4) {
+      const k = Math.min(b.n - 1, Math.max(0, Math.round(((u + d) / b.length) * (b.n - 1))))
+      m = Math.max(m, b.curv[k])
+    }
+    return m
   }
 
   point(s: number, lateral = 0, out = new THREE.Vector3()) {
@@ -275,7 +613,7 @@ function facadeMaterial(facade?: THREE.Texture) {
 }
 
 /** Instanced copies of every mesh in a (normalised) model. */
-function instanced(model: THREE.Object3D, matrices: THREE.Matrix4[]) {
+export function instanced(model: THREE.Object3D, matrices: THREE.Matrix4[]) {
   const group = new THREE.Group()
   model.updateMatrixWorld(true)
   model.traverse((o) => {
@@ -292,7 +630,7 @@ function instanced(model: THREE.Object3D, matrices: THREE.Matrix4[]) {
   return group
 }
 
-function poolTexture() {
+export function poolTexture() {
   const c = document.createElement('canvas')
   c.width = c.height = 64
   const g = c.getContext('2d')!

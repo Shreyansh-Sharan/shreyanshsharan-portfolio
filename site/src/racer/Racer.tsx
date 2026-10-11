@@ -13,7 +13,7 @@ import { loadRacerAssets, type RacerAssets } from './assets'
 import { fanLevel, readSave, writeSave, POWER_NAMES, type Save } from './save'
 import { RaceStage } from './RaceStage'
 import { Results, Standings } from './Results'
-import { hostRoom, joinRoom, type Link, type LobbyPlayer, type MapId, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
+import { CIRCUIT_MAPS, MAP_INFO, hostRoom, joinRoom, type Link, type LobbyPlayer, type MapId, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
 import type { Mode, RaceResult } from './game'
 
 const accent = tiles.find((t) => t.id === 'volt-riot')?.accent ?? (['#831843', '#f0abfc'] as [string, string])
@@ -45,10 +45,10 @@ function store(key: string, value: string) {
 
 const DEFAULT_SETTINGS: MatchSettings = { mode: 'race', laps: CONFIG.race_laps, minutes: CONFIG.deathmatch_minutes, bots: 5, difficulty: 1, map: 'harbor' }
 
-const MAPS: [MapId, string][] = [
-  ['harbor', 'Harbor Loop'],
-  ['bowl', 'Dust Bowl'],
-]
+const ALL_MAPS: MapId[] = [...CIRCUIT_MAPS, 'bowl']
+
+/** Save key for a track's best Lights ('harbor-loop', 'concrete-river', …). */
+const lightsKey = (track: string) => track.toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '')
 
 /** Grid for an online match: humans first, AI drivers fill the rest. */
 function buildSetup(players: LobbyPlayer[], settings: MatchSettings): MatchSetup {
@@ -288,7 +288,8 @@ export function Racer({
     setSave((prev) => {
       const next: Save = { ...prev, lights: { ...prev.lights } }
       next.fans += r.fans
-      if (r.mode === 'race' && !r.online) next.lights['harbor-loop'] = Math.max(next.lights['harbor-loop'] ?? 0, r.lights.total)
+      const key = lightsKey(r.track)
+      if (r.mode === 'race' && !r.online) next.lights[key] = Math.max(next.lights[key] ?? 0, r.lights.total)
       writeSave(next)
       return next
     })
@@ -472,17 +473,35 @@ function SettingsPanel({
   readOnly?: boolean
   online?: boolean
 }) {
+  // Races and Combat Points run on the circuits; Deathmatch can also use the Dust Bowl.
+  const circuit = settings.map === 'bowl' ? 'harbor' : settings.map
   if (mode === 'combat')
     return (
-      <p className="muted small">
-        A {CONFIG.combat_tracks}-track series of {CONFIG.combat_laps} laps each: forward, reverse, then a finale with double Shock and Mines. Weapons-only
-        pickups. Wrecks score, position barely does. Solo only.
-      </p>
+      <div className="vr-settings">
+        <div className="field">
+          <span>Starting track</span>
+          <TrackPicker value={circuit} options={CIRCUIT_MAPS} onChange={(map) => onChange({ ...settings, map })} disabled={readOnly} />
+        </div>
+        <p className="muted small">
+          A {CONFIG.combat_tracks}-track series of {CONFIG.combat_laps} laps each, visiting every circuit in turn from this one; the last is a finale with
+          double Shock, Mines and Oil. Weapons-only pickups. Wrecks score, position barely does. Solo only.
+        </p>
+      </div>
     )
   const maxBots = online ? CONFIG.max_players - 1 : DRIVERS.length
   const bots = Math.min(settings.bots, maxBots)
   return (
     <div className="vr-settings">
+      <div className="field">
+        <span>{mode === 'race' ? 'Track' : 'Map'}</span>
+        <TrackPicker
+          value={mode === 'race' ? circuit : settings.map}
+          options={mode === 'race' ? CIRCUIT_MAPS : ALL_MAPS}
+          onChange={(map) => onChange({ ...settings, map })}
+          disabled={readOnly}
+        />
+      </div>
+      <p className="muted small">{TRACK_HELP[mode === 'race' ? circuit : settings.map]}</p>
       {mode === 'race' ? (
         <div className="field">
           <span>Laps</span>
@@ -490,15 +509,6 @@ function SettingsPanel({
         </div>
       ) : (
         <>
-          <div className="field">
-            <span>Map</span>
-            <Seg value={settings.map ?? 'harbor'} options={MAPS} onChange={(map) => onChange({ ...settings, map })} disabled={readOnly} />
-          </div>
-          <p className="muted small">
-            {settings.map === 'bowl'
-              ? 'Dust Bowl: an open, banked desert arena. Rock pillars and wrecks for cover, power-ups all over the floor.'
-              : 'Harbor Loop: the city circuit, fighting in traffic.'}
-          </p>
           <div className="field">
             <span>Time limit</span>
             <Seg
@@ -526,6 +536,35 @@ function SettingsPanel({
           disabled={readOnly}
         />
       </div>
+    </div>
+  )
+}
+
+const TRACK_HELP: Record<MapId, string> = {
+  harbor: 'Harbor Loop: the neon city circuit through the container docks at night.',
+  river: 'Concrete River: down into a storm-drain river channel under the bridges, round the bend or through the spillway, then off the exit ramp onto downtown streets at sunset.',
+  gothic: 'Gothic Quarter: cobbled lanes and stone arches climbing past the cathedral, an alley short cut, then down to the palm-lined seafront boulevard.',
+  pier: 'Pier & Promenade: a long seafront straight past the pier and its funfair, up through the white terraces and the covered market, with a short cut through the lanes.',
+  bowl: 'Dust Bowl: an open, banked desert arena. Rock pillars and wrecks for cover, power-ups all over the floor.',
+}
+
+function TrackPicker({ value, options, onChange, disabled }: { value: MapId; options: MapId[]; onChange: (m: MapId) => void; disabled?: boolean }) {
+  return (
+    <div className="vr-cars" role="listbox" aria-label="Track">
+      {options.map((id) => (
+        <button
+          key={id}
+          role="option"
+          aria-selected={value === id}
+          disabled={disabled}
+          className={`vr-car ${value === id ? 'is-active' : ''}`}
+          onClick={() => onChange(id)}
+          style={{ ['--car' as string]: MAP_INFO[id].color }}
+        >
+          <strong>{MAP_INFO[id].name}</strong>
+          <span className="muted small">{MAP_INFO[id].blurb}</span>
+        </button>
+      ))}
     </div>
   )
 }
@@ -767,7 +806,10 @@ function Lobby({
         <p className="eyebrow">VOLT RIOT · Online lobby</p>
         <h1 className="page-title vr-title">{s.mode === 'deathmatch' ? 'Deathmatch' : 'Race'} room</h1>
         <p className="page-lead">
-          {s.mode === 'deathmatch' ? `${s.map === 'bowl' ? 'Dust Bowl' : 'Harbor Loop'}, ${s.minutes} minutes, weapons only` : `${s.laps} lap${s.laps > 1 ? 's' : ''}`} ·{' '}
+          {s.mode === 'deathmatch'
+            ? `${MAP_INFO[s.map].name}, ${s.minutes} minutes, weapons only`
+            : `${MAP_INFO[s.map === 'bowl' ? 'harbor' : s.map].name}, ${s.laps} lap${s.laps > 1 ? 's' : ''}`}{' '}
+          ·{' '}
           {session.players.length} driver
           {session.players.length === 1 ? '' : 's'} + {bots} AI
         </p>

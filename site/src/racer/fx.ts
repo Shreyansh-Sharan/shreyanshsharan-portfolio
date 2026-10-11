@@ -421,3 +421,44 @@ export function fanRunTexture() {
   t.colorSpace = THREE.SRGBColorSpace
   return t
 }
+
+/* ---------- Speed lines ---------- */
+
+/**
+ * Screen-space speed streaks: thin radial lines rushing out from the centre, only round the edges of the view.
+ * A fullscreen quad drawn last in the main pass (no extra post-processing). `uAmt` 0 hides it.
+ */
+export function speedLines() {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uAmt: { value: 0 }, uAspect: { value: 1 }, uColor: { value: new THREE.Color(1, 1, 1) } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+    fragmentShader: `varying vec2 vUv; uniform float uTime; uniform float uAmt; uniform float uAspect; uniform vec3 uColor;
+      float hash(float n){ return fract(sin(n * 12.9898) * 43758.5453); }
+      void main(){
+        vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+        float r = length(p);
+        float u = atan(p.y, p.x) / 6.2831853 + 0.5;
+        float k = 180.0;
+        float bin = floor(u * k);
+        float h = hash(bin), h2 = hash(bin + 31.7);
+        float live = step(0.42, h);
+        float line = pow(1.0 - abs(fract(u * k) - 0.5) * 2.0, 3.0);
+        float head = fract(h2 * 9.0 + uTime * (1.4 + h * 2.2));
+        float rr = r * 1.15;
+        float seg = smoothstep(head - 0.3 - h * 0.2, head, rr) * (1.0 - smoothstep(head, head + 0.015, rr));
+        float edge = smoothstep(0.22, 0.62, r);
+        float a = seg * line * live * edge * uAmt;
+        gl_FragColor = vec4(uColor * a * 1.4, a);
+      }`,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  })
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
+  mesh.frustumCulled = false
+  mesh.renderOrder = 1000
+  mesh.visible = false
+  return { mesh, uniforms: mat.uniforms as { uTime: { value: number }; uAmt: { value: number }; uAspect: { value: number }; uColor: { value: THREE.Color } } }
+}

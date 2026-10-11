@@ -11,7 +11,7 @@ export type Route =
   | { name: 'resume' }
   | { name: 'embed'; id: string }
   | { name: 'arena'; join?: string }
-  | { name: 'racer'; auto?: 'race' | 'combat' | 'deathmatch'; map?: 'bowl'; join?: string }
+  | { name: 'racer'; auto?: 'race' | 'combat' | 'deathmatch'; map?: 'harbor' | 'river' | 'gothic' | 'pier' | 'bowl'; join?: string }
   | { name: 'golf'; auto?: boolean }
 
 export function parse(hash: string): Route {
@@ -25,7 +25,8 @@ export function parse(hash: string): Route {
       return {
         name: 'racer',
         auto: (['race', 'combat', 'deathmatch'] as const).find((m) => m === q.get('auto')),
-        map: q.get('map') === 'bowl' ? 'bowl' : undefined,
+        // `map` (Dust Bowl) or `track` (a circuit) for the auto-start test hooks.
+        map: (['harbor', 'river', 'gothic', 'pier', 'bowl'] as const).find((m) => m === (q.get('track') ?? q.get('map'))),
         join: q.get('join') ?? undefined,
       }
     }

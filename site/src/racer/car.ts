@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
 import { buildCarMesh, topSpeedKmh, type CarClass, type CarMesh, type CarModel, type Driver } from './cars'
-import type { PowerType, Track } from './track'
+import { newLoc, type PowerType, type Track } from './track'
 import { bowlHeight, bowlSlope, type ArenaLayout } from './arena'
 
 export interface BaySlot {
@@ -24,6 +24,7 @@ const HALF_WIDTH = 1.0
 const BOWL_CAR_R = 1.6 // collision radius against the bowl's rim and obstacles
 const qTilt = new THREE.Quaternion()
 const tiltAxis = new THREE.Vector3()
+const GRAVITY = CONFIG.jump_gravity
 
 export class Car {
   readonly id: number
@@ -98,9 +99,20 @@ export class Car {
   // The Dust Bowl, when racing in one (visual ground height and bank tilt).
   arena: ArenaLayout | null = null
   groundY = 0
+  // A circuit with hills: the body follows the road's height, pitched to its slope, and flies off crests.
+  terrain: Track | null = null
+  private vy = 0
+  private lastH = 0
+  private pitch = 0
+  airTime = 0 // s since the wheels last touched (visual)
+  maxAir = 0 // longest jump so far (tests)
+  private snapY = true
 
   // Track progress.
   hint = -1
+  branch = -1 // on a shortcut (index), or -1 on the main road
+  bi = -1 // shortcut sample
+  readonly loc = newLoc()
   s = 0
   lateral = 0
   lap = 0
@@ -122,10 +134,16 @@ export class Car {
   combat = 0
   chainMult = 1
   lastWreckAt = -99
+  // Test counters: automatic resets, time crawling or rolling backwards while racing.
+  resets = 0
+  slowTime = 0
+  reverseTime = 0
 
   // AI scratch.
   ai = {
     laneOffset: 0, think: 0, avoid: 0, pickupLat: 0, swerve: 0, boltTimer: 0, launchPerfect: false,
+    // Shortcuts: the one being taken (-1 none) and the last lap/shortcut decided, so each is rolled once a lap.
+    branch: -1, decided: -1, entered: false, shortcuts: 0,
     // Arena: where the bot is heading and its unstick manoeuvre.
     goal: new THREE.Vector3(), goalKind: 'wander' as 'wander' | 'pickup' | 'hunt', target: null as Car | null, stuck: 0, reverse: 0, reverseSteer: 1,
   }
@@ -143,7 +161,7 @@ export class Car {
     this.skill = opts.skill ?? 0.6
     this.mesh = buildCarMesh(model, opts.glb)
     this.baseTop = kmh(topSpeedKmh(model, opts.cls ?? model.cls))
-    this.accel = 5 + model.stats.accel * 0.75
+    this.accel = 5.6 + model.stats.accel * 0.82
     this.latMax = 13 + model.stats.grip * 1.1
     this.gripRate = 7 + model.stats.grip * 0.5
     if (!this.isPlayer) {
@@ -387,13 +405,12 @@ export class Car {
 
   /** Keep the car between the barriers. Sets the impact speed into the wall (0 if none). */
   private walls(track: Track) {
-    const n = track.nearest(this.pos.x, this.pos.z, this.hint)
-    this.hint = n.i
-    this.lateral = n.lateral
-    const limit = track.half - HALF_WIDTH
-    if (Math.abs(n.lateral) <= limit) return
-    const sign = Math.sign(n.lateral)
-    this.bounce(-track.tz[n.i] * sign, track.tx[n.i] * sign, Math.abs(n.lateral) - limit)
+    const l = track.locate(this.pos.x, this.pos.z, this.hint, HALF_WIDTH, this.loc)
+    this.hint = l.i
+    this.lateral = l.lateral
+    this.branch = l.branch
+    this.bi = l.bi
+    if (l.over > 0) this.bounce(l.nx, l.nz, l.over)
   }
 
   /** Dust Bowl: the bank pulls cars back down to the floor; the rim wall and the obstacles stop them. */
@@ -437,6 +454,7 @@ export class Car {
     const m = this.mesh
     m.root.position.copy(this.pos)
     m.root.rotation.set(0, this.yaw, 0)
+    if (this.terrain) this.ride(this.terrain, dt)
     if (this.arena) {
       // Ride up the bank, tilted to its slope.
       const r = Math.hypot(this.pos.x, this.pos.z)
@@ -505,6 +523,38 @@ export class Car {
 
   wreckVy = 0
 
+  /** Hills (visual only): follow the road up, keep the climb's vertical speed over a crest, fall back under gravity. */
+  private ride(t: Track, dt: number) {
+    const m = this.mesh
+    const h = t.heightOn(this.pos.x, this.pos.z, this.hint, this.branch, this.bi)
+    if (this.snapY || Math.abs(this.groundY - h) > 14) {
+      this.snapY = false
+      this.groundY = this.lastH = h
+      this.vy = 0
+    }
+    const step = Math.max(dt, 1e-3)
+    const groundVy = (h - this.lastH) / step
+    this.lastH = h
+    this.vy -= GRAVITY * dt
+    this.groundY += this.vy * dt
+    if (this.groundY <= h) {
+      this.groundY = h
+      this.vy = groundVy
+      this.airTime = 0
+    } else {
+      this.airTime += dt
+      this.maxAir = Math.max(this.maxAir, this.airTime)
+    }
+    m.root.position.y += this.groundY
+    // Pitch to the slope under the car; in the air, ease towards the direction of flight.
+    const fx = Math.sin(this.yaw) * 1.8, fz = Math.cos(this.yaw) * 1.8
+    const slope = (t.heightAt(this.pos.x + fx, this.pos.z + fz) - t.heightAt(this.pos.x - fx, this.pos.z - fz)) / 3.6
+    const want = this.airTime > 0.05 ? Math.atan2(this.vy, Math.max(8, this.speed)) * 0.6 : Math.atan(slope)
+    this.pitch += (want - this.pitch) * Math.min(1, dt * (this.airTime > 0.05 ? 3 : 12))
+    m.root.rotation.order = 'YXZ'
+    m.root.rotation.x = -this.pitch
+  }
+
   /** Put the car back on the racing line at `s`. */
   placeAt(track: Track, s: number, lateral: number) {
     const p = track.point(s, lateral)
@@ -515,12 +565,26 @@ export class Car {
     this.lateral = lateral
   }
 
+  /** Put the car on shortcut `k` at sample `j` (a reset while on a shortcut). */
+  placeOnBranch(track: Track, k: number, j: number, lateral: number) {
+    const b = track.branches[k]
+    const p = track.branchPoint(b, b.s[j], lateral)
+    this.placeXZ(p.x, p.z, Math.atan2(b.tx[j], b.tz[j]))
+    this.hint = track.index(b.ms[j])
+    this.branch = k
+    this.bi = j
+    this.lateral = lateral
+  }
+
   /** Put the car at a point (arena spawns). */
   placeXZ(x: number, z: number, yaw: number) {
     this.pos.set(x, 0, z)
     this.yaw = yaw
     this.yawRate = 0
     this.hint = 0
+    this.branch = -1
+    this.bi = -1
+    this.snapY = true
     this.lateral = 0
     this.mesh.body.rotation.set(0, 0, 0)
     this.mesh.body.position.set(0, 0, 0)
