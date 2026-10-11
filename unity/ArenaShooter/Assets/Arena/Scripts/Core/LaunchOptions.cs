@@ -1,4 +1,5 @@
 using System;
+using Arena.Game;
 using Arena.Map;
 using UnityEngine;
 
@@ -15,11 +16,15 @@ namespace Arena.Core
         public int Difficulty = 1; // 0 easy, 1 normal, 2 hard
         public string Name = "Player";
         public string Code = "";
-        public string Map = "dunes"; // dunes | harbor | frost (the host's choice; joiners follow the host)
+        public string Map = "dunes"; // dunes | harbor | frost | sandstorm | villa | bazaar (the host's choice; joiners follow the host)
+        public WeaponKind Primary = WeaponKind.Rifle; // the primary to spawn with: smg | rifle | sniper | shotgun
 
         public static LaunchOptions Current = new LaunchOptions();
 
-        /// <summary>Parses ?mode=solo|host|join&amp;bots=5&amp;diff=1&amp;name=Ana&amp;code=ABC123&amp;map=dunes|harbor|frost.</summary>
+        /// <summary>
+        /// Parses ?mode=solo|host|join&amp;bots=5&amp;diff=1&amp;name=Ana&amp;code=ABC123&amp;map=dunes|harbor|frost|sandstorm|villa|bazaar
+        /// &amp;gun=smg|rifle|sniper|shotgun.
+        /// </summary>
         public static LaunchOptions FromUrl(string url)
         {
             var o = new LaunchOptions();
@@ -61,6 +66,9 @@ namespace Arena.Core
                         break;
                     case "map":
                         o.Map = Maps.Get(Maps.IndexOf(value.Trim())).Id;
+                        break;
+                    case "gun":
+                        if (WeaponSpec.TryParse(value.Trim(), out var gun) && gun != WeaponKind.Pistol) o.Primary = gun;
                         break;
                 }
             }

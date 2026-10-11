@@ -19,7 +19,7 @@ namespace Arena.Game
         public const int MaxShield = 100;
         public const float RespawnSeconds = 3f;
         public const float OvershieldCooldown = 16f;
-        /// <summary>Hitbox is 1.8 m tall; anything above this height (the top 0.35 m) is the head.</summary>
+        /// <summary>Hitbox is 1.8 m tall; anything above this height (the top 0.35 m) is the head (damage x the weapon's multiplier).</summary>
         public const float HeadHeight = 1.45f;
 
         public static readonly Color[] Palette =
@@ -45,6 +45,8 @@ namespace Arena.Game
         public readonly NetworkVariable<bool> Alive = new NetworkVariable<bool>(true);
         public readonly NetworkVariable<FixedString32Bytes> DisplayName = new NetworkVariable<FixedString32Bytes>();
         public readonly NetworkVariable<FixedString32Bytes> LastKiller = new NetworkVariable<FixedString32Bytes>();
+        /// <summary>The weapon that last killed this combatant (WeaponKind), or 255 for none.</summary>
+        public readonly NetworkVariable<byte> LastWeapon = new NetworkVariable<byte>(byte.MaxValue);
         public readonly NetworkVariable<byte> ColorIndex = new NetworkVariable<byte>(0);
         public readonly NetworkVariable<double> OverdriveUntil = new NetworkVariable<double>(0);
         public readonly NetworkVariable<double> HasteUntil = new NetworkVariable<double>(0);
@@ -136,37 +138,35 @@ namespace Arena.Game
 
         // ---------------- Server-side rules ----------------
 
-        public void ServerDamage(int amount, Combatant attacker, bool headshot)
+        /// <summary>
+        /// Applies damage (already scaled by the weapon for range and headshots). Shields soak it up first.
+        /// <paramref name="weapon"/> is the WeaponKind for the kill feed (255 for none).
+        /// </summary>
+        public void ServerDamage(int amount, Combatant attacker, bool headshot, byte weapon = byte.MaxValue)
         {
             if (!IsServer || !Alive.Value || amount <= 0) return;
             if (MatchManager.Instance != null && MatchManager.Instance.Ended.Value) return;
 
-            if (headshot)
-            {
-                Health.Value = 0; // headshots kill outright, shield or not
-            }
-            else
-            {
-                int absorbed = Mathf.Min(Shield.Value, amount);
-                Shield.Value -= absorbed;
-                Health.Value = Mathf.Max(0, Health.Value - (amount - absorbed));
-            }
+            int absorbed = Mathf.Min(Shield.Value, amount);
+            Shield.Value -= absorbed;
+            Health.Value = Mathf.Max(0, Health.Value - (amount - absorbed));
             bool killed = Health.Value == 0;
 
             if (attacker != null && attacker != this) attacker.HitConfirmRpc(headshot, killed);
             DamagedRpc(attacker != null ? attacker.transform.position : transform.position);
 
-            if (killed) ServerDie(attacker, headshot);
+            if (killed) ServerDie(attacker, headshot, weapon);
         }
 
-        void ServerDie(Combatant killer, bool headshot)
+        void ServerDie(Combatant killer, bool headshot, byte weapon)
         {
             Alive.Value = false;
             Deaths.Value++;
             LastKiller.Value = killer != null && killer != this ? killer.DisplayName.Value : new FixedString32Bytes("the desert");
+            LastWeapon.Value = weapon;
             if (killer != null && killer != this) killer.Kills.Value++;
             RespawnAt.Value = Now + RespawnSeconds;
-            if (MatchManager.Instance != null) MatchManager.Instance.ServerOnKill(killer, this, headshot);
+            if (MatchManager.Instance != null) MatchManager.Instance.ServerOnKill(killer, this, headshot, weapon);
         }
 
         void Update()
@@ -186,8 +186,10 @@ namespace Arena.Game
             var toCenter = MapRuntime.Current.Center - point;
             toCenter.y = 0;
             float yaw = toCenter.sqrMagnitude > 0.01f ? Quaternion.LookRotation(toCenter).eulerAngles.y : 0f;
+            // Respawn with the sidearm and the chosen primary (bots may pick a new role first).
             if (IsBot) GetComponent<BotBrain>().ServerRespawn(point);
             else TeleportRpc(point, yaw);
+            GetComponent<Weapon>().ServerArm();
             Alive.Value = true;
         }
 

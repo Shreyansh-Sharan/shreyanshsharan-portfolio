@@ -35,9 +35,9 @@ function previewCards(tile: Tile): Activity[] {
     case 'arena':
       return [
         { title: 'Modes', detail: 'Solo vs up to 9 AI bots, or host an online match and invite friends with a code.' },
-        { title: 'Powers', detail: 'Dash, double jump, overshield and a pulse scan that sees through walls.' },
-        { title: 'Power-ups', detail: 'Health, shield cells, Overdrive (double damage) and Haste.' },
-        { title: 'Maps', detail: 'Dunes (long lane, catwalk, tunnels), Harbor Night (container port) and Frost Outpost (snowbound base).' },
+        { title: 'Powers', detail: 'Dash, double jump, overshield and a wall-piercing scan; health, shield, Overdrive and Haste pickups.' },
+        { title: 'Weapons', detail: 'Pistol, SMG, assault rifle, bolt-action sniper and shotgun. Keys 1–5 or the wheel; hold right click to aim, scope in twice.' },
+        { title: 'Maps', detail: 'Sandstorm (long doors, catwalk), Villa (curved lane, church square), Bazaar (sniper window, market), plus Dunes, Harbor Night and Frost Outpost.' },
       ]
     case 'volt-riot':
       return [

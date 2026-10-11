@@ -31,6 +31,24 @@ namespace Arena.Fx
         public static readonly AudioClip MatchEnd = Make("end", 1f, t =>
             Mathf.Sin(2 * Mathf.PI * (t < 0.25f ? 523f : t < 0.5f ? 659f : 784f) * t) * Mathf.Exp(-(t % 0.25f) * 5f) * 0.7f);
 
+        // One voice per weapon, so each can be told apart by ear.
+        public static AudioClip RifleShot => Shot;
+        public static readonly AudioClip PistolShot = Make("pistol", 0.16f, t =>
+            Noise() * Mathf.Exp(-t * 40f) * 0.7f + Mathf.Sin(2 * Mathf.PI * Mathf.Lerp(420f, 140f, t * 6f) * t) * Mathf.Exp(-t * 30f) * 0.8f);
+        public static readonly AudioClip SmgShot = Make("smg", 0.1f, t =>
+            Noise() * Mathf.Exp(-t * 55f) * 0.75f + Mathf.Sin(2 * Mathf.PI * Mathf.Lerp(320f, 120f, t * 10f) * t) * Mathf.Exp(-t * 45f) * 0.6f);
+        public static readonly AudioClip SniperShot = Make("sniper", 0.9f, t =>
+            Noise() * Mathf.Exp(-t * 16f) + Mathf.Sin(2 * Mathf.PI * Mathf.Lerp(120f, 38f, Mathf.Min(1f, t * 2f)) * t) * Mathf.Exp(-t * 5f)
+            + (t > 0.18f ? Noise() * 0.12f * Mathf.Exp(-(t - 0.18f) * 6f) : 0f));
+        public static readonly AudioClip ShotgunShot = Make("shotgun", 0.5f, t =>
+            Noise() * Mathf.Exp(-t * 11f) * 0.95f + Mathf.Sin(2 * Mathf.PI * Mathf.Lerp(90f, 45f, t * 2f) * t) * Mathf.Exp(-t * 9f) * 0.9f);
+        public static readonly AudioClip Bolt = Make("bolt", 0.45f, t =>
+            (t < 0.03f || (t > 0.2f && t < 0.24f) ? Noise() * 0.7f : 0f) + (t > 0.2f ? Mathf.Sin(2 * Mathf.PI * 1800f * t) * Mathf.Exp(-(t - 0.2f) * 60f) * 0.3f : 0f));
+        public static readonly AudioClip Draw = Make("draw", 0.18f, t =>
+            Noise() * Mathf.Exp(-t * 35f) * 0.4f + Mathf.Sin(2 * Mathf.PI * 2400f * t) * Mathf.Exp(-t * 50f) * 0.25f);
+        public static readonly AudioClip ScopeIn = Make("scope", 0.12f, t => Mathf.Sin(2 * Mathf.PI * Mathf.Lerp(900f, 1500f, t / 0.12f) * t) * Mathf.Exp(-t * 30f) * 0.4f);
+        public static readonly AudioClip Empty = Make("empty", 0.06f, t => Noise() * Mathf.Exp(-t * 90f) * 0.6f);
+
         static float Noise()
         {
             seed = seed * 1664525u + 1013904223u;

@@ -10,9 +10,41 @@ const GAME_URL = 'games/arena/index.html'
 
 type Mode = 'solo' | 'host' | 'join'
 
+const MAPS = [
+  { id: 'dunes', label: 'Dunes', blurb: 'Sunny desert: long lane to A, catwalk from mid, tunnels to B.' },
+  { id: 'harbor', label: 'Harbor Night', blurb: 'Container port at dusk with a roofed warehouse lane and an open quay.' },
+  { id: 'frost', label: 'Frost Outpost', blurb: 'Snowbound base: a courtyard bunker, a hangar lane and a trench lane.' },
+  {
+    id: 'sandstorm',
+    label: 'Sandstorm',
+    blurb: 'Bleached sandstone town: long A through double doors, a mid door, a raised catwalk and tunnels to B.',
+  },
+  {
+    id: 'villa',
+    label: 'Villa',
+    blurb: 'Italian village: a curved lane over a stone bridge to the church courtyard, alleys and a balcony over A.',
+  },
+  {
+    id: 'bazaar',
+    label: 'Bazaar',
+    blurb: 'Market town at dusk: palace square, apartments to the market, and a sniper window over mid.',
+  },
+] as const
+
+type MapId = (typeof MAPS)[number]['id']
+
+const GUNS = [
+  { id: 'smg', label: 'SMG' },
+  { id: 'rifle', label: 'Rifle' },
+  { id: 'sniper', label: 'Sniper' },
+  { id: 'shotgun', label: 'Shotgun' },
+] as const
+
+type GunId = (typeof GUNS)[number]['id']
+
 interface ArenaMessage {
   source: 'arena'
-  type: 'ready' | 'started' | 'code' | 'error' | 'left'
+  type: 'ready' | 'started' | 'code' | 'map' | 'error' | 'left'
   payload: string
 }
 
@@ -40,7 +72,8 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
   const [name, setName] = useState(readName)
   const [bots, setBots] = useState(5)
   const [skill, setSkill] = useState(1)
-  const [map, setMap] = useState<'dunes' | 'harbor' | 'frost'>('dunes')
+  const [map, setMap] = useState<MapId>('dunes')
+  const [gun, setGun] = useState<GunId>('rifle')
   const [code, setCode] = useState((join ?? '').toUpperCase())
   const [src, setSrc] = useState<string | null>(null)
   const [available, setAvailable] = useState<boolean | null>(null)
@@ -62,7 +95,7 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
     if (!canStart) return
     saveName(name)
     play('select')
-    const params = new URLSearchParams({ mode, map, bots: String(bots), diff: String(skill), name: name.trim() || 'Player' })
+    const params = new URLSearchParams({ mode, map, gun, bots: String(bots), diff: String(skill), name: name.trim() || 'Player' })
     if (mode === 'join') params.set('code', code.trim().toUpperCase())
     setSrc(`${GAME_URL}?${params}`)
   }
@@ -75,8 +108,9 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
         <p className="eyebrow">Extras · Unity 6</p>
         <h1 className="page-title">Dunes Arena</h1>
         <p className="page-lead">
-          A lightweight multiplayer shooter on three original maps: the Dunes desert, a night-time container harbour and a
-          snowbound outpost. Fight bots or invite friends with a code. Headshots are a one-shot kill.
+          A lightweight multiplayer shooter on six original maps, from the Dunes desert and a night-time harbour to three
+          classic-style arenas: Sandstorm, Villa and Bazaar. Five weapons, right-click aiming and a scoped sniper. Fight bots
+          or invite friends with a code.
         </p>
       </header>
 
@@ -111,19 +145,14 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
             <>
               <div className="field">
                 <span>Map</span>
-                <div className="seg seg-sm">
-                  {(
-                    [
-                      ['dunes', 'Dunes'],
-                      ['harbor', 'Harbor Night'],
-                      ['frost', 'Frost Outpost'],
-                    ] as const
-                  ).map(([id, label]) => (
+                <div className="seg seg-sm" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderRadius: 20 }}>
+                  {MAPS.map(({ id, label }) => (
                     <button key={id} className={`seg-btn ${map === id ? 'is-active' : ''}`} onClick={() => setMap(id)}>
                       {label}
                     </button>
                   ))}
                 </div>
+                <span className="muted small">{MAPS.find((m) => m.id === map)?.blurb}</span>
               </div>
               <label className="field">
                 <span>
@@ -143,6 +172,17 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
               </div>
             </>
           )}
+
+          <div className="field">
+            <span>Primary weapon</span>
+            <div className="seg seg-sm">
+              {GUNS.map(({ id, label }) => (
+                <button key={id} className={`seg-btn ${gun === id ? 'is-active' : ''}`} onClick={() => setGun(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {mode === 'join' && (
             <label className="field">
@@ -180,17 +220,27 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
             <li><kbd>E</kbd> Overshield (+50)</li>
             <li><kbd>F</kbd> Pulse scan: see enemies through walls</li>
           </ul>
+          <h2 className="section-title">Weapons</h2>
+          <ul className="keys">
+            <li><kbd>1</kbd> P9 Sidearm: always carried</li>
+            <li><kbd>2</kbd> Vespa SMG: fast, accurate on the move</li>
+            <li><kbd>3</kbd> Kestrel AR: the all-rounder</li>
+            <li><kbd>4</kbd> Longbow: bolt-action, two-level scope</li>
+            <li><kbd>5</kbd> Mastiff: pump shotgun, brutal up close</li>
+          </ul>
           <h2 className="section-title">Power-ups</h2>
           <ul className="keys">
             <li><span className="dot" style={{ background: '#4ade80' }} /> Health</li>
             <li><span className="dot" style={{ background: '#38bdf8' }} /> Shield cell</li>
             <li><span className="dot" style={{ background: '#fb923c' }} /> Overdrive: double damage</li>
             <li><span className="dot" style={{ background: '#c084fc' }} /> Haste: speed boost</li>
+            <li><span className="dot" style={{ background: '#e879f9' }} /> Weapon crates: add a gun until you die</li>
           </ul>
           <h2 className="section-title">Controls</h2>
           <p className="muted small">
-            WASD move · Mouse aim · Click fire · Right click zoom · R reload · Tab scoreboard · Esc release mouse. First to
-            20 kills wins the round.
+            WASD move · Mouse aim · Click fire · Hold right click to aim down sights (sniper: right click steps through two
+            scope zooms, wheel zooms while scoped) · 1–5 or mouse wheel switch weapons · R reload · Tab scoreboard · Esc
+            release mouse. Headshots deal extra damage; a sniper headshot always kills. First to 20 kills wins the round.
           </p>
         </section>
       </div>

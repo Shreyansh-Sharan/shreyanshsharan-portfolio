@@ -7,7 +7,10 @@ using UnityEngine;
 
 namespace Arena.Game
 {
-    /// <summary>Power-up pad: health, shield cell, overdrive (double damage) or haste. Server decides pickups.</summary>
+    /// <summary>
+    /// Power-up pad (health, shield cell, overdrive, haste) or weapon crate (SMG, rifle, sniper, shotgun). Weapon
+    /// crates add the weapon to the carrier's arsenal until they die. Server decides pickups.
+    /// </summary>
     public class Pickup : NetworkBehaviour
     {
         public static readonly List<Pickup> All = new List<Pickup>();
@@ -24,21 +27,33 @@ namespace Arena.Game
 
         public PickupKind PickupKind => (PickupKind)Kind.Value;
 
-        public static string Label(PickupKind kind) => kind switch
+        public static string Label(PickupKind kind)
         {
-            PickupKind.Health => "+50 HEALTH",
-            PickupKind.Shield => "+50 SHIELD",
-            PickupKind.Overdrive => "OVERDRIVE: DOUBLE DAMAGE",
-            _ => "HASTE: SPEED BOOST",
-        };
+            if (WeaponSpec.FromPickup(kind, out var weapon))
+            {
+                var spec = WeaponSpec.Get(weapon);
+                return $"{spec.Name.ToUpperInvariant()}  [{spec.Slot}]";
+            }
+            return kind switch
+            {
+                PickupKind.Health => "+50 HEALTH",
+                PickupKind.Shield => "+50 SHIELD",
+                PickupKind.Overdrive => "OVERDRIVE: DOUBLE DAMAGE",
+                _ => "HASTE: SPEED BOOST",
+            };
+        }
 
-        public static Color Tint(PickupKind kind) => kind switch
+        public static Color Tint(PickupKind kind)
         {
-            PickupKind.Health => new Color(0.3f, 1f, 0.45f),
-            PickupKind.Shield => new Color(0.25f, 0.85f, 1f),
-            PickupKind.Overdrive => new Color(1f, 0.55f, 0.1f),
-            _ => new Color(0.85f, 0.4f, 1f),
-        };
+            if (WeaponSpec.FromPickup(kind, out var weapon)) return WeaponSpec.Get(weapon).Tint;
+            return kind switch
+            {
+                PickupKind.Health => new Color(0.3f, 1f, 0.45f),
+                PickupKind.Shield => new Color(0.25f, 0.85f, 1f),
+                PickupKind.Overdrive => new Color(1f, 0.55f, 0.1f),
+                _ => new Color(0.85f, 0.4f, 1f),
+            };
+        }
 
         public override void OnNetworkSpawn()
         {
@@ -99,6 +114,15 @@ namespace Arena.Game
 
         bool TryApply(Combatant c, double now)
         {
+            if (WeaponSpec.FromPickup(PickupKind, out var weapon))
+            {
+                var arsenal = c.GetComponent<Weapon>();
+                if (arsenal == null || !arsenal.ServerGive(weapon)) return false;
+                Active.Value = false;
+                respawnAt = now + 20;
+                CollectedRpc(c.NetworkObjectId);
+                return true;
+            }
             switch (PickupKind)
             {
                 case PickupKind.Health:

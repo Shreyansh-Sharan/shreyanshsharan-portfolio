@@ -101,12 +101,24 @@ namespace Arena.Map
                 (V(-24, 0), PickupKind.Overdrive),
                 (V(26, 13), PickupKind.Haste),
                 (V(10, -42), PickupKind.Haste),
+                (V(-29, 2), PickupKind.Smg),
+                (V(4, -44), PickupKind.Rifle),
+                (V(46, 32), PickupKind.Sniper),
+                (V(-41, -18), PickupKind.Shotgun),
             },
 
             Waypoints = new[]
             {
                 V(30, 43), V(-38, -12), V(0, 0), V(0, -28), V(0, 28), V(44, -24), V(44, 16), V(-40, -30),
                 V(-40, 20), V(-24, 0), V(26, 13), V(-20, 44), V(10, 42), V(-40, 34), V(0, -44), V(30, -40), V(-30, -42),
+            },
+
+            Perches = new[]
+            {
+                H(43, -40, 0f),     // East quay, up the quay
+                H(0, 30, 180f),     // Yard gate, down the container yard
+                H(-38, 26, 180f),   // Warehouse, down the lane
+                H(-40, 44, 90f),    // North quay, along the water
             },
 
             BrandPosition = new Vector3(0, 0, -12),
