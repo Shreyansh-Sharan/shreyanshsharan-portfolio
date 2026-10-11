@@ -1,0 +1,203 @@
+%-------------------------------------------------------------------------------
+% Resume: Shreyansh Sharan, Solution Architect
+% Compiles with pdfLaTeX on Overleaf (default settings), no custom class needed.
+%-------------------------------------------------------------------------------
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,top=1.4cm,bottom=1.4cm,left=1.5cm,right=1.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[default]{lato}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{fontawesome5}
+\usepackage{multicol}
+\usepackage[hidelinks]{hyperref}
+
+%------------------------------- Colours ---------------------------------------
+\definecolor{navy}{HTML}{0B2E7A}
+\definecolor{accent}{HTML}{F06A0F}
+\definecolor{muted}{HTML}{5F6B7A}
+\definecolor{rule}{HTML}{D5DAE1}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\tabcolsep}{0pt}
+\raggedright
+
+%------------------------------- Sections --------------------------------------
+\titleformat{\section}
+  {\color{muted}\small\bfseries}{}{0pt}{\MakeUppercase}[{\vspace{-6pt}\color{rule}\rule{\linewidth}{0.6pt}}]
+\titlespacing*{\section}{0pt}{9pt}{5pt}
+
+\setlist[itemize]{leftmargin=12pt,itemsep=1.2pt,topsep=2pt,parsep=0pt,label={\color{accent}\scriptsize\textbullet}}
+
+%------------------------------- Macros ----------------------------------------
+% \role{Title}{Dates}
+\newcommand{\role}[2]{%
+  \vspace{3pt}{\color{navy}\large #1}\hfill{\color{muted}\small #2}\par\vspace{1pt}}
+% \org{Company}{Location / context}
+\newcommand{\org}[2]{%
+  {\bfseries #1}\ {\color{muted}\small\textbar\ #2}\par}
+% \subrole{Sub-title}{Dates} for promotions inside one company
+\newcommand{\subrole}[2]{%
+  \vspace{4pt}{\color{accent}\bfseries #1}\hfill{\color{muted}\small #2}\par}
+% \skillrow{Label}{Items}
+\newcommand{\skillrow}[2]{\textbf{#1} & #2 \\[2pt]}
+% \cert{Name}{Issuer}
+\newcommand{\cert}[2]{\item {\color{navy}#1}\ {\color{muted}\small\textbar\ #2}}
+
+%===============================================================================
+\begin{document}
+
+%------------------------------- Header ----------------------------------------
+{\fontsize{26}{28}\selectfont\color{navy}\bfseries SHREYANSH SHARAN}\par\vspace{4pt}
+{\large\color{accent}Solution Architect \textbar\ Data \& AI Platforms \textbar\ Databricks \& Azure \textbar\ DevOps}\par\vspace{5pt}
+{\small\color{muted}%
+\faPhone*\ +91-XXXXX-XXXXX\quad
+\faEnvelope\ \href{mailto:your.email@example.com}{your.email@example.com}\quad
+\faLinkedin\ \href{https://www.linkedin.com/in/your-handle}{linkedin.com/in/your-handle}\quad
+\faGithub\ \href{https://github.com/your-handle}{github.com/your-handle}\quad
+\faMapMarker*\ India}\par
+
+%------------------------------- Summary ---------------------------------------
+\section{Summary}
+Solution Architect with \textbf{8+ years} across analytics, data engineering, DevOps and Generative AI.
+Designed and delivered solutions for \textbf{30+ enterprise clients} in Pharma, CPG/FMCG, Financial
+Services, Agriculture and Construction. Architected an enterprise DevOps framework for
+\textbf{Diageo} now used by \textbf{1,000--2,000 developers across 7 business verticals}, and built
+\textbf{Omni Studio}, a five-studio AI data platform on Databricks, end to end (front end, back end
+and APIs). Certified across Anthropic Claude, Databricks, Microsoft Azure and Qlik; active in
+pre-sales, solution design and mentoring.
+
+%------------------------------- Products --------------------------------------
+\section{Product Built \textendash\ Omni Studio (Polestar Analytics)}
+{\small\color{muted}An AI data platform on Databricks. I designed the architecture and built the
+front end, back end and APIs. It is made up of five studios plus \textbf{Omni}, a page-aware
+\faKeyboard\ \texttt{Ctrl+K} assistant available across the platform.}
+\begin{itemize}
+  \item \textbf{Foundation Studio:} an AI builder that reads client BRD and source-to-target mapping
+        documents and drafts a governed \textbf{medallion model} (Bronze, Silver, Gold star schema with
+        SCD2), its transformations and deterministic \textbf{Databricks SQL}. Each stage is approved by a
+        person, then deployed through a 9-step onboarding wizard.
+  \item \textbf{Governance Studio:} a control plane that scans Databricks jobs, clusters, SQL history and
+        notebooks (12 collection targets) and covers column-level lineage, cost and LLM-spend budgets,
+        right-sizing recommendations, access reviews and an immutable audit log.
+  \item \textbf{ML Studio:} takes a business question to a deployed model: problem framing, a sandboxed
+        guided notebook with \textbf{Optuna} tuning, \textbf{MLflow} experiments, champion models, deployment
+        to Databricks serving, and drift monitoring.
+  \item \textbf{Insights Studio:} a semantic layer (tables, knowledge graph, glossary, governed metrics and
+        data-quality rules) with \textbf{AI-built dashboards}, ``ask why'' insights and natural-language-to-SQL
+        over \textbf{Unity Catalog}.
+  \item \textbf{Agent Studio:} agents with models, tools and \textbf{MCP} skills (one MCP server per studio),
+        a live playground and full run traces, making the whole platform callable by agents.
+\end{itemize}
+
+%------------------------------- Experience ------------------------------------
+\section{Experience}
+
+\role{Polestar Analytics}{2021 -- Present}
+{\color{muted}\small Data, analytics and AI consultancy \textbar\ India}\par
+
+\subrole{Solution Architect \textendash\ Data, DevOps \& AI Products}{2025 -- Present}
+\begin{itemize}
+  \item Architected an \textbf{enterprise Azure DevOps framework for Diageo}, the world's largest spirits
+        and whisky company, standardising CI/CD, branching, environment promotion and release
+        governance for data workloads across Databricks, ADF and Azure.
+  \item Drove adoption across \textbf{7 verticals} (Supply, People, Legal, Finance, Customer, Consumer
+        and more), with the framework now used by \textbf{1,000--2,000 internal and vendor developers};
+        cut release lead time from \textbf{3 days to under 2 hours} and failed deployments by \textbf{60\%}.
+  \item Built reusable pipeline templates, quality gates and automated environment set-up, reducing
+        onboarding of a new project to the framework from \textbf{2 weeks to 2 days}.
+  \item Led \textbf{pre-sales for 20+ opportunities} across CPG, FMCG and Financial Services: discovery
+        calls, solution architecture, effort estimates and demos, contributing to \textbf{8 client wins}.
+  \item Authored target architectures for data engineering, infrastructure and \textbf{cloud migration}
+        programmes (on-premises and legacy BI to Azure and Databricks Lakehouse).
+\end{itemize}
+
+\subrole{Data Engineer \textendash\ Azure \& Databricks}{2024 -- 2025}
+\begin{itemize}
+  \item Built an \textbf{inventory intelligence platform} for one of the world's largest fertilizer
+        companies: SAP data ingested through \textbf{Azure Data Factory} into a \textbf{Databricks}
+        medallion Lakehouse (Bronze/Silver/Gold), feeding ML demand and stock models and dashboards.
+  \item Delivered ML-driven stock rebalancing used by inventory managers and leadership, reducing
+        stock-outs by \textbf{18\%} and excess inventory holding by \textbf{12\%} across distribution sites.
+  \item Developed \textbf{40+ parameterised ADF pipelines} and PySpark jobs processing \textbf{50M+ rows
+        daily} from SAP (ECC/S4) and other source systems, with incremental loads and data-quality checks.
+  \item Delivered data engineering for Financial Services and CPG clients and for one of the world's
+        largest construction companies; tuned Spark workloads to cut job run time by \textbf{35\%}.
+\end{itemize}
+
+\subrole{Qlik Developer \textrightarrow\ Solution Architect \textrightarrow\ Administrator}{2021 -- 2024}
+\begin{itemize}
+  \item Delivered Qlik solutions for \textbf{25--30 clients} across multiple domains as developer,
+        solution architect and platform administrator.
+  \item Built \textbf{150+ dashboards} in Qlik Sense and QlikView covering sales, finance, supply chain and
+        operations; optimised data models to cut reload times by \textbf{40\%}.
+  \item Administered multi-node Qlik Sense environments for \textbf{2,000+ users}: security rules, streams,
+        licences, task scheduling and upgrades.
+  \item Led QlikView to Qlik Sense migrations and mentored junior developers on data modelling and set analysis.
+\end{itemize}
+
+\role{Wipro Limited}{2018 -- 2021}
+{\color{muted}\small Pharmaceutical analytics practice \textbar\ India}\par
+
+\subrole{Qlik Solution Architect \& Automation Engineer \textendash\ Pharma Client 2}{2020 -- 2021}
+\begin{itemize}
+  \item Automated the full Qlik Sense delivery lifecycle (project creation, stream set-up, dashboard
+        publishing and user-access management) using \textbf{Python and Selenium}.
+  \item Turned a manual \textbf{2-day} provisioning process into a \textbf{30-minute} automated workflow,
+        removing \textbf{80\%} of manual administration effort and access-related errors.
+  \item Designed the solution architecture and governance model for the client's Qlik platform.
+\end{itemize}
+
+\subrole{Qlik Developer \textendash\ Pharma Client 1}{2018 -- 2020}
+\begin{itemize}
+  \item Built \textbf{sales, insights and pharmacy performance dashboards} used by sales leadership and
+        field teams; delivered \textbf{50+} dashboards and reports.
+  \item Modelled sales, prescription and territory data; reduced report turnaround from days to same-day refreshes.
+\end{itemize}
+
+%------------------------------- Skills ----------------------------------------
+\section{Technical Skills}
+\begin{tabularx}{\linewidth}{@{}p{3.6cm}X@{}}
+\skillrow{Data \& Cloud}{Databricks (Lakehouse, Unity Catalog, Delta Lake, MLflow, Model Serving), PySpark, Azure Data Factory, ADLS Gen2, Azure Synapse, Key Vault, SAP data integration}
+\skillrow{DevOps}{Azure DevOps (Repos, YAML Pipelines, Boards), CI/CD, Git branching strategy, release governance, environment promotion, IaC templates}
+\skillrow{Generative AI}{Claude, LLM agents, Model Context Protocol (MCP), tool calling, RAG, NL-to-SQL, Databricks Mosaic AI, Azure AI services}
+\skillrow{ML}{Feature engineering, scikit-learn, Optuna, MLflow, forecasting \& recommendation models}
+\skillrow{BI \& Analytics}{Qlik Sense, QlikView, Qlik administration (QMC/QRS), Power BI, semantic layers}
+\skillrow{Languages \& Apps}{Python, SQL, Spark SQL, REST APIs, full-stack web development, Selenium automation}
+\end{tabularx}
+
+%------------------------------- Certifications --------------------------------
+\section{Certifications}
+\begin{multicols}{2}
+\begin{itemize}
+  \cert{Claude Certified Solutions Architect}{Anthropic}
+  \cert{Databricks Certified Generative AI Engineer Associate}{Databricks}
+  \cert{Databricks Certified Data Engineer}{Databricks}
+  \cert{Databricks Solutions Architect}{Databricks}
+  \cert{Microsoft Certified: Azure Solutions Architect Expert}{Microsoft}
+  \cert{Microsoft Certified: Azure AI Engineer Associate}{Microsoft}
+  \cert{Qlik Certified Solution Architect}{Qlik}
+  \cert{Qlik Certified Developer}{Qlik}
+\end{itemize}
+\end{multicols}
+\vspace{-8pt}
+
+%------------------------------- Awards ----------------------------------------
+\section{Awards \& Recognition}
+\begin{itemize}
+  \item \textbf{Most Innovative Award}, Wipro, for automating the Qlik delivery lifecycle with Python and Selenium.
+  \item \textbf{Key Player, Pharmaceutical Vertical}, Wipro.
+  \item \textbf{Best New Recruit 2018}, Wipro.
+\end{itemize}
+
+%------------------------------- Education -------------------------------------
+\section{Education}
+{\color{navy}\large Bachelor of Technology (B.Tech)}\hfill{\color{muted}\small 2014 -- 2018}\par
+Dr.\ B.\ R.\ Ambedkar National Institute of Technology (NIT) Jalandhar, Punjab, India
+
+\end{document}
