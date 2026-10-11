@@ -24,7 +24,12 @@ export class Golfer {
   readonly id: number
   readonly name: string
   readonly color: string
-  readonly human: boolean
+  /** Controlled by a person (this browser or a remote player); false for bots, and for a player who left. */
+  human: boolean
+  /** Online: the peer id of the person controlling this golfer ('host' for the host), null for bots. */
+  remoteId: string | null = null
+  /** Where a person is aiming (their camera yaw); bots aim along `yaw`. */
+  aim = 0
   readonly skill: number
   readonly personality: Personality
   readonly rig: GolferRig
@@ -53,6 +58,9 @@ export class Golfer {
   swing = 0 // swing animation / melee window
   cooldown = 0
   respawn = 0
+  frozen = 0 // Freeze Bomb: stuck in ice (also stunned)
+  leap = 0 // Spring Boots: seconds of flight left
+  readonly leapVel = new THREE.Vector3()
   finished = false
   finishPlace = 0
   knockedBy: { by: Golfer; at: number } | null = null
@@ -68,6 +76,7 @@ export class Golfer {
   // Items.
   inventory: (ItemType | null)[] = [null, null, null]
   active = 0
+  mineCharges = 0 // landmines left in the pack in hand
 
   // Hole stats for scoring.
   knockouts = 0
@@ -129,7 +138,7 @@ export class Golfer {
 
   /** Movement and the physical states. `move` is ignored while stunned, charging or respawning. */
   update(dt: number, move: MoveInput | null, ground: Ground, course: Course, others: Golfer[]) {
-    for (const k of ['stun', 'boost', 'shield', 'protect', 'dive', 'diveCooldown', 'swing', 'cooldown'] as const) this[k] = Math.max(0, this[k] - dt)
+    for (const k of ['stun', 'boost', 'shield', 'protect', 'dive', 'diveCooldown', 'swing', 'cooldown', 'frozen'] as const) this[k] = Math.max(0, this[k] - dt)
 
     const canMove = this.canAct && this.charging <= 0
     if (move && canMove) {
@@ -162,6 +171,11 @@ export class Golfer {
     // Knockback decays over a short time.
     this.kb.multiplyScalar(Math.max(0, 1 - dt / CONFIG.stun_knockback_time * 1.4))
     const step = this.vel.clone().add(this.kb).multiplyScalar(dt)
+    // Spring Boots: a long arcing leap that ignores steering until you land.
+    if (this.leap > 0) {
+      this.leap -= dt
+      step.copy(this.leapVel).multiplyScalar(dt)
+    }
     this.pos.x += step.x
     this.pos.z += step.z
 

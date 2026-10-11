@@ -1,4 +1,4 @@
-// Higgsfield-generated assets: a rigged cartoon golfer (run, idle, golf swing) and props. All optional: every
+// Generated 3D assets: a rigged cartoon golfer (run, idle, golf swing) and props. All optional: every
 // asset has a procedural fallback so the game still runs if a file fails to load.
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'

@@ -395,7 +395,7 @@ export const tiles: Tile[] = [
     tab: 'extras',
     title: 'VOLT RIOT',
     tagline: 'Combat Racer',
-    org: 'Three.js · Higgsfield-generated cars & props',
+    org: 'Three.js · Custom 3D cars & props',
     period: 'Play now',
     genre: 'Racing',
     blurb:
@@ -411,7 +411,7 @@ export const tiles: Tile[] = [
     tab: 'extras',
     title: 'BOGEY BRAWL',
     tagline: 'Battle Golf',
-    org: 'Three.js · Higgsfield-generated golfer & props',
+    org: 'Three.js · Custom 3D golfer & props',
     period: 'Play now',
     genre: 'Sports · Party',
     blurb:

@@ -1,4 +1,4 @@
-// The Higgsfield-generated, rigged characters: the player (the visitor's low-poly avatar, with idle, walk, run,
+// The generated, rigged characters: the player (the visitor's low-poly avatar, with idle, walk, run,
 // jump and spell-cast clips) and the waving guide.
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'

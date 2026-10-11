@@ -1,4 +1,4 @@
-// The low-poly avatar on the profile page: a Higgsfield model (low-poly image of the photo and intro clip → Tripo
+// The low-poly avatar on the profile page: a generated model (low-poly image of the photo and intro clip → Tripo
 // mesh → Meshy rig) rendered flat-shaded, with a move set of Meshy animations all on the same skeleton.
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'

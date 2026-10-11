@@ -40,21 +40,30 @@ export const CONFIG = {
   elephant_stun: 3, // s
   elephant_knockback: 15, // m
   elephant_self_knockback: 10, // m
+  elephant_cone: 35, // deg either side of the aim
   landmine_charges: 3, // src
   landmine_trigger_radius: 1.2, // m
   landmine_stun: 2, // s
   landmine_disarm_time: 1.5, // s
+  landmine_arm_time: 1, // s before a dropped mine is live
+  landmine_lifetime: 90, // s
+  landmine_self_grace: 2, // s after arming before it can catch its owner
+  landmine_knockback: 6, // m
   laser_delay: 3, // s
   laser_radius: 8, // m
   laser_stun: 4, // s
   airhorn_range: 15, // m
   airhorn_overshoot_mult: 2.0, // x
+  airhorn_stun: 0.8, // s
+  airhorn_knockback: 7, // m at point blank, fading with distance
+  airhorn_ball_speed: 9, // m/s given to a loose ball at point blank (times the overshoot multiplier)
   cart_speed: 16, // m/s
   cart_seats: 8, // src
   cart_ram_stun: 2.5, // s
   coffee_duration: 10, // s, src
   coffee_speed_mult: 1.4, // x
   springboots_distance: 40, // m
+  springboots_jump_speed: 12, // m/s upward (flight time = 2v / jump_gravity)
   shield_duration: 6, // s, src 5–7
   protection_levels: 3, // src
   protection_duration: [2, 3, 4], // s per level
@@ -62,6 +71,8 @@ export const CONFIG = {
   rocket_driver_power: 200, // % of normal, src
   freeze_radius: 6, // m
   freeze_duration: 3, // s
+  freeze_throw: 14, // m ahead the bomb lands
+  freeze_fuse: 0.7, // s in the air
   wind_max: 6, // m/s, snow biome
   friction_fairway: 1.0, // m/s²
   friction_rough: 2.5, // m/s²
@@ -103,10 +114,12 @@ export const CONFIG = {
   item_weights: {
     rocket: 14, pistol: 12, landmine: 12, airhorn: 10, coffee: 10, springboots: 10, cart: 8, elephant: 8, shield: 8, freeze: 4, driver: 2, laser: 2,
   } as Record<string, number>,
-  enabled_items: ['rocket', 'pistol', 'shield'] as string[], // this pass ships 3; the rest are stubbed
+  enabled_items: ['rocket', 'pistol', 'shield', 'landmine', 'airhorn', 'coffee', 'freeze', 'springboots', 'elephant'] as string[], // laser, cart and driver are still stubbed
   ai_skill: [0.35, 0.55, 0.75], // Easy / Normal / Hard
   ai_shot_samples: 16,
   ai_sim_seconds: 10,
+  net_snapshot_hz: 20, // host → clients
+  net_input_hz: 30, // client → host
   ai_melee_grace: 6, // s after tee-off before bots start clubbing people (everyone starts on the same tee)
   ai_briefcase_detour: 15, // m
   ai_rocket_range: 40, // m

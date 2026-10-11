@@ -10,6 +10,7 @@ import { makeGolfer, prop, type GolfAssets, type PropName } from './assets'
 import { aiThink } from './ai'
 import { Particles, Trail } from '../racer/fx'
 import { isMuted } from '../lib/sound'
+import { isGolfMsg, type GolfNet, type GolfSlot } from './net'
 
 export type Phase = 'intro' | 'play' | 'overtime' | 'results'
 
@@ -17,15 +18,15 @@ export const ITEM_INFO: Record<ItemType, { name: string; color: string; enabled:
   rocket: { name: 'Rocket Launcher', color: '#f97316', enabled: true },
   pistol: { name: 'Dueling Pistol', color: '#facc15', enabled: true },
   shield: { name: 'Electromagnet', color: '#38bdf8', enabled: true },
-  landmine: { name: 'Landmine', color: '#ef4444', enabled: false },
+  landmine: { name: 'Landmine', color: '#ef4444', enabled: true },
   laser: { name: 'Orbital Laser', color: '#e879f9', enabled: false },
-  airhorn: { name: 'Air Horn', color: '#a3e635', enabled: false },
+  airhorn: { name: 'Air Horn', color: '#a3e635', enabled: true },
   cart: { name: 'Golf Cart', color: '#f8fafc', enabled: false },
-  coffee: { name: 'Coffee', color: '#a16207', enabled: false },
-  springboots: { name: 'Spring Boots', color: '#22d3ee', enabled: false },
-  elephant: { name: 'Elephant Gun', color: '#78716c', enabled: false },
+  coffee: { name: 'Coffee', color: '#a16207', enabled: true },
+  springboots: { name: 'Spring Boots', color: '#22d3ee', enabled: true },
+  elephant: { name: 'Elephant Gun', color: '#78716c', enabled: true },
   driver: { name: 'Rocket Driver', color: '#fb7185', enabled: false },
-  freeze: { name: 'Freeze Bomb', color: '#bae6fd', enabled: false },
+  freeze: { name: 'Freeze Bomb', color: '#bae6fd', enabled: true },
 }
 
 const PLAYERS: { name: string; color: string; personality: Personality }[] = [
@@ -37,9 +38,76 @@ const PLAYERS: { name: string; color: string; personality: Personality }[] = [
 
 export interface GolfOptions {
   difficulty: number
-  bots: number // 1–3
+  bots: number // 1–3 (solo)
   assets: GolfAssets | null
   autopilot?: boolean
+  /** Online: who plays, and this browser's role. Solo when absent. */
+  net?: GolfNet
+}
+
+/** Item order for compact snapshots. */
+const ITEM_CODES = Object.keys(ITEM_INFO) as ItemType[]
+
+/** One player's controls: held values plus one-shot actions since the last frame. */
+interface Pad {
+  x: number
+  y: number
+  yaw: number
+  loft: number
+  creep: boolean
+  acts: string[]
+  /** Online clients report where they've moved their own golfer. */
+  pos?: [number, number, number, number]
+}
+
+/** Visual and sound events: played locally and, on the host, streamed to everyone (`to` = one player only). */
+type V3 = [number, number, number]
+type FxEv =
+  | { k: 'boom'; p: V3; small?: boolean }
+  | { k: 'splash'; p: V3 }
+  | { k: 'tracer'; a: V3; b: V3 }
+  | { k: 'thwack'; v: number }
+  | { k: 'whack' }
+  | { k: 'groan' }
+  | { k: 'cup'; c: string }
+  | { k: 'block'; p: V3 }
+  | { k: 'ice'; p: V3 }
+  | { k: 'horn'; p: V3 }
+  | { k: 'lob'; a: V3; b: V3; t: number }
+  | { k: 'leap'; p: V3 }
+  | { k: 'say'; s: string; c: string; t: number }
+  | { k: 'feed'; s: string; ids: number[] }
+  | { k: 'pop'; s: string; c: string; p: V3 }
+  | { k: 'beep'; f: number; d: number; w: OscillatorType; g: number }
+  | { k: 'shake'; v: number }
+type Targeted = FxEv & { to?: string }
+
+const BALL_MODES: BallMode[] = ['rest', 'rolling', 'air', 'water', 'holed']
+const v3 = (p: THREE.Vector3): V3 => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100, Math.round(p.z * 100) / 100]
+
+/** Host → clients, 20 times a second. Golfer rows are flat number arrays (see buildSnap for the layout). */
+interface Snap {
+  ph: Phase
+  pt: number
+  g: number[][]
+  r: number[][]
+  c: number[][]
+  m: number[][]
+}
+
+interface Mine {
+  id: number
+  owner: Golfer
+  pos: THREE.Vector3
+  arm: number // seconds until armed
+  life: number
+  mesh: THREE.Object3D
+}
+
+interface Lob {
+  owner: Golfer
+  to: THREE.Vector3
+  t: number
 }
 
 export interface Hud {
@@ -88,6 +156,7 @@ export interface HoleResult {
 }
 
 interface Rocket {
+  id: number
   owner: Golfer
   target: Golfer | null
   pos: THREE.Vector3
@@ -98,6 +167,7 @@ interface Rocket {
 }
 
 interface Case {
+  id: number
   pos: THREE.Vector3
   ready: boolean
   timer: number
@@ -112,18 +182,22 @@ export class Game {
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000)
   readonly renderer: THREE.WebGLRenderer
-  readonly fx = new Particles(1500, true)
+  readonly fx_ = new Particles(1500, true)
   readonly smoke = new Particles(800, false)
   golfers: Golfer[] = []
   me!: Golfer
   cases: Case[] = []
   rockets: Rocket[] = []
+  mines: Mine[] = []
   phase: Phase = 'intro'
   time = 0
   phaseTime = 0
   holeTime: number
   onHud: ((h: Hud) => void) | null = null
   onResult: ((r: HoleResult) => void) | null = null
+  /** Online: the host left (clients) — the page goes back to the menu. */
+  onDisconnect: ((why: string) => void) | null = null
+  readonly role: 'solo' | 'host' | 'client'
 
   private container: HTMLElement
   private raf = 0
@@ -154,10 +228,24 @@ export class Game {
   private audio: AudioContext | null = null
   private ro: ResizeObserver
   private shake = 0
+  // Items in flight and on the ground.
+  private lobs: Lob[] = []
+  private flying: { mesh: THREE.Object3D; a: THREE.Vector3; b: THREE.Vector3; t: number; dur: number }[] = []
+  private iceMeshes = new Map<Golfer, THREE.Mesh>()
+  private entityId = 1000
+  // Online.
+  private remotePads = new Map<string, Pad>()
+  private outEvents: Targeted[] = []
+  private snapT = 0
+  private inputT = 0
+  private pendingActs: string[] = []
+  private snap: { s: Snap; at: number } | null = null
+  private unsub: (() => void)[] = []
 
   constructor(container: HTMLElement, opts: GolfOptions) {
     this.container = container
     this.opts = opts
+    this.role = opts.net ? opts.net.role : 'solo'
     this.ground = new Ground(this.course)
     this.holeTime = this.course.hole.par <= 3 ? CONFIG.hole_time_par3 : this.course.hole.par === 4 ? CONFIG.hole_time_par4 : CONFIG.hole_time_par5
 
@@ -179,7 +267,7 @@ export class Game {
     this.aimLine.frustumCulled = false
     this.aimLine.visible = false
     this.scene.add(this.aimLine)
-    this.scene.add(this.fx.points, this.smoke.points)
+    this.scene.add(this.fx_.points, this.smoke.points)
 
     this.sun = this.scene.getObjectByName('sun') as THREE.DirectionalLight
     this.ro = new ResizeObserver(() => this.resize())
@@ -196,7 +284,8 @@ export class Game {
     el.addEventListener('contextmenu', (e) => e.preventDefault())
     document.addEventListener('pointerlockchange', this.onLockChange)
     this.camYaw = Math.atan2(this.course.hole.route[1][0], this.course.hole.route[1][1])
-    this.say(`${this.course.hole.name} · Par ${this.course.hole.par}`, '#fde047', 3)
+    this.banner = { text: `${this.course.hole.name} · Par ${this.course.hole.par}`, color: '#fde047', t: 3 }
+    if (opts.net) this.listen(opts.net)
   }
 
   /* ---------- World ---------- */
@@ -280,7 +369,7 @@ export class Game {
       mesh.add(glow)
       mesh.position.set(p.x, p.y + 0.8, p.z)
       s.add(mesh)
-      this.cases.push({ pos: p.clone(), ready: true, timer: 0, mesh })
+      this.cases.push({ id: this.cases.length, pos: p.clone(), ready: true, timer: 0, mesh })
     }
 
     // Checkpoints: floating rings, red until you pass them.
@@ -344,10 +433,16 @@ export class Game {
 
   private spawnGolfers() {
     const skill = CONFIG.ai_skill[this.opts.difficulty] ?? 0.55
-    const count = 1 + Math.max(1, Math.min(3, this.opts.bots))
-    for (let i = 0; i < count; i++) {
-      const p = PLAYERS[i]
-      const human = i === 0
+    // Solo: you plus 1–3 bots. Online: the lobby's slots, people first.
+    const slots: GolfSlot[] = this.opts.net?.slots ?? [
+      { kind: 'human', id: 'local', name: PLAYERS[0].name },
+      ...PLAYERS.slice(1, 1 + Math.max(1, Math.min(3, this.opts.bots))).map((p, i) => ({ kind: 'ai' as const, id: `ai-${i}`, name: p.name })),
+    ]
+    const selfId = this.opts.net ? this.opts.net.link.selfId : 'local'
+    const count = slots.length
+    slots.forEach((slot, i) => {
+      const p = PLAYERS[i % PLAYERS.length]
+      const human = slot.kind === 'human'
       const rig = makeGolfer(this.opts.assets, p.color)
       const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35, emissive: p.color, emissiveIntensity: 0.25 }))
       ballMesh.castShadow = true
@@ -355,16 +450,21 @@ export class Game {
       marker.position.y = 1.2
       ballMesh.add(marker)
       const tee = this.course.tee.clone()
-      const g = new Golfer(i, p.name, p.color, human, human ? 1 : THREE.MathUtils.clamp(skill + (Math.random() - 0.5) * 0.1, 0.2, 0.95), p.personality, rig, ballMesh, tee)
+      // Bots get a little random spread in skill (decided by the host; clients never run them).
+      const name = slot.id === selfId && this.role !== 'solo' ? `${slot.name} (you)` : slot.name
+      const g = new Golfer(i, name, p.color, human, human ? 1 : THREE.MathUtils.clamp(skill + (Math.random() - 0.5) * 0.1, 0.2, 0.95), p.personality, rig, ballMesh, tee)
+      g.remoteId = human ? slot.id : null
       // Balls in a row on the tee, golfers behind them.
       const x = (i - (count - 1) / 2) * 2
       g.ball.pos.set(x, this.ground.y(x, 0.5) + CONFIG.ball_radius, 0.5)
       g.pos.set(x, this.ground.y(x, -1.2), -1.2)
       g.yaw = 0
+      g.aim = this.camYaw
       this.scene.add(rig.root, ballMesh)
       this.golfers.push(g)
-      if (human) this.me = g
-    }
+      if (slot.id === selfId) this.me = g
+    })
+    if (!this.me) this.me = this.golfers[0]
     for (const g of this.golfers) {
       const bubble = new THREE.Mesh(
         new THREE.SphereGeometry(CONFIG.shield_block_radius, 20, 14),
@@ -374,6 +474,14 @@ export class Game {
       bubble.visible = false
       g.rig.root.add(bubble)
       this.shieldMeshes.set(g, bubble)
+      const ice = new THREE.Mesh(
+        new THREE.BoxGeometry(1.3, 2.1, 1.3),
+        new THREE.MeshStandardMaterial({ color: '#bae6fd', transparent: true, opacity: 0.45, roughness: 0.1, metalness: 0.1, emissive: '#0ea5e9', emissiveIntensity: 0.25 }),
+      )
+      ice.position.y = 1
+      ice.visible = false
+      g.rig.root.add(ice)
+      this.iceMeshes.set(g, ice)
     }
   }
 
@@ -383,7 +491,7 @@ export class Game {
     this.last = performance.now()
     const tick = (now: number) => {
       this.raf = requestAnimationFrame(tick)
-      const dt = Math.min(0.05, (now - this.last) / 1000)
+      const dt = THREE.MathUtils.clamp((now - this.last) / 1000, 0, 0.05)
       this.last = now
       this.frame(dt)
     }
@@ -392,6 +500,7 @@ export class Game {
 
   dispose() {
     cancelAnimationFrame(this.raf)
+    for (const u of this.unsub) u()
     this.ro.disconnect()
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
@@ -491,13 +600,25 @@ export class Game {
     this.phaseTime += dt
     const pressed = this.pressed
     this.pressed = new Set()
+    const pad = this.localPad(pressed)
+    if (this.role === 'client') this.clientFrame(dt, pad)
+    else this.simFrame(dt, pad)
+    this.updateFlying(dt)
+    this.updateEffects(dt)
+    this.updateCamera(dt)
+    if (!render) return
+    this.renderer.render(this.scene, this.camera)
+    this.emitHud()
+  }
 
+  /** Solo and host: run the hole. */
+  private simFrame(dt: number, pad: Pad) {
     if (this.phase === 'intro' && this.phaseTime > 3) this.setPhase('play')
     if (this.phase === 'play' && this.phaseTime >= this.holeTime) {
       if (this.golfers.some((g) => !g.finished)) {
         this.setPhase('overtime')
-        this.say('OVERTIME', '#f87171', 2)
-        this.beep(220, 0.4)
+        this.fx({ k: 'say', s: 'OVERTIME', c: '#f87171', t: 2 })
+        this.fx({ k: 'beep', f: 220, d: 0.4, w: 'sine', g: 0.08 })
       } else this.endHole()
     }
     if (this.phase === 'overtime' && this.phaseTime >= CONFIG.overtime) {
@@ -507,19 +628,21 @@ export class Game {
     if ((this.phase === 'play' || this.phase === 'overtime') && this.golfers.every((g) => g.finished)) this.endHole()
 
     const playing = this.phase === 'play' || this.phase === 'overtime'
-    // Human input.
-    let move: MoveInput | null = null
-    if (playing && !this.opts.autopilot) move = this.humanInput(pressed)
-    // Wheel adjusts loft.
-    if (this.wheel !== 0) {
-      this.me.loft = THREE.MathUtils.clamp(this.me.loft - this.wheel * deg(4), deg(CONFIG.loft_min), deg(CONFIG.loft_max))
-      this.wheel = 0
-    }
-
     for (const g of this.golfers) {
-      const m = g === this.me && !this.opts.autopilot ? move : playing ? aiThink(this, g, dt) : null
+      let m: MoveInput | null = null
+      if (playing) {
+        if (g === this.me && this.opts.autopilot) m = aiThink(this, g, dt)
+        else if (g.human) m = this.applyPad(g, g === this.me ? pad : this.padFor(g))
+        else m = aiThink(this, g, dt)
+      }
       g.update(dt, m, this.ground, this.course, this.golfers)
       if (g.charging > 0) g.charging += dt
+      // A remote player moves their own golfer; trust it while nothing here is pushing them around.
+      const rp = g !== this.me && g.remoteId ? this.remotePads.get(g.remoteId)?.pos : undefined
+      if (rp && !this.forced(g) && Math.hypot(rp[0] - g.pos.x, rp[2] - g.pos.z) < 6) {
+        g.pos.set(rp[0], rp[1], rp[2])
+        g.yaw = rp[3]
+      }
       this.afterMove(g, dt)
     }
     // Balls.
@@ -527,7 +650,7 @@ export class Game {
       const ev = stepBall(g.ball, dt, this.ground, this.course)
       if (ev.holed) this.holed(g)
       if (ev.water) {
-        this.splash(g.ball.pos)
+        this.fx({ k: 'splash', p: v3(g.ball.pos) })
         this.startRespawn(g)
       }
       if (ev.bounced && this.near(g.ball.pos, 60)) this.beep(140, 0.05, 'triangle', 0.05)
@@ -548,12 +671,19 @@ export class Game {
       g.ballMesh.visible = g.ball.mode !== 'holed'
     }
     this.updateRockets(dt)
+    this.updateMines(dt)
+    this.updateLobs(dt)
     this.updateCases(dt)
-    this.updateEffects(dt)
-    this.updateCamera(dt)
-    if (!render) return
-    this.renderer.render(this.scene, this.camera)
-    this.emitHud()
+    for (const r of this.remotePads.values()) r.acts = []
+    // Host: stream the state at 20 Hz with the effects since the last snapshot.
+    if (this.role === 'host' && this.opts.net) {
+      this.snapT -= dt
+      if (this.snapT <= 0) {
+        this.snapT = 1 / CONFIG.net_snapshot_hz
+        this.opts.net.link.send({ t: 'g-snap', s: this.buildSnap(), e: this.outEvents })
+        this.outEvents = []
+      }
+    }
   }
 
   private setPhase(p: Phase) {
@@ -561,39 +691,59 @@ export class Game {
     this.phaseTime = 0
   }
 
-  private humanInput(pressed: Set<string>): MoveInput | null {
-    const g = this.me
+  /** This browser's controls as a pad: held movement and aim, plus the one-shot actions since last frame. */
+  private localPad(pressed: Set<string>): Pad {
     const k = this.keys
-    // Item slots, drop, use.
-    if (pressed.has('Digit1')) g.active = 0
-    if (pressed.has('Digit2')) g.active = 1
-    if (pressed.has('Digit3')) g.active = 2
-    if (pressed.has('KeyQ')) g.active = (g.active + 1) % 3
-    if (pressed.has('KeyF')) this.drop(g)
-    if (this.rightPressed) {
-      this.rightPressed = false
-      if (g.canAct && g.charging <= 0) this.useItem(g)
-    }
-    // Swing: hold to charge at your ball, release to hit; anywhere else it's a club attack.
-    if (this.mousePressed) {
-      this.mousePressed = false
-      if (g.canAct && g.cooldown <= 0) {
-        if (this.canSwing(g)) this.startCharge(g, this.camYaw)
-        else this.melee(g)
-      }
-    }
-    if (g.charging > 0) this.faceShot(g, this.camYaw)
-    if (this.mouseReleased) {
-      this.mouseReleased = false
-      if (g.charging > 0) this.release(g, this.camYaw, g.loft)
+    const acts: string[] = []
+    if (pressed.has('Digit1')) acts.push('s1')
+    if (pressed.has('Digit2')) acts.push('s2')
+    if (pressed.has('Digit3')) acts.push('s3')
+    if (pressed.has('KeyQ')) acts.push('cycle')
+    if (pressed.has('KeyF')) acts.push('drop')
+    if (pressed.has('Space')) acts.push('jump')
+    if (pressed.has('ShiftLeft') || pressed.has('ShiftRight') || pressed.has('ControlLeft')) acts.push('dive')
+    if (this.rightPressed) acts.push('item')
+    if (this.mousePressed) acts.push('press')
+    if (this.mouseReleased) acts.push('release')
+    this.rightPressed = this.mousePressed = this.mouseReleased = false
+    // Wheel adjusts loft.
+    if (this.wheel !== 0) {
+      this.me.loft = THREE.MathUtils.clamp(this.me.loft - this.wheel * deg(4), deg(CONFIG.loft_min), deg(CONFIG.loft_max))
+      this.wheel = 0
     }
     const x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0)
     const y = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0)
-    return {
-      x, y, yaw: this.camYaw, jump: pressed.has('Space'),
-      dive: pressed.has('ShiftLeft') || pressed.has('ShiftRight') || pressed.has('ControlLeft'),
-      creep: k.has('KeyC') || k.has('AltLeft'),
+    return { x, y, yaw: this.camYaw, loft: this.me.loft, creep: k.has('KeyC') || k.has('AltLeft'), acts }
+  }
+
+  private padFor(g: Golfer): Pad {
+    return this.remotePads.get(g.remoteId ?? '') ?? { x: 0, y: 0, yaw: g.aim, loft: g.loft, creep: false, acts: [] }
+  }
+
+  /** A person's pad drives their golfer: slots, drop, items, swing (hold to charge at your ball, else a club attack). */
+  private applyPad(g: Golfer, pad: Pad): MoveInput {
+    g.aim = pad.yaw
+    g.loft = THREE.MathUtils.clamp(pad.loft, deg(CONFIG.loft_min), deg(CONFIG.loft_max))
+    for (const a of pad.acts) {
+      if (a === 's1') g.active = 0
+      else if (a === 's2') g.active = 1
+      else if (a === 's3') g.active = 2
+      else if (a === 'cycle') g.active = (g.active + 1) % 3
+      else if (a === 'drop') this.drop(g)
+      else if (a === 'item' && g.canAct && g.charging <= 0) this.useItem(g)
+      else if (a === 'press' && g.canAct && g.cooldown <= 0) {
+        if (this.canSwing(g)) this.startCharge(g, pad.yaw)
+        else this.melee(g)
+      }
     }
+    if (g.charging > 0) this.faceShot(g, pad.yaw)
+    if (pad.acts.includes('release') && g.charging > 0) this.release(g, pad.yaw, g.loft)
+    return { x: pad.x, y: pad.y, yaw: pad.yaw, jump: pad.acts.includes('jump'), dive: pad.acts.includes('dive'), creep: pad.creep }
+  }
+
+  /** The host is moving this golfer itself (knocked about, lining up a swing, respawning...). */
+  private forced(g: Golfer) {
+    return g.stun > 0 || g.respawn > 0 || g.charging > 0 || g.finished || g.leap > 0 || g.frozen > 0 || g.kb.lengthSq() > 1
   }
 
   /* ---------- Swing ---------- */
@@ -637,7 +787,7 @@ export class Game {
     g.ball.vel.copy(launch(dir, power, loft, putt))
     g.ball.mode = putt ? 'rolling' : 'air'
     g.strokes++
-    this.thwack(putt ? 0.4 : power)
+    this.fx({ k: 'thwack', v: putt ? 0.4 : power })
   }
 
   /** A club swing with no ball nearby is a melee attack. */
@@ -654,7 +804,7 @@ export class Game {
       if (d.normalize().dot(f) < 0.25) continue
       if (this.knock(o, g, 'Club', CONFIG.melee_stun, 3, d, false)) {
         g.boost = Math.max(g.boost, CONFIG.melee_boost)
-        this.whack()
+        this.fx({ k: 'whack' })
       }
     }
   }
@@ -664,26 +814,26 @@ export class Game {
   useItem(g: Golfer, target?: Golfer) {
     const it = g.inventory[g.active]
     if (!it || !ITEM_INFO[it].enabled) return false
-    g.take()
+    // Landmines come in a pack: the slot empties on the last one.
+    if (it === 'landmine' && (g.mineCharges = (g.mineCharges || CONFIG.landmine_charges) - 1) > 0) {
+      /* keep the item */
+    } else g.take()
+    // Where it's aimed: at the target for bots, along the camera for people.
+    const yaw = target ? Math.atan2(target.pos.x - g.pos.x, target.pos.z - g.pos.z) : this.aimYaw(g)
+    if (target) g.yaw = yaw
+    const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
     if (it === 'rocket') {
       const tgt = target ?? this.nearestRival(g, CONFIG.rocket_lock_range)
-      const f = new THREE.Vector3(Math.sin(this.aimYaw(g)), 0.15, Math.cos(this.aimYaw(g))).normalize()
-      const mesh = new THREE.Group()
-      const src = this.opts.assets?.props.rocket
-      mesh.add(src ? prop(src, 1.2, 'max') : new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.8, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#f97316' })))
-      const trail = new Trail('#ffb347', 0.4, 26, 1.6, true)
-      this.scene.add(mesh, trail.mesh)
-      this.rockets.push({ owner: g, target: tgt, pos: g.pos.clone().setY(g.pos.y + 1.4).addScaledVector(f, 1), vel: f.multiplyScalar(CONFIG.rocket_speed), life: CONFIG.rocket_lifetime, mesh, trail })
-      this.beep(320, 0.25, 'sawtooth', 0.08)
+      const f = fwd.clone().setY(0.15).normalize()
+      const r = this.makeRocket(this.entityId++, g.pos.clone().setY(g.pos.y + 1.4).addScaledVector(f, 1), f.multiplyScalar(CONFIG.rocket_speed))
+      this.rockets.push({ ...r, owner: g, target: tgt, life: CONFIG.rocket_lifetime })
+      this.fx({ k: 'beep', f: 320, d: 0.25, w: 'sawtooth', g: 0.08 })
     } else if (it === 'pistol') {
-      // Hitscan along the aim (the camera for the player, the target for bots).
+      // Hitscan along the aim.
       const from = g.pos.clone().setY(g.pos.y + 1.4)
-      let dir: THREE.Vector3
-      if (target) dir = target.pos.clone().setY(target.pos.y + 1).sub(from).normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * 0.12 * (1 - g.skill))
-      else {
-        dir = new THREE.Vector3()
-        this.camera.getWorldDirection(dir)
-      }
+      const dir = target
+        ? target.pos.clone().setY(target.pos.y + 1).sub(from).normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * 0.12 * (1 - g.skill))
+        : fwd.clone().setY(-0.03).normalize()
       g.yaw = Math.atan2(dir.x, dir.z)
       let hit: Golfer | null = null
       let best: number = CONFIG.pistol_range
@@ -693,23 +843,93 @@ export class Game {
         const along = to.dot(dir)
         if (along < 0 || along > best) continue
         const off = to.clone().addScaledVector(dir, -along).length()
-        if (off < 0.7) {
+        if (off < 0.8) {
           best = along
           hit = o
         }
       }
       const end = from.clone().addScaledVector(dir, hit ? best : CONFIG.pistol_range)
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), new THREE.LineBasicMaterial({ color: '#fde047', transparent: true }))
-      this.scene.add(line)
-      this.tracers.push({ line, t: 0.15 })
-      this.fx.burst(from.clone().addScaledVector(dir, 0.6), 10, 5, 0.2, 0.5, new THREE.Color(3, 2.6, 1))
-      this.bang()
+      this.fx({ k: 'tracer', a: v3(from), b: v3(end) })
       if (hit) this.knock(hit, g, 'Dueling Pistol', CONFIG.pistol_stun, 2, dir.clone().setY(0), true)
     } else if (it === 'shield') {
       g.shield = CONFIG.shield_duration
-      this.beep(660, 0.3, 'sine', 0.06)
+      this.fx({ k: 'beep', f: 660, d: 0.3, w: 'sine', g: 0.06 })
+    } else if (it === 'landmine') {
+      const p = g.pos.clone().addScaledVector(fwd, -1.6)
+      p.y = this.ground.y(p.x, p.z)
+      this.mines.push({ id: this.entityId++, owner: g, pos: p, arm: CONFIG.landmine_arm_time, life: CONFIG.landmine_lifetime, mesh: this.makeMine(p) })
+      this.fx({ k: 'beep', f: 420, d: 0.12, w: 'square', g: 0.05 })
+    } else if (it === 'airhorn') {
+      // A wall of sound: rivals nearby are blown back and loose balls nearby go flying.
+      this.fx({ k: 'horn', p: v3(g.pos) })
+      for (const o of this.golfers) {
+        if (o === g) continue
+        const d = o.pos.distanceTo(g.pos)
+        if (d < CONFIG.airhorn_range) this.knock(o, g, 'Air Horn', CONFIG.airhorn_stun, CONFIG.airhorn_knockback * (1 - d / CONFIG.airhorn_range), o.pos.clone().sub(g.pos), false)
+        const b = o.ball
+        const bd = b.pos.distanceTo(g.pos)
+        if ((b.mode === 'rest' || b.mode === 'rolling') && bd < CONFIG.airhorn_range) {
+          const push = b.pos.clone().sub(g.pos).setY(0).normalize().multiplyScalar(CONFIG.airhorn_ball_speed * CONFIG.airhorn_overshoot_mult * (1 - bd / CONFIG.airhorn_range))
+          b.vel.copy(push).setY(3)
+          b.mode = 'air'
+        }
+      }
+    } else if (it === 'coffee') {
+      g.boost = Math.max(g.boost, CONFIG.coffee_duration)
+      this.fx({ k: 'beep', f: 740, d: 0.2, w: 'triangle', g: 0.07 })
+    } else if (it === 'freeze') {
+      const to = g.pos.clone().addScaledVector(fwd, CONFIG.freeze_throw)
+      to.y = this.ground.y(to.x, to.z)
+      this.lobs.push({ owner: g, to, t: CONFIG.freeze_fuse })
+      this.fx({ k: 'lob', a: v3(g.pos.clone().setY(g.pos.y + 1.5)), b: v3(to), t: CONFIG.freeze_fuse })
+    } else if (it === 'springboots') {
+      // An arcing leap along the aim; you can't steer until you land.
+      const vy = CONFIG.springboots_jump_speed
+      const flight = (2 * vy) / CONFIG.jump_gravity
+      g.vy = vy
+      g.grounded = false
+      g.leap = flight
+      g.leapVel.copy(fwd).multiplyScalar(CONFIG.springboots_distance / flight)
+      g.yaw = yaw
+      this.fx({ k: 'leap', p: v3(g.pos) })
+    } else if (it === 'elephant') {
+      // A huge close-range blast in a cone; the recoil throws you back too.
+      const from = g.pos.clone().setY(g.pos.y + 1.3)
+      this.fx({ k: 'boom', p: v3(from.clone().addScaledVector(fwd, 1.2)), small: true })
+      const cone = Math.cos(deg(CONFIG.elephant_cone))
+      for (const o of this.golfers) {
+        if (o === g) continue
+        const to = o.pos.clone().sub(g.pos).setY(0)
+        const d = to.length()
+        if (d < CONFIG.elephant_range && d > 0.01 && to.normalize().dot(fwd) > cone) this.knock(o, g, 'Elephant Gun', CONFIG.elephant_stun, CONFIG.elephant_knockback, to, true)
+      }
+      g.kb.copy(fwd).multiplyScalar((-CONFIG.elephant_self_knockback / CONFIG.stun_knockback_time) * 0.75)
+      g.vy = Math.max(g.vy, 3)
     }
     return true
+  }
+
+  private makeRocket(id: number, pos: THREE.Vector3, vel: THREE.Vector3) {
+    const mesh = new THREE.Group()
+    const src = this.opts.assets?.props.rocket
+    mesh.add(src ? prop(src, 1.2, 'max') : new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.8, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#f97316' })))
+    const trail = new Trail('#ffb347', 0.4, 26, 1.6, true)
+    mesh.position.copy(pos)
+    this.scene.add(mesh, trail.mesh)
+    return { id, pos, vel, mesh, trail }
+  }
+
+  private makeMine(p: THREE.Vector3) {
+    const g = new THREE.Group()
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 0.14, 12), new THREE.MeshStandardMaterial({ color: '#3f3f46', roughness: 0.6, metalness: 0.4 }))
+    body.position.y = 0.07
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: '#ef4444' }))
+    light.position.y = 0.17
+    light.name = 'light'
+    g.add(body, light)
+    g.position.copy(p)
+    this.scene.add(g)
+    return g
   }
 
   selectAndUse(g: Golfer, item: ItemType, target?: Golfer) {
@@ -720,20 +940,27 @@ export class Game {
   }
 
   private aimYaw(g: Golfer) {
-    return g === this.me && !this.opts.autopilot ? this.camYaw : g.yaw
+    return g.human && !(g === this.me && this.opts.autopilot) ? g.aim : g.yaw
   }
 
   private drop(g: Golfer) {
     const it = g.take()
     if (!it) return
-    const mesh = new THREE.Group()
-    const src = this.opts.assets?.props[it === 'rocket' ? 'rocket' : it === 'pistol' ? 'pistol' : 'magnet']
-    mesh.add(src ? prop(src, 0.9, 'max') : new THREE.Mesh(new THREE.OctahedronGeometry(0.4), new THREE.MeshStandardMaterial({ color: ITEM_INFO[it].color })))
+    g.mineCharges = 0
     const p = g.pos.clone().add(new THREE.Vector3(Math.sin(g.yaw), 0, Math.cos(g.yaw)).multiplyScalar(-1.5))
     p.y = this.ground.y(p.x, p.z)
+    this.cases.push({ id: this.entityId++, pos: p, ready: true, timer: 0, mesh: this.itemMesh(it, p), item: it })
+  }
+
+  /** A dropped item lying on the ground, waiting to be picked up. */
+  private itemMesh(it: ItemType, p: THREE.Vector3) {
+    const mesh = new THREE.Group()
+    const key = it === 'rocket' ? 'rocket' : it === 'pistol' ? 'pistol' : it === 'shield' ? 'magnet' : null
+    const src = key ? this.opts.assets?.props[key] : undefined
+    mesh.add(src ? prop(src, 0.9, 'max') : new THREE.Mesh(new THREE.OctahedronGeometry(0.4), new THREE.MeshStandardMaterial({ color: ITEM_INFO[it].color, emissive: ITEM_INFO[it].color, emissiveIntensity: 0.4 })))
     mesh.position.set(p.x, p.y + 0.6, p.z)
     this.scene.add(mesh)
-    this.cases.push({ pos: p, ready: true, timer: 0, mesh, item: it })
+    return mesh
   }
 
   nearestRival(g: Golfer, range: number) {
@@ -784,7 +1011,7 @@ export class Game {
     if (victim.shield > 0) {
       victim.shieldBlocks++
       this.popup(victim, `+${CONFIG.points_shield_block} BLOCK`, '#7dd3fc')
-      this.fx.burst(victim.pos.clone().setY(victim.pos.y + 1), 30, 7, 0.4, 0.6, new THREE.Color(1.2, 2.4, 3))
+      this.fx({ k: 'block', p: v3(victim.pos) })
       return false
     }
     if (victim.protect > 0) return false
@@ -808,10 +1035,10 @@ export class Game {
       by.victims.add(victim.id)
       victim.knockedBy = { by, at: this.time }
       this.popup(by, `+${CONFIG.points_knockout} KO`, '#fde047')
-      this.feed(`${by.name} knocked out ${victim.name} — ${weapon}`, by === this.me || victim === this.me)
+      this.feed(`${by.name} knocked out ${victim.name} — ${weapon}`, [by, victim])
     }
-    if (victim === this.me) this.shake = Math.max(this.shake, 0.5)
-    this.groan()
+    this.fxTo(victim, { k: 'shake', v: 0.5 })
+    this.fx({ k: 'groan' })
     return true
   }
 
@@ -824,17 +1051,17 @@ export class Game {
       if (Math.hypot(c.x - g.pos.x, c.z - g.pos.z) < CONFIG.checkpoint_radius) {
         g.passed.add(i)
         g.checkpoint = c.clone()
-        if (g === this.me) this.beep(880, 0.12, 'triangle', 0.06)
+        this.fxTo(g, { k: 'beep', f: 880, d: 0.12, w: 'triangle', g: 0.06 })
       }
     })
     // Water or off the edge.
     if (g.respawn <= 0 && !g.finished && g.inHazard(this.ground)) {
-      this.splash(g.pos)
+      this.fx({ k: 'splash', p: v3(g.pos) })
       if (g.knockedBy && this.time - g.knockedBy.at < 4) {
         const by = g.knockedBy.by
         by.waterKnocks++
         this.popup(by, `+${CONFIG.points_water_knock} SPLASH`, '#38bdf8')
-        this.feed(`${by.name} knocked ${g.name} into the water`, by === this.me || g === this.me)
+        this.feed(`${by.name} knocked ${g.name} into the water`, [by, g])
       }
       this.startRespawn(g)
     }
@@ -848,7 +1075,7 @@ export class Game {
       if (Math.hypot(c.pos.x - g.pos.x, c.pos.z - g.pos.z) > 1.6) continue
       const item = c.item ?? this.rollItem()
       if (!g.give(item)) {
-        if (g === this.me && this.phaseTime % 1 < dt) this.say('Inventory full · F to drop', '#f87171', 1)
+        if (this.phaseTime % 1 < dt) this.say('Inventory full · F to drop', '#f87171', 1, g)
         continue
       }
       if (c.item) {
@@ -860,10 +1087,8 @@ export class Game {
         c.timer = CONFIG.briefcase_respawn
         c.mesh.visible = false
       }
-      if (g === this.me) {
-        this.say(ITEM_INFO[item].name, ITEM_INFO[item].color, 1.4)
-        this.beep(988, 0.15, 'triangle', 0.08)
-      }
+      this.say(ITEM_INFO[item].name, ITEM_INFO[item].color, 1.4, g)
+      this.fxTo(g, { k: 'beep', f: 988, d: 0.15, w: 'triangle', g: 0.08 })
     }
   }
 
@@ -904,7 +1129,7 @@ export class Game {
     g.ball.mode = 'rest'
     g.strokes += CONFIG.respawn_penalty_strokes
     g.protect = Math.max(g.protect, 1.5)
-    if (g === this.me) this.say(`+${CONFIG.respawn_penalty_strokes} stroke`, '#f87171', 1.2)
+    this.say(`+${CONFIG.respawn_penalty_strokes} stroke`, '#f87171', 1.2, g)
   }
 
   private holed(g: Golfer) {
@@ -915,10 +1140,10 @@ export class Game {
     const pts = [CONFIG.points_first, CONFIG.points_second, CONFIG.points_third, CONFIG.points_fourth][g.finishPlace - 1] ?? CONFIG.points_fifth_plus
     this.popup(g, `+${pts} ${ordinal(g.finishPlace)}`, '#4ade80')
     const label = g.strokes === 1 ? 'HOLE IN ONE!' : g.finishPlace === 1 ? `${g.name.toUpperCase()} WINS THE HOLE` : `${g.name} holed out`
-    this.say(g === this.me && g.finishPlace === 1 ? 'FIRST IN THE HOLE!' : label, g.color, 2.5)
-    this.feed(`${g.name} holed out ${ordinal(g.finishPlace)} in ${g.strokes} strokes`, g === this.me)
-    this.cupDrop()
-    this.fx.burst(this.course.cup.clone().setY(this.course.cup.y + 0.6), 70, 9, 1.0, 0.9, new THREE.Color(g.color).multiplyScalar(2), 1, 1.5)
+    this.say(label, g.color, 2.5)
+    if (g.finishPlace === 1) this.say('FIRST IN THE HOLE!', g.color, 2.5, g)
+    this.feed(`${g.name} holed out ${ordinal(g.finishPlace)} in ${g.strokes} strokes`, [g])
+    this.fx({ k: 'cup', c: g.color })
   }
 
   private endHole() {
@@ -927,6 +1152,12 @@ export class Game {
     const res = this.results()
     if (!this.resultSent) {
       this.resultSent = true
+      // Flush the last effects, then everyone gets the same table.
+      if (this.role === 'host' && this.opts.net) {
+        this.opts.net.link.send({ t: 'g-snap', s: this.buildSnap(), e: this.outEvents })
+        this.outEvents = []
+        this.opts.net.link.send({ t: 'g-result', r: res })
+      }
       this.onResult?.(res)
     }
   }
@@ -977,7 +1208,7 @@ export class Game {
           if (axis.lengthSq() > 0) cur.applyAxisAngle(axis, Math.min(angle, turn))
         }
         r.vel.copy(cur.multiplyScalar(CONFIG.rocket_speed))
-        if (t === this.me && Math.floor(this.time * 6) !== Math.floor((this.time - dt) * 6)) this.beep(1200, 0.05, 'square', 0.05)
+        if (Math.floor(this.time * 6) !== Math.floor((this.time - dt) * 6)) this.fxTo(t, { k: 'beep', f: 1200, d: 0.05, w: 'square', g: 0.05 })
       }
       r.pos.addScaledVector(r.vel, dt)
       r.mesh.position.copy(r.pos)
@@ -1004,10 +1235,7 @@ export class Game {
   }
 
   private explode(at: THREE.Vector3, owner: Golfer) {
-    this.fx.burst(at, 70, 14, 0.7, 2, new THREE.Color(3, 1.6, 0.4), 1, 1)
-    for (let k = 0; k < 20; k++) this.smoke.emit(at.clone(), new THREE.Vector3((Math.random() - 0.5) * 6, 2 + Math.random() * 3, (Math.random() - 0.5) * 6), 1.8, 2.4, new THREE.Color(0.3, 0.3, 0.32), 0.7, 1.6)
-    this.boom()
-    if (this.near(at, 30)) this.shake = Math.max(this.shake, 0.6)
+    this.fx({ k: 'boom', p: v3(at) })
     for (const o of this.golfers) {
       if (o === owner) continue
       const d = o.pos.clone().setY(o.pos.y + 1).distanceTo(at)
@@ -1026,9 +1254,10 @@ export class Game {
     }
   }
 
-  private updateCases(dt: number) {
+  private updateCases(dt: number, sim = true) {
     for (const c of this.cases) {
       if (!c.ready) {
+        if (!sim) continue
         c.timer -= dt
         if (c.timer <= 0 && !c.item) {
           c.ready = true
@@ -1047,10 +1276,12 @@ export class Game {
       rig.root.position.copy(g.pos)
       rig.root.rotation.y = g.yaw
       // Ragdoll-ish stun: topple over, then get back up.
-      const down = g.stun > 0 ? Math.min(1, (g.stunTotal - g.stun) / 0.25, g.stun / 0.35) : 0
+      // Frozen golfers stand stiff in their ice block instead of toppling.
+      const down = g.stun > 0 && g.frozen <= 0 ? Math.min(1, (g.stunTotal - g.stun) / 0.25, g.stun / 0.35) : 0
       rig.body.rotation.x += (down * -1.35 - rig.body.rotation.x) * Math.min(1, dt * 14)
       rig.body.position.y = down * 0.25
       this.shieldMeshes.get(g)!.visible = g.shield > 0
+      this.iceMeshes.get(g)!.visible = g.frozen > 0
       // Blink while protected.
       rig.root.visible = g.respawn <= 0 && (g.protect <= 0 || g.stun > 0 || Math.floor(this.time * 10) % 2 === 0)
       if (rig.mixer) {
@@ -1066,6 +1297,12 @@ export class Game {
           rig.current = want
         }
         if (a.run) a.run.timeScale = g.vel.length() / CONFIG.run_speed * 1.1
+        // Frozen: the pose holds.
+        if (g.frozen > 0) {
+          rig.mixer.timeScale = 0
+          continue
+        }
+        rig.mixer.timeScale = 1
         if (a.swing) {
           // golf_drive clip: address 0–0.3 s, top of the backswing ~1.0 s, impact ~1.2 s, follow-through to ~1.6 s.
           // Charging holds the backswing (deeper with power); releasing snaps to just before impact and plays through.
@@ -1084,7 +1321,12 @@ export class Game {
         }
         rig.mixer.update(dt)
       }
-      if (g.boost > 0 && Math.random() < dt * 20) this.fx.emit(g.pos.clone().setY(g.pos.y + 0.2), new THREE.Vector3(0, 1, 0), 0.4, 0.4, new THREE.Color(2.5, 2.2, 0.6), 0.6)
+      if (g.boost > 0 && Math.random() < dt * 20) this.fx_.emit(g.pos.clone().setY(g.pos.y + 0.2), new THREE.Vector3(0, 1, 0), 0.4, 0.4, new THREE.Color(2.5, 2.2, 0.6), 0.6)
+    }
+    // Armed mines blink.
+    for (const m of this.mines) {
+      const light = m.mesh.getObjectByName('light')
+      if (light) light.visible = m.arm > 0 || Math.floor(this.time * 4 + m.id) % 2 === 0
     }
     // Checkpoint colours from the player's progress.
     this.checkpointMeshes.forEach((m, i) => {
@@ -1121,7 +1363,7 @@ export class Game {
       b.position.y += Math.sin(this.time * 0.3 + i) * dt * 0.4
       if (b.position.x > 360) b.position.x = -160
     }
-    this.fx.update(dt)
+    this.fx_.update(dt)
     this.smoke.update(dt)
     for (const f of this.feedList) f.age += dt
     this.feedList = this.feedList.filter((f) => f.age < 6)
@@ -1203,19 +1445,379 @@ export class Game {
     this.aimLine.geometry.attributes.position.needsUpdate = true
   }
 
+  /* ---------- Mines, lobs, things in flight ---------- */
+
+  private updateMines(dt: number) {
+    for (const m of this.mines) {
+      m.arm -= dt
+      m.life -= dt
+      if (m.arm > 0) continue
+      for (const o of this.golfers) {
+        if (o.respawn > 0 || o.finished) continue
+        // Your own mine can get you too, once you've had a moment to walk off it.
+        if (o === m.owner && m.arm > -CONFIG.landmine_self_grace) continue
+        if (Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) > CONFIG.landmine_trigger_radius || o.air > 1) continue
+        m.life = -1
+        this.fx({ k: 'boom', p: v3(m.pos.clone().setY(m.pos.y + 0.3)), small: true })
+        this.knock(o, o === m.owner ? null : m.owner, 'Landmine', CONFIG.landmine_stun, CONFIG.landmine_knockback, o.pos.clone().sub(m.pos), false)
+        o.vy = Math.max(o.vy, 7)
+        break
+      }
+    }
+    for (const m of this.mines) if (m.life <= 0) this.scene.remove(m.mesh)
+    this.mines = this.mines.filter((m) => m.life > 0)
+  }
+
+  private updateLobs(dt: number) {
+    for (const l of this.lobs) {
+      l.t -= dt
+      if (l.t > 0) continue
+      this.fx({ k: 'ice', p: v3(l.to) })
+      for (const o of this.golfers) {
+        if (o === l.owner || Math.hypot(o.pos.x - l.to.x, o.pos.z - l.to.z) > CONFIG.freeze_radius) continue
+        if (this.knock(o, l.owner, 'Freeze Bomb', CONFIG.freeze_duration, 0, o.pos.clone().sub(l.to), true)) {
+          o.frozen = CONFIG.freeze_duration
+          o.vel.set(0, 0, 0)
+        }
+      }
+      // Balls caught in the blast stop dead.
+      for (const o of this.golfers) {
+        const b = o.ball
+        if ((b.mode === 'rolling' || b.mode === 'air') && b.pos.distanceTo(l.to) < CONFIG.freeze_radius) {
+          b.vel.set(0, 0, 0)
+          b.pos.y = this.ground.y(b.pos.x, b.pos.z) + CONFIG.ball_radius
+          b.mode = 'rest'
+        }
+      }
+    }
+    this.lobs = this.lobs.filter((l) => l.t > 0)
+  }
+
+  /** Purely visual projectiles (the Freeze Bomb's arc), on every screen. */
+  private updateFlying(dt: number) {
+    for (const f of this.flying) {
+      f.t += dt
+      const u = Math.min(1, f.t / f.dur)
+      f.mesh.position.lerpVectors(f.a, f.b, u)
+      f.mesh.position.y += Math.sin(u * Math.PI) * 5
+      f.mesh.rotation.x += dt * 8
+      if (u >= 1) this.scene.remove(f.mesh)
+    }
+    this.flying = this.flying.filter((f) => f.t < f.dur)
+  }
+
+  /* ---------- Effects (local, and streamed by the host) ---------- */
+
+  private fx(e: FxEv) {
+    this.playFx(e)
+    if (this.role === 'host') this.outEvents.push(e)
+  }
+
+  /** An effect for one golfer only (their banner, their beep). */
+  private fxTo(g: Golfer, e: FxEv) {
+    if (g === this.me) this.playFx(e)
+    else if (this.role === 'host' && g.remoteId) this.outEvents.push({ ...e, to: g.remoteId })
+  }
+
+  private playFx(e: FxEv) {
+    const P = (p: V3) => new THREE.Vector3(p[0], p[1], p[2])
+    switch (e.k) {
+      case 'boom': {
+        const at = P(e.p)
+        const k = e.small ? 0.5 : 1
+        this.fx_.burst(at, Math.round(70 * k), 14 * k, 0.7, 2 * k, new THREE.Color(3, 1.6, 0.4), 1, 1)
+        for (let i = 0; i < 20 * k; i++) this.smoke.emit(at.clone(), new THREE.Vector3((Math.random() - 0.5) * 6 * k, 2 + Math.random() * 3, (Math.random() - 0.5) * 6 * k), 1.8 * k, 2.4, new THREE.Color(0.3, 0.3, 0.32), 0.7, 1.6)
+        this.boom()
+        if (this.near(at, 30)) this.shake = Math.max(this.shake, 0.6 * k)
+        break
+      }
+      case 'splash':
+        this.splash(P(e.p))
+        break
+      case 'tracer': {
+        const a = P(e.a), b = P(e.b)
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: '#fde047', transparent: true }))
+        this.scene.add(line)
+        this.tracers.push({ line, t: 0.15 })
+        this.fx_.burst(a.clone().lerp(b, 0.6 / Math.max(0.6, a.distanceTo(b))), 10, 5, 0.2, 0.5, new THREE.Color(3, 2.6, 1))
+        this.bang()
+        break
+      }
+      case 'thwack':
+        this.thwack(e.v)
+        break
+      case 'whack':
+        this.whack()
+        break
+      case 'groan':
+        this.groan()
+        break
+      case 'cup':
+        this.cupDrop()
+        this.fx_.burst(this.course.cup.clone().setY(this.course.cup.y + 0.6), 70, 9, 1.0, 0.9, new THREE.Color(e.c).multiplyScalar(2), 1, 1.5)
+        break
+      case 'block':
+        this.fx_.burst(P(e.p).setY(e.p[1] + 1), 30, 7, 0.4, 0.6, new THREE.Color(1.2, 2.4, 3))
+        break
+      case 'ice': {
+        const at = P(e.p)
+        this.fx_.burst(at.clone().setY(at.y + 0.5), 90, 10, 0.9, 1.2, new THREE.Color(1.4, 2.4, 3), 1, 0.6)
+        for (let i = 0; i < 16; i++) this.smoke.emit(at.clone(), new THREE.Vector3((Math.random() - 0.5) * 8, 1 + Math.random() * 2, (Math.random() - 0.5) * 8), 1.6, 1.8, new THREE.Color(0.85, 0.95, 1), 0.6, 1.4)
+        this.beep(1500, 0.3, 'sine', 0.06)
+        this.beep(900, 0.4, 'triangle', 0.05)
+        break
+      }
+      case 'horn': {
+        const at = P(e.p)
+        this.fx_.burst(at.clone().setY(at.y + 1.4), 60, 12, 0.5, 0.8, new THREE.Color(1.6, 2.6, 0.8), 0, 0.2)
+        this.beep(233, 0.7, 'sawtooth', 0.12)
+        this.beep(311, 0.7, 'sawtooth', 0.08)
+        if (this.near(at, CONFIG.airhorn_range)) this.shake = Math.max(this.shake, 0.3)
+        break
+      }
+      case 'lob': {
+        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), new THREE.MeshStandardMaterial({ color: '#bae6fd', emissive: '#38bdf8', emissiveIntensity: 0.8 }))
+        this.scene.add(mesh)
+        this.flying.push({ mesh, a: P(e.a), b: P(e.b), t: 0, dur: e.t })
+        this.beep(600, 0.15, 'triangle', 0.05)
+        break
+      }
+      case 'leap':
+        this.fx_.burst(P(e.p).setY(e.p[1] + 0.2), 40, 8, 0.5, 0.7, new THREE.Color(0.8, 2.6, 2.8), 1, 0.4)
+        this.beep(300, 0.25, 'square', 0.06)
+        window.setTimeout(() => this.beep(600, 0.2, 'square', 0.05), 80)
+        break
+      case 'say':
+        this.banner = { text: e.s, color: e.c, t: e.t }
+        break
+      case 'feed':
+        this.feedList.push({ id: this.nextId++, text: e.s, mine: e.ids.includes(this.me.id), age: 0 })
+        if (this.feedList.length > 5) this.feedList.shift()
+        break
+      case 'pop':
+        this.popups.push({ id: this.nextId++, text: e.s, color: e.c, pos: P(e.p), age: 0 })
+        break
+      case 'beep':
+        this.beep(e.f, e.d, e.w, e.g)
+        break
+      case 'shake':
+        this.shake = Math.max(this.shake, e.v)
+        break
+    }
+  }
+
+  /* ---------- Online ---------- */
+
+  private listen(net: GolfNet) {
+    const link = net.link
+    this.unsub.push(
+      link.onMessage((m, from) => {
+        if (!isGolfMsg(m)) return
+        if (this.role === 'host' && m.t === 'g-in') {
+          const pad = this.remotePads.get(from) ?? { x: 0, y: 0, yaw: 0, loft: deg(28), creep: false, acts: [] }
+          const p = m.p
+          pad.x = p[0]
+          pad.y = p[1]
+          pad.yaw = p[2]
+          pad.loft = p[3]
+          pad.creep = p[4] === 1
+          pad.pos = [p[5], p[6], p[7], p[8]]
+          pad.acts.push(...m.a)
+          this.remotePads.set(from, pad)
+        } else if (this.role === 'client' && m.t === 'g-snap') {
+          this.snap = { s: m.s as Snap, at: performance.now() }
+          for (const e of m.e as Targeted[]) if (!e.to || e.to === link.selfId) this.playFx(e)
+        } else if (this.role === 'client' && m.t === 'g-result') {
+          const r = m.r as HoleResult
+          this.phase = 'results'
+          if (!this.resultSent) {
+            this.resultSent = true
+            this.onResult?.({ ...r, rows: r.rows.map((row) => ({ ...row, me: row.id === this.me.id })) })
+          }
+        }
+      }),
+      link.onPeer((ev, id) => {
+        if (ev !== 'leave') return
+        if (this.role === 'client' && id === 'host') this.onDisconnect?.('The host left the game.')
+        if (this.role === 'host') {
+          // A bot takes over for a player who left.
+          const g = this.golfers.find((x) => x.remoteId === id)
+          if (g) {
+            g.human = false
+            g.remoteId = null
+            this.remotePads.delete(id)
+            this.feed(`${g.name} left · a bot takes over`, [])
+          }
+        }
+      }),
+    )
+  }
+
+  /** Online client: send the controls, then show the host's latest state (own golfer predicted locally). */
+  private clientFrame(dt: number, pad: Pad) {
+    const net = this.opts.net!
+    const me = this.me
+    this.pendingActs.push(...pad.acts)
+    this.inputT -= dt
+    if (this.inputT <= 0 || pad.acts.length) {
+      this.inputT = 1 / CONFIG.net_input_hz
+      net.link.send({ t: 'g-in', p: [pad.x, pad.y, pad.yaw, pad.loft, pad.creep ? 1 : 0, me.pos.x, me.pos.y, me.pos.z, me.yaw], a: this.pendingActs })
+      this.pendingActs = []
+    }
+    const S = this.snap
+    if (!S) return
+    const s = S.s
+    const age = Math.min(0.25, (performance.now() - S.at) / 1000)
+    this.phase = s.ph
+    this.phaseTime = s.pt + age
+    const playing = this.phase === 'play' || this.phase === 'overtime'
+    s.g.forEach((row, i) => {
+      const g = this.golfers[i]
+      if (!g) return
+      ;[g.stun, g.stunTotal, g.boost, g.shield, g.protect, g.respawn] = [row[6], row[7], row[8], row[9], row[10], row[11]]
+      g.charging = row[12] > 0 ? row[12] + age : 0
+      g.swing = row[13]
+      g.finished = row[14] === 1
+      g.finishPlace = row[15]
+      g.strokes = row[16]
+      g.knockouts = row[17]
+      g.active = row[18]
+      g.inventory = [row[19], row[20], row[21]].map((c) => (c >= 0 ? ITEM_CODES[c] : null))
+      if (g !== me) g.loft = row[22]
+      g.frozen = row[28]
+      g.leap = row[29]
+      g.human = row[34] === 1
+      const target = new THREE.Vector3(row[0] + row[4] * age, row[1], row[2] + row[5] * age)
+      const hostDrives = row[6] > 0 || row[11] > 0 || row[12] > 0 || row[14] === 1 || row[28] > 0 || row[29] > 0 || row[33] > 1
+      if (g === me && !hostDrives && playing && g.pos.distanceTo(target) < 8) {
+        // Your own golfer moves at once; the host trusts it while nothing is pushing you around.
+        g.update(dt, { x: pad.x, y: pad.y, yaw: pad.yaw, jump: pad.acts.includes('jump'), dive: pad.acts.includes('dive'), creep: pad.creep }, this.ground, this.course, this.golfers)
+        g.aim = pad.yaw
+      } else {
+        if (g.pos.distanceTo(target) > 8) g.pos.copy(target)
+        else g.pos.lerp(target, Math.min(1, dt * (g === me ? 16 : 12)))
+        let d = row[3] - g.yaw
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        g.yaw += d * Math.min(1, dt * 12)
+        g.vel.set(row[4], 0, row[5])
+      }
+      // Ball.
+      const b = g.ball
+      b.mode = BALL_MODES[row[26]]
+      const moving = b.mode === 'air' || b.mode === 'rolling'
+      const bt = new THREE.Vector3(row[23] + (moving ? row[30] * age : 0), row[24] + (moving ? row[31] * age : 0), row[25] + (moving ? row[32] * age : 0))
+      if (b.pos.distanceTo(bt) > 6 || !moving) b.pos.copy(bt)
+      else b.pos.lerp(bt, Math.min(1, dt * 20))
+      b.vel.set(row[30], row[31], row[32])
+      g.ballMesh.position.copy(b.pos)
+      g.ballMesh.visible = b.mode !== 'holed'
+      if (g === me) {
+        g.passed.clear()
+        this.course.checkpoints.forEach((_, k) => row[27] & (1 << k) && g.passed.add(k))
+      }
+    })
+    this.syncRockets(s.r, age)
+    this.syncCases(s.c)
+    this.syncMines(s.m)
+    this.updateCases(dt, false)
+  }
+
+  private buildSnap(): Snap {
+    const code = (it: ItemType | null) => (it ? ITEM_CODES.indexOf(it) : -1)
+    const r2 = (x: number) => Math.round(x * 100) / 100
+    return {
+      ph: this.phase,
+      pt: r2(this.phaseTime),
+      g: this.golfers.map((g) => {
+        let mask = 0
+        for (const k of g.passed) mask |= 1 << k
+        const b = g.ball
+        return [
+          r2(g.pos.x), r2(g.pos.y), r2(g.pos.z), r2(g.yaw), r2(g.vel.x + g.kb.x), r2(g.vel.z + g.kb.z),
+          r2(g.stun), r2(g.stunTotal), r2(g.boost), r2(g.shield), r2(g.protect), r2(g.respawn), r2(g.charging), r2(g.swing),
+          g.finished ? 1 : 0, g.finishPlace, g.strokes, g.knockouts, g.active, code(g.inventory[0]), code(g.inventory[1]), code(g.inventory[2]), r2(g.loft),
+          r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), BALL_MODES.indexOf(b.mode), mask, r2(g.frozen), r2(g.leap), r2(b.vel.x), r2(b.vel.y), r2(b.vel.z),
+          r2(g.kb.length()), g.human ? 1 : 0,
+        ]
+      }),
+      r: this.rockets.map((r) => [r.id, r2(r.pos.x), r2(r.pos.y), r2(r.pos.z), r2(r.vel.x), r2(r.vel.y), r2(r.vel.z), r.target ? r.target.id : -1]),
+      c: this.cases.map((c) => [c.id, c.ready ? 1 : 0, c.item ? ITEM_CODES.indexOf(c.item) : -1, r2(c.pos.x), r2(c.pos.y), r2(c.pos.z)]),
+      m: this.mines.map((m) => [m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.arm <= 0 ? 1 : 0]),
+    }
+  }
+
+  private syncRockets(rows: number[][], age: number) {
+    const seen = new Set<number>()
+    for (const row of rows) {
+      seen.add(row[0])
+      const pos = new THREE.Vector3(row[1] + row[4] * age, row[2] + row[5] * age, row[3] + row[6] * age)
+      const vel = new THREE.Vector3(row[4], row[5], row[6])
+      let r = this.rockets.find((x) => x.id === row[0])
+      if (!r) {
+        r = { ...this.makeRocket(row[0], pos.clone(), vel.clone()), owner: this.golfers[0], target: null, life: 1 }
+        this.rockets.push(r)
+      }
+      r.target = this.golfers[row[7]] ?? null
+      r.vel.copy(vel)
+      r.pos.lerp(pos, 0.5)
+      r.mesh.position.copy(r.pos)
+      r.mesh.lookAt(r.pos.clone().add(r.vel))
+      r.trail.push(r.pos)
+    }
+    for (const r of this.rockets) if (!seen.has(r.id)) this.scene.remove(r.mesh, r.trail.mesh)
+    this.rockets = this.rockets.filter((r) => seen.has(r.id))
+  }
+
+  private syncCases(rows: number[][]) {
+    const seen = new Set<number>()
+    for (const row of rows) {
+      seen.add(row[0])
+      let c = this.cases.find((x) => x.id === row[0])
+      if (!c && row[2] >= 0) {
+        const it = ITEM_CODES[row[2]]
+        const p = new THREE.Vector3(row[3], row[4], row[5])
+        c = { id: row[0], pos: p, ready: true, timer: 0, mesh: this.itemMesh(it, p), item: it }
+        this.cases.push(c)
+      }
+      if (!c) continue
+      c.ready = row[1] === 1
+      c.mesh.visible = c.ready
+    }
+    for (const c of this.cases) if (c.item && !seen.has(c.id)) this.scene.remove(c.mesh)
+    this.cases = this.cases.filter((c) => !c.item || seen.has(c.id))
+  }
+
+  private syncMines(rows: number[][]) {
+    const seen = new Set<number>()
+    for (const row of rows) {
+      seen.add(row[0])
+      let m = this.mines.find((x) => x.id === row[0])
+      if (!m) {
+        const p = new THREE.Vector3(row[1], row[2], row[3])
+        m = { id: row[0], owner: this.golfers[0], pos: p, arm: 1, life: 1, mesh: this.makeMine(p) }
+        this.mines.push(m)
+      }
+      m.arm = row[4] === 1 ? 0 : 1
+    }
+    for (const m of this.mines) if (!seen.has(m.id)) this.scene.remove(m.mesh)
+    this.mines = this.mines.filter((m) => seen.has(m.id))
+  }
+
   /* ---------- HUD ---------- */
 
-  private feed(text: string, mine: boolean) {
-    this.feedList.push({ id: this.nextId++, text, mine, age: 0 })
-    if (this.feedList.length > 5) this.feedList.shift()
+  private feed(text: string, involved: Golfer[]) {
+    this.fx({ k: 'feed', s: text, ids: involved.map((g) => g.id) })
   }
 
   private popup(g: Golfer, text: string, color: string) {
-    this.popups.push({ id: this.nextId++, text, color, pos: g.pos.clone().setY(g.pos.y + 2.3), age: 0 })
+    this.fx({ k: 'pop', s: text, c: color, p: v3(g.pos.clone().setY(g.pos.y + 2.3)) })
   }
 
-  private say(text: string, color: string, t: number) {
-    this.banner = { text, color, t }
+  /** A banner for everyone, or just for golfer `g`. */
+  private say(text: string, color: string, t: number, g?: Golfer) {
+    const e: FxEv = { k: 'say', s: text, c: color, t }
+    if (g) this.fxTo(g, e)
+    else this.fx(e)
   }
 
   private near(p: THREE.Vector3, r: number) {
@@ -1348,7 +1950,7 @@ export class Game {
   }
 
   private splash(at: THREE.Vector3) {
-    this.fx.burst(at.clone().setY(0.3), 40, 6, 0.8, 0.8, new THREE.Color(1.6, 2.2, 2.6), 0.9, 2)
+    this.fx_.burst(at.clone().setY(0.3), 40, 6, 0.8, 0.8, new THREE.Color(1.6, 2.2, 2.6), 0.9, 2)
     if (this.near(at, 60)) this.noise(0.4, 0.3, 1200)
   }
 

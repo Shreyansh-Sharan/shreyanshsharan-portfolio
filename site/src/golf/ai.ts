@@ -4,7 +4,7 @@
 import * as THREE from 'three'
 import { CONFIG, deg } from './config'
 import { launch, simulateShot } from './ball'
-import type { Golfer, MoveInput } from './golfer'
+import type { Golfer, ItemType, MoveInput } from './golfer'
 import type { Game } from './game'
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
@@ -115,6 +115,27 @@ export function aiThink(game: Game, g: Golfer, dt: number): MoveInput | null {
     }
     const putting = g.ball.mode === 'rest' && game.ground.surface(g.ball.pos.x, g.ball.pos.z) === 'green'
     if (g.inventory.includes('shield') && putting && near(8).length > 0 && g.pos.distanceTo(g.ball.pos) < 4) game.selectAndUse(g, 'shield')
+    const has = (it: ItemType) => g.inventory.includes(it)
+    const toBallNow = g.ball.pos.distanceTo(g.pos)
+    // Close-range blasts on whoever is next to us.
+    const close = rivals.find((o) => o.pos.distanceTo(g.pos) < CONFIG.elephant_range * 0.8)
+    if (has('elephant') && close) game.selectAndUse(g, 'elephant', close)
+    else if (has('airhorn') && near(CONFIG.airhorn_range * 0.6).length > 0) game.selectAndUse(g, 'airhorn')
+    else if (has('freeze')) {
+      // Lob it onto someone lining up a shot, or anyone at about throwing distance.
+      const t = rivals.find((o) => Math.abs(o.pos.distanceTo(g.pos) - CONFIG.freeze_throw) < CONFIG.freeze_radius && (o.charging > 0 || Math.random() < 0.3))
+      if (t) game.selectAndUse(g, 'freeze', t)
+    } else if (has('landmine') && (near(14).length > 0 || Math.random() < 0.05)) game.selectAndUse(g, 'landmine')
+    // Getting around: coffee for a long walk, boots for a long safe leap towards the ball.
+    if (has('coffee') && toBallNow > 35 && g.boost <= 0) game.selectAndUse(g, 'coffee')
+    if (has('springboots') && toBallNow > CONFIG.springboots_distance + 10 && g.canAct) {
+      const yaw = Math.atan2(g.ball.pos.x - g.pos.x, g.ball.pos.z - g.pos.z)
+      const lx = g.pos.x + Math.sin(yaw) * CONFIG.springboots_distance, lz = g.pos.z + Math.cos(yaw) * CONFIG.springboots_distance
+      if (game.ground.y(lx, lz) > 0.4 && game.ground.inBounds(lx, lz)) {
+        g.yaw = yaw
+        game.selectAndUse(g, 'springboots')
+      }
+    }
   }
 
   const toBall = g.ball.pos.distanceTo(g.pos)

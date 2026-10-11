@@ -30,7 +30,7 @@ const MOVES: { id: Move; label: string }[] = [
   { id: 'flip', label: 'Backflip' },
 ]
 
-/** The visitor-facing avatar: the low-poly Higgsfield character with its move set. */
+/** The visitor-facing avatar: the low-poly character with its move set. */
 function ProfileMedia() {
   const [move, setMove] = useState<Move>('idle')
   const [nonce, setNonce] = useState(0)
@@ -67,7 +67,7 @@ function ProfileMedia() {
           </button>
         ))}
       </div>
-      <p className="muted small">Low-poly avatar: image, mesh, rig and all nine animations generated with Higgsfield from a photo and a frame of the intro clip.</p>
+      <p className="muted small">Low-poly avatar built from a photo and the intro clip, rigged with nine animations. Drag to look around.</p>
     </section>
   )
 }

@@ -44,14 +44,14 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Power-ups', detail: 'Shunt, Barge, Bolt, Mine, Shock, Nitro, Shield and Repair, each with a forward and backward mode.' },
         { title: 'Modes', detail: 'A 3-lap Race against 7 AI rivals, or a 3-track Combat Points series scored on wrecks.' },
         { title: 'Progression', detail: 'Fan Points, Fan Runs and up to 5 Lights per event, saved in your browser.' },
-        { title: 'Assets', detail: 'Eight cars, street lamps, billboards, towers, cranes and textures generated with Higgsfield.' },
+        { title: 'Assets', detail: 'Eight custom 3D cars, street lamps, billboards, towers, cranes and hand-made textures.' },
       ]
     case 'bogey-brawl':
       return [
         { title: 'Hole', detail: 'Lakeside Bend, a par-4 dogleg around a lake in the Greenmeadow biome, with bunkers, checkpoints and a 3-minute clock.' },
         { title: 'Combat', detail: 'Club rivals mid-swing, dive, and grab briefcases for a Rocket Launcher, Dueling Pistol or Electromagnet shield.' },
         { title: 'Scoring', detail: 'First to hole out scores 100, plus par bonuses and knockouts. Unfinished at the end of overtime costs 50.' },
-        { title: 'Assets', detail: 'Rigged golfer with run, idle and swing, plus carts, a clubhouse, windmills and balloons generated with Higgsfield.' },
+        { title: 'Assets', detail: 'A rigged golfer with run, idle and swing animations, plus carts, a clubhouse, windmills and balloons.' },
       ]
     case 'sports-complex':
       return [
