@@ -122,7 +122,9 @@ function RaceHud({ hud, mode, round }: { hud: Hud; mode: Mode; round: number }) 
         )}
         {hud.combat && (
           <div className="vr-combat">
-            <strong>{hud.combat.score} CP</strong>
+            <strong>
+              {hud.combat.score} {mode === 'deathmatch' ? 'PTS' : 'CP'}
+            </strong>
             <span>
               {mode === 'combat' ? `Track ${round + 1}/${CONFIG.combat_tracks} · ` : ''}
               {Math.floor(hud.combat.timeLeft / 60)}:{String(Math.floor(hud.combat.timeLeft % 60)).padStart(2, '0')} left
@@ -133,6 +135,34 @@ function RaceHud({ hud, mode, round }: { hud: Hud; mode: Mode; round: number }) 
           </div>
         )}
       </div>
+
+      {hud.board && (
+        <table className="vr-board" aria-label="Scoreboard">
+          <thead>
+            <tr>
+              <th />
+              <th>PTS</th>
+              <th title="Wrecks dealt">WR</th>
+              <th title="Damage dealt">DMG</th>
+              <th title="Times wrecked">†</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hud.board.map((r) => (
+              <tr key={r.name} className={r.me ? 'is-me' : ''}>
+                <td>
+                  <i style={{ background: r.color }} />
+                  {r.name}
+                </td>
+                <td>{r.score}</td>
+                <td>{r.wrecks}</td>
+                <td>{r.damage}</td>
+                <td>{r.wrecked}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       {mode === 'race' && (
         <div className="vr-fans">

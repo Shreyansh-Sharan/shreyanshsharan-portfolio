@@ -1,9 +1,11 @@
 // Track: a closed spline from which the road, walls, checkpoints, pickups, AI line and scenery derive.
+// An arena (the Dust Bowl) is a Track with an `arena` layout: physics, respawns and AI use that instead of the road.
 import * as THREE from 'three'
 import { CONFIG } from './config'
 import { normalizeModel, type RacerAssets } from './assets'
+import type { ArenaLayout } from './arena'
 
-export type PowerType = 'shunt' | 'barge' | 'bolt' | 'mine' | 'shock' | 'nitro' | 'shield' | 'repair'
+export type PowerType = 'shunt' | 'barge' | 'bolt' | 'mine' | 'shock' | 'nitro' | 'shield' | 'repair' | 'rail' | 'flak' | 'oil' | 'ram'
 
 export const POWER_COLORS: Record<PowerType, string> = {
   shunt: '#ff3355',
@@ -14,6 +16,10 @@ export const POWER_COLORS: Record<PowerType, string> = {
   nitro: '#3dff8a',
   shield: '#f8fafc',
   repair: '#ffd23f',
+  rail: '#4d7cff',
+  flak: '#b6ff2e',
+  oil: '#19e6c1',
+  ram: '#a8b8cc',
 }
 
 const HARBOR: [number, number][] = [
@@ -44,11 +50,16 @@ export class Track {
   readonly pickups: PickupSlot[] = []
   readonly fanRuns: number[] = []
   readonly step: number
+  /** Open arena (no road): cars are bounded by the bowl, there are no laps, checkpoints or racing line. */
+  readonly arena: ArenaLayout | null
 
-  constructor(name: string, reversed = false) {
+  constructor(name: string, reversed = false, arena: ArenaLayout | null = null) {
     this.name = name
     this.reversed = reversed
-    const pts = (reversed ? [...HARBOR].reverse() : HARBOR).map(([x, z]) => new THREE.Vector3(x, 0, z))
+    this.arena = arena
+    // An arena keeps a small circular centreline so anything that asks for `s` still gets a sane answer.
+    const ring: [number, number][] = Array.from({ length: 24 }, (_, k) => [Math.cos((k / 24) * Math.PI * 2) * 40, Math.sin((k / 24) * Math.PI * 2) * 40])
+    const pts = (arena ? ring : reversed ? [...HARBOR].reverse() : HARBOR).map(([x, z]) => new THREE.Vector3(x, 0, z))
     const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5)
     const approx = curve.getLength()
     this.n = Math.round(approx / 2)
@@ -82,6 +93,7 @@ export class Track {
       d = Math.atan2(Math.sin(d), Math.cos(d))
       this.curv[i] = Math.abs(d) / (6 * this.step) // rad per metre
     }
+    if (arena) return
 
     for (let s = 150; s < this.length - 20; s += 150) this.checkpoints.push(this.index(s))
 

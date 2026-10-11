@@ -1,4 +1,4 @@
-// VOLT RIOT engine: scene, race flow, input, scoring (Fan Points and Combat Points), camera, HUD feed and netcode.
+// VOLT RIOT engine: scene, race flow, input, scoring (Fan Points, Combat Points and Deathmatch), camera, HUD feed and netcode.
 // Roles: 'solo' simulates everything; 'host' simulates and streams snapshots; 'client' predicts its own car,
 // interpolates the rest from snapshots and sends inputs to the host.
 import * as THREE from 'three'
@@ -8,19 +8,22 @@ import { CONFIG, kmh, toKmh } from './config'
 import { CARS, DRIVERS, radialTexture, type CarModel } from './cars'
 import { Car } from './car'
 import { Track, buildTrackScene, mulberry32, POWER_COLORS, type PowerType } from './track'
+import { arenaEnvironment, buildArenaScene, dustBowl, freeSpawn } from './arena'
 import type { RacerAssets } from './assets'
 import { Particles, Trail, glyphTexture, fanRunTexture } from './fx'
 import { RacerAudio } from './audio'
 import { aiDrive } from './ai'
+import { POWER_NAMES } from './save'
 import {
-  PROJECTILE_KINDS, animateDome, bargeRing, domeVisual, fire, fireBolt, incomingShunt, lockTarget, projectileVisual,
-  removeProjectileVisual, updateRings, updateWeapons, type Dome, type Projectile, type Ring,
+  PROJECTILE_KINDS, animateDome, animateProjectile, bargeRing, domeVisual, fire, fireBolt, incomingShunt, lockTarget, projectileVisual,
+  railBeam, removeProjectileVisual, updateBeams, updateRings, updateWeapons, type Beam, type Dome, type Projectile, type Ring,
 } from './weapons'
-import type { Link, MatchSetup, Msg, Slot } from './net'
+import type { Link, MapId, MatchSetup, Msg, Slot } from './net'
 
 export type Mode = 'race' | 'combat' | 'deathmatch'
 export type Phase = 'intro' | 'countdown' | 'race' | 'finished'
-export type Weapon = PowerType | 'wall' | 'ram'
+/** What did the damage: a power-up, a wall, or a car-to-car crash. */
+export type Weapon = PowerType | 'wall' | 'crash'
 type Role = 'solo' | 'host' | 'client'
 const PHASES: Phase[] = ['intro', 'countdown', 'race', 'finished']
 const STUNS = ['none', 'spin', 'flip'] as const
@@ -34,6 +37,7 @@ export interface GameOptions {
   assets?: RacerAssets
   laps?: number
   minutes?: number // Deathmatch time limit
+  map?: MapId // Deathmatch map (the Dust Bowl, or the circuit by default)
   bots?: number // AI rivals in a solo race
   net?: { link: Link; setup: MatchSetup }
 }
@@ -114,6 +118,7 @@ export interface Hud {
   killFeed: { id: number; text: string; mine: boolean }[]
   chain: { mult: number; time: number } | null
   combat: { score: number; timeLeft: number; leader: string; leaderScore: number } | null
+  board: { name: string; score: number; wrecks: number; damage: number; wrecked: number; color: string; me: boolean }[] | null // Deathmatch
   banner: { text: string; color: string } | null
   hitFlash: string | null
   hitFlashAmt: number
@@ -129,6 +134,8 @@ export interface ResultRow {
   time: number | null
   combat: number
   wrecks: number
+  damage: number // health segments dealt to rivals
+  wrecked: number // times wrecked
   isPlayer: boolean
   human: boolean
   color: string
@@ -156,9 +163,11 @@ const KEYMAP: Record<string, string> = {
   KeyX: 'discard', KeyC: 'look', Escape: 'pause', KeyP: 'pause', KeyR: 'reset', KeyM: 'music', Enter: 'skip',
 }
 
-const RACE_WEIGHTS: Partial<Record<PowerType, number>> = { shunt: 18, nitro: 18, mine: 16, bolt: 14, barge: 12, shield: 9, shock: 6, repair: 6 }
+const RACE_WEIGHTS: Partial<Record<PowerType, number>> = {
+  shunt: 18, nitro: 18, mine: 16, bolt: 14, barge: 12, shield: 9, shock: 6, repair: 6, flak: 9, oil: 10, rail: 7, ram: 8,
+}
 const SUPPORT_WEIGHTS: Partial<Record<PowerType, number>> = { repair: 1, shield: 1 }
-const POWER_TYPES: PowerType[] = ['shunt', 'barge', 'bolt', 'mine', 'shock', 'nitro', 'shield', 'repair']
+const POWER_TYPES: PowerType[] = ['shunt', 'barge', 'bolt', 'mine', 'shock', 'nitro', 'shield', 'repair', 'rail', 'flak', 'oil', 'ram']
 
 function pick(weights: Partial<Record<PowerType, number>>, rnd: () => number) {
   const entries = Object.entries(weights) as [PowerType, number][]
@@ -193,6 +202,10 @@ export class Game {
   projectiles: Projectile[] = []
   domes: Dome[] = []
   rings: Ring[] = []
+  beams: Beam[] = []
+  readonly dust: Particles | null // Dust Bowl wheel dust and haze
+  /** Power-ups picked up and fired this match, by type (debug and tests). */
+  readonly usage = { picked: {} as Record<string, number>, fired: {} as Record<string, number> }
   phase: Phase = 'intro'
   laps: number
   readonly timeLimit: number
@@ -270,6 +283,7 @@ export class Game {
     this.laps = opts.mode === 'deathmatch' ? Infinity : opts.mode === 'combat' ? CONFIG.combat_laps : (opts.laps ?? CONFIG.race_laps)
     this.timeLimit =
       opts.mode === 'deathmatch' ? (opts.minutes ?? CONFIG.deathmatch_minutes) * 60 : opts.mode === 'combat' ? CONFIG.combat_track_time_limit : Infinity
+    const arena = opts.mode === 'deathmatch' && opts.map === 'bowl' ? dustBowl() : null
 
     // Renderer and post-processing: bloom does the neon, tone mapping happens at the end of the chain.
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, depth: true })
@@ -282,29 +296,43 @@ export class Game {
     this.composer.addPass(
       new EffectPass(
         this.camera,
-        new BloomEffect({ luminanceThreshold: 0.75, luminanceSmoothing: 0.2, intensity: 1.35, mipmapBlur: true, radius: 0.7 }),
+        // The sunlit bowl is bright everywhere: only the neon and fire should bloom.
+        new BloomEffect({ luminanceThreshold: arena ? 0.95 : 0.75, luminanceSmoothing: 0.2, intensity: arena ? 1.0 : 1.35, mipmapBlur: true, radius: 0.7 }),
         new VignetteEffect({ darkness: 0.5, offset: 0.3 }),
         new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }),
       ),
     )
 
-    // Night sky, fog, moonlight and a dim reflection environment for the paint.
-    this.scene.background = new THREE.Color('#0b0820')
-    this.scene.fog = new THREE.Fog('#0b0820', 140, 1100)
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.35
     pmrem.dispose()
-    this.scene.add(new THREE.HemisphereLight('#6b7bff', '#1a0b2a', 0.75))
-    const moon = new THREE.DirectionalLight('#c7d2ff', 1.1)
-    moon.position.set(-300, 400, 200)
-    this.scene.add(moon)
-    this.scene.add(skyDome())
+    if (arena) {
+      // Late-afternoon desert: warm sun, haze, a bright reflection environment.
+      this.scene.environmentIntensity = 0.7
+      arenaEnvironment(this.scene)
+    } else {
+      // Night sky, fog, moonlight and a dim reflection environment for the paint.
+      this.scene.background = new THREE.Color('#0b0820')
+      this.scene.fog = new THREE.Fog('#0b0820', 140, 1100)
+      this.scene.environmentIntensity = 0.35
+      this.scene.add(new THREE.HemisphereLight('#6b7bff', '#1a0b2a', 0.75))
+      const moon = new THREE.DirectionalLight('#c7d2ff', 1.1)
+      moon.position.set(-300, 400, 200)
+      this.scene.add(moon)
+      this.scene.add(skyDome())
+    }
 
     const round = opts.round
-    this.track = new Track(opts.mode === 'combat' ? TRACK_NAMES[round % 3] : 'Harbor Loop', opts.mode === 'combat' && round % 3 === 1)
-    buildTrackScene(this.track, this.scene, opts.assets)
+    if (arena) {
+      this.track = new Track('Dust Bowl', false, arena)
+      buildArenaScene(arena, this.scene, opts.assets)
+    } else {
+      this.track = new Track(opts.mode === 'combat' ? TRACK_NAMES[round % 3] : 'Harbor Loop', opts.mode === 'combat' && round % 3 === 1)
+      buildTrackScene(this.track, this.scene, opts.assets)
+    }
+    this.dust = arena ? new Particles(1600, false) : null
     this.scene.add(this.fx.points, this.smoke.points)
+    if (this.dust) this.scene.add(this.dust.points)
 
     this.spawnCars()
     this.spawnPickups()
@@ -362,13 +390,21 @@ export class Game {
       car.human = slot.kind === 'human'
       car.ai.laneOffset = (rnd() - 0.5) * 6
       if (isLocal) this.player = car
-      const row = Math.floor(i / 2)
-      const s = this.track.length - 8 - row * 10
-      car.placeAt(this.track, s, i % 2 === 0 ? -3.6 : 3.6)
-      car.s = s
-      car.cpPassed = this.track.checkpoints.length
-      car.progress = s
-      car.safeS = s
+      const arena = this.track.arena
+      if (arena) {
+        // Arena: spread round the ring, facing the middle.
+        const sp = arena.spawns[i % arena.spawns.length]
+        car.placeXZ(sp.x, sp.z, sp.yaw)
+        car.arena = arena
+      } else {
+        const row = Math.floor(i / 2)
+        const s = this.track.length - 8 - row * 10
+        car.placeAt(this.track, s, i % 2 === 0 ? -3.6 : 3.6)
+        car.s = s
+        car.cpPassed = this.track.checkpoints.length
+        car.progress = s
+        car.safeS = s
+      }
       car.net.pos.copy(car.pos)
       car.net.yaw = car.yaw
       this.scene.add(car.mesh.root)
@@ -385,13 +421,29 @@ export class Game {
     if (this.armed) {
       // Weapons only: no Nitro or Repair, Shield rare; the last Combat Points track doubles Shock and Mine.
       const finale = this.mode === 'combat' && this.opts.round >= CONFIG.combat_tracks - 1 ? CONFIG.finale_hazard_mult : 1
-      weights = { shunt: 18, mine: 16 * finale, bolt: 14, barge: 12, shock: 6 * finale, shield: 9 * CONFIG.shield_rare_weight }
+      weights = {
+        shunt: 18, mine: 16 * finale, bolt: 14, barge: 12, shock: 6 * finale, shield: 9 * CONFIG.shield_rare_weight, flak: 12, oil: 10 * finale, rail: 10, ram: 8,
+      }
     }
     const rowS: number[] = []
-    for (const slot of this.track.pickups) {
-      const type = slot.kind === 'support' && this.mode === 'race' ? pick(SUPPORT_WEIGHTS, rnd) : pick(weights, rnd)
-      if (!rowS.includes(slot.s)) rowS.push(slot.s)
-      const pos = this.track.point(slot.s, slot.lateral)
+    // An arena's pickups are spread over the floor; a circuit's sit in rows across the road.
+    const arena = this.track.arena
+    const slots = arena
+      ? arena.pickups.map((p, i) => ({ s: i * 7, lateral: 0, kind: 'any' as const, pos: new THREE.Vector3(p.x, 0, p.z) }))
+      : this.track.pickups.map((p) => ({ ...p, pos: this.track.point(p.s, p.lateral) }))
+    // The arena has few pickups and they never move, so deal them from a deck holding every type at least once.
+    const deck = arena ? (Object.keys(weights) as PowerType[]) : []
+    if (arena) {
+      while (deck.length < slots.length) deck.push(pick(weights, rnd))
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(rnd() * (i + 1))
+        ;[deck[i], deck[j]] = [deck[j], deck[i]]
+      }
+    }
+    for (const [i, slot] of slots.entries()) {
+      const type = arena ? deck[i] : slot.kind === 'support' && this.mode === 'race' ? pick(SUPPORT_WEIGHTS, rnd) : pick(weights, rnd)
+      if (!arena && !rowS.includes(slot.s)) rowS.push(slot.s)
+      const pos = slot.pos
       const group = new THREE.Group()
       const glyph = new THREE.Sprite(new THREE.SpriteMaterial({ map: glyphTexture(type), color: new THREE.Color(1.6, 1.6, 1.6), depthWrite: false, toneMapped: false }))
       glyph.scale.setScalar(2.1)
@@ -409,7 +461,7 @@ export class Game {
       group.add(glyph, orb, pool)
       group.position.copy(pos)
       this.scene.add(group)
-      this.pickups.push({ s: slot.s, lateral: slot.lateral, row: rowS.indexOf(slot.s), type, available: true, timer: 0, pos, group })
+      this.pickups.push({ s: slot.s, lateral: slot.lateral, row: Math.max(0, rowS.indexOf(slot.s)), type, available: true, timer: 0, pos, group })
     }
     this.rows = rowS
   }
@@ -442,7 +494,9 @@ export class Game {
       this.mode === 'combat'
         ? `DJ STATIC: Combat Points, round ${this.opts.round + 1} of ${CONFIG.combat_tracks} on ${this.track.name}. Wrecks pay. Position barely does.`
         : this.mode === 'deathmatch'
-          ? `DJ STATIC: Deathmatch on ${this.track.name}. ${Math.round(this.timeLimit / 60)} minutes, ${this.cars.length} cars, weapons only. Wreck everything.`
+          ? this.track.arena
+            ? `DJ STATIC: Deathmatch in the ${this.track.name}. ${Math.round(this.timeLimit / 60)} minutes, ${this.cars.length} cars, one big sandpit. Wrecks pay, and so does every hit.`
+            : `DJ STATIC: Deathmatch on ${this.track.name}. ${Math.round(this.timeLimit / 60)} minutes, ${this.cars.length} cars, weapons only. Wrecks pay, and so does every hit.`
           : `DJ STATIC: Lights up on ${this.track.name}. ${this.laps} laps, ${this.cars.length} cars, one podium.`,
       ...(this.online ? [`${humans} drivers online, ${this.cars.length - humans} AI rivals.`] : []),
       ...picks.map((c) => `${c.driver!.name.toUpperCase()} · ${c.model.name}: ${c.driver!.intro}`),
@@ -452,6 +506,11 @@ export class Game {
   }
 
   private prepareMinimap() {
+    const a = this.track.arena
+    if (a) {
+      this.mapBounds = { minX: 0, minZ: 0, scale: 1 / (a.radius * 2 + 10) }
+      return
+    }
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
     for (let i = 0; i < this.track.n; i++) {
       minX = Math.min(minX, this.track.px[i])
@@ -516,8 +575,9 @@ export class Game {
         r2(c.pos.x), r2(c.pos.z), r2(c.yaw), r2(c.vel.x), r2(c.vel.z), r2(c.yawRate), r2(c.health), r2(c.shield), r2(c.invuln),
         r2(c.wrecked), r2(c.stun), STUNS.indexOf(c.stunKind), r2(c.stunTotal), r2(c.nitro), r2(c.boost), c.lap, c.place,
         c.finished ? 1 : 0, c.drifting ? 1 : 0, c.combat, c.fans, r2(c.flash), c.flashColor.getHex(), r2(c.s), c.cpPassed,
-        r2(c.airBrake), c.active, c.bay.map((b) => (b ? `${POWER_TYPES.indexOf(b.type)}${b.count}` : '')).join(','),
+        r2(c.airBrake), c.active, c.bay.map((b) => (b ? `${POWER_TYPES.indexOf(b.type)}x${b.count}` : '')).join(','),
         c.hits, c.wrecksDealt, c.human ? 1 : 0, r2(c.steerKick), r2(c.bog), r2(c.finishTime), c.chainMult, r2(c.lastWreckAt),
+        r2(c.damageDealt), c.wrecksTaken, r2(c.ramBoost ? c.ram : -c.ram), r2(c.railBack ? -c.railCharge : c.railCharge),
       ]),
       p: this.projectiles.map((p) => [
         p.id, PROJECTILE_KINDS.indexOf(p.kind), r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.heading), r2(p.vel.x), r2(p.vel.z),
@@ -552,7 +612,7 @@ export class Game {
       const bay = a[27] as string
       const [x, z, yaw, vx, vz, yawRate, health, shield, invuln, wrecked, stun, stunKind, stunTotal, nitro, boost, lap, place,
         finished, drifting, combat, fans, flash, flashColor, sAlong, cp, airBrake, active] = n
-      const [hits, wrecks, human, steerKick, bog, finishTime, chainMult, lastWreckAt] = n.slice(28)
+      const [hits, wrecks, human, steerKick, bog, finishTime, chainMult, lastWreckAt, dealt, wrecked2, ram, rail] = n.slice(28)
       const wasWrecked = c.wrecked > 0
       const parsed = parseBay(bay)
       if (c === this.player) {
@@ -600,6 +660,12 @@ export class Game {
       c.finishTime = finishTime
       c.chainMult = chainMult
       c.lastWreckAt = lastWreckAt - s.t + this.time
+      c.damageDealt = dealt ?? 0
+      c.wrecksTaken = wrecked2 ?? 0
+      c.ram = Math.abs(ram ?? 0)
+      c.ramBoost = (ram ?? 0) > 0
+      c.railCharge = Math.abs(rail ?? 0)
+      c.railBack = (rail ?? 0) < 0
       c.progress = c.lap * this.track.length + c.s
       if (!wasWrecked && wrecked > 0) c.wreckVy = 9
     })
@@ -614,7 +680,7 @@ export class Game {
         const { mesh, trail } = projectileVisual(this, k, !!lob)
         p = {
           id, kind: k, owner: this.cars[owner] ?? this.cars[0], pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(), heading,
-          target: null, life: 99, hp: 1, weakened: false, hint: -1, age: 0, eventId: 0, lob: null, mesh, trail, dead: false,
+          target: null, life: 99, hp: 1, weakened: false, hint: -1, age: 0, eventId: 0, lob: null, airburst: false, hits: null, mesh, trail, dead: false,
         }
         this.netProjectiles.set(id, p)
       }
@@ -622,7 +688,7 @@ export class Game {
       p.vel.set(vx, 0, vz)
       p.heading = heading
       p.target = target >= 0 ? (this.cars[target] ?? null) : null
-      p.lob = lob ? { from: p.pos, to: p.pos, t: 0, dur: 1 } : null
+      p.lob = lob ? { from: p.pos, to: p.pos, t: 0, dur: 1, arc: 0 } : null
     }
     for (const [id, p] of this.netProjectiles) {
       if (seen.has(id)) continue
@@ -675,6 +741,9 @@ export class Game {
       case 'r':
         bargeRing(this, new THREE.Vector3(e[1], 0, e[2]))
         break
+      case 'l':
+        railBeam(this, new THREE.Vector3(e[1], e[2], e[3]), new THREE.Vector3(e[4], e[5], e[6]))
+        break
       case 'x':
         this.wreckSmoke(new THREE.Vector3(e[1], e[2], e[3]))
         break
@@ -701,6 +770,10 @@ export class Game {
     if (this.role === 'host') this.fxLog.push(['r', r2(pos.x), r2(pos.z)])
   }
 
+  recordBeam(from: THREE.Vector3, to: THREE.Vector3) {
+    if (this.role === 'host') this.fxLog.push(['l', r2(from.x), r2(from.y), r2(from.z), r2(to.x), r2(to.y), r2(to.z)])
+  }
+
   shakeFor(car: Car, a: number) {
     this.ui(car, ['shake', a])
   }
@@ -712,6 +785,7 @@ export class Game {
     else if (k === 'pickup') a.pickup(arg as PowerType)
     else if (k === 'airbrake') a.airBrake()
     else if (k === 'crackle') a.crackle()
+    else if (k === 'railshot') a.railShot()
     else if (k === 'hit') a.hit(false)
     else if (k === 'hitHeavy') a.hit(true)
     else if (k === 'shield') a.shieldBreak()
@@ -918,7 +992,7 @@ export class Game {
           if (car.alive && this.phase === 'race' && car.consume()) {
             fireBolt(this, car, backward)
             this.sfx('fire:bolt', car.pos)
-            this.onFired(car)
+            this.onFired(car, 'bolt')
             car.boltHold = { backward, t: 0, next: CONFIG.bolt_hold_delay }
           }
         } else fire(this, car, backward)
@@ -958,11 +1032,14 @@ export class Game {
       fans: this.player.fans,
       projectiles: this.projectiles.length,
       domes: this.domes.length,
+      map: this.track.arena ? 'bowl' : 'harbor',
+      usage: this.usage,
       feed: this.killFeed.map((k) => k.text),
       cars: this.cars.map((c) => ({
         name: c.name, ctl: c.controller, place: c.place, lap: c.lap, cp: c.cpPassed, s: Math.round(c.s), kmh: Math.round(toKmh(c.speed)), hp: c.health,
         bay: c.bay.map((b) => (b ? `${b.type}x${b.count}` : '-')).join(','), hits: c.hits, wrecks: c.wrecksDealt, wrecked: c.wrecksTaken,
-        combat: c.combat, finished: c.finished, lat: +c.lateral.toFixed(1), x: Math.round(c.pos.x), z: Math.round(c.pos.z),
+        damage: +c.damageDealt.toFixed(1), combat: c.combat, finished: c.finished, lat: +c.lateral.toFixed(1), x: Math.round(c.pos.x), z: Math.round(c.pos.z),
+        r: Math.round(Math.hypot(c.pos.x, c.pos.z)), ram: +c.ram.toFixed(1),
       })),
     }
   }
@@ -1097,17 +1174,17 @@ export class Game {
         let d = c.net.yaw - c.yaw
         d = Math.atan2(Math.sin(d), Math.cos(d))
         c.yaw += d * k
-        const n = this.track.nearest(c.pos.x, c.pos.z, c.hint)
-        c.hint = n.i
-        c.lateral = n.lateral
+        if (!this.track.arena) {
+          const n = this.track.nearest(c.pos.x, c.pos.z, c.hint)
+          c.hint = n.i
+          c.lateral = n.lateral
+        }
       }
     }
-    // Projectiles drift between snapshots; domes and rings animate locally.
+    // Projectiles drift between snapshots; domes, rings and beams animate locally.
     for (const pr of this.projectiles) {
-      if (!pr.lob && pr.kind !== 'mine') pr.pos.addScaledVector(pr.vel, dt)
-      pr.mesh.position.copy(pr.pos)
-      pr.mesh.rotation.y = pr.kind === 'mine' ? pr.mesh.rotation.y + dt * 3 : pr.heading
-      if (pr.trail) pr.trail.push(pr.pos)
+      if (!pr.lob && pr.kind !== 'mine' && pr.kind !== 'oil') pr.pos.addScaledVector(pr.vel, dt)
+      animateProjectile(pr, dt)
     }
     for (const d of this.domes) {
       if (d.warn > 0) d.warn -= dt
@@ -1115,6 +1192,7 @@ export class Game {
       animateDome(this, d, dt)
     }
     updateRings(this, dt)
+    updateBeams(this, dt)
     this.updateEffects(dt)
     for (const c of this.cars) c.syncMesh(dt, this.time)
     this.animateProps(dt)
@@ -1190,7 +1268,8 @@ export class Game {
         c.vel.multiplyScalar(0.8)
         this.damage(c, 1, { weapon: 'wall', effect: 'none' })
       }
-      if (c.alive && c.wallImpact > Math.max(25, before * 0.8)) this.instantReset(c)
+      // A head-on into a circuit barrier resets the car; in an arena it just bounces off.
+      if (c.alive && !this.track.arena && c.wallImpact > Math.max(25, before * 0.8)) this.instantReset(c)
     }
     // Stuck or off course: reset.
     if (c.alive && this.phase === 'race' && c.speed < 1.5 && (c.input.throttle > 0 || c.controller === 'ai')) {
@@ -1198,7 +1277,27 @@ export class Game {
       if (c.stuckTime > CONFIG.stuck_reset) this.instantReset(c)
     } else c.stuckTime = 0
 
-    // Lap and checkpoint progress.
+    // Lap and checkpoint progress (circuits only: an arena has no laps).
+    if (!this.track.arena) this.lapProgress(c)
+
+    // Drift Fan Points.
+    if (c.human && c.drifting && c.speed > 12) {
+      c.driftFanAcc += dt
+      if (c.isPlayer && this.fanRun?.kind === 'drift') this.fanRun.progress += c.speed * dt
+      while (c.driftFanAcc >= 1) {
+        c.driftFanAcc -= 1
+        this.addFans(c, CONFIG.fans_drift_per_s, 'DRIFT')
+      }
+    } else c.driftFanAcc = 0
+
+    // Wreck timer and respawn.
+    if (c.wrecked > 0) {
+      c.wrecked -= dt
+      if (c.wrecked <= 0) this.respawn(c)
+    }
+  }
+
+  private lapProgress(c: Car) {
     const L = this.track.length
     const prev = c.s
     const s = this.track.s[c.hint]
@@ -1224,22 +1323,6 @@ export class Game {
       }
     }
     c.progress = c.lap * L + s
-
-    // Drift Fan Points.
-    if (c.human && c.drifting && c.speed > 12) {
-      c.driftFanAcc += dt
-      if (c.isPlayer && this.fanRun?.kind === 'drift') this.fanRun.progress += c.speed * dt
-      while (c.driftFanAcc >= 1) {
-        c.driftFanAcc -= 1
-        this.addFans(c, CONFIG.fans_drift_per_s, 'DRIFT')
-      }
-    } else c.driftFanAcc = 0
-
-    // Wreck timer and respawn.
-    if (c.wrecked > 0) {
-      c.wrecked -= dt
-      if (c.wrecked <= 0) this.respawn(c)
-    }
   }
 
   private finishCar(c: Car) {
@@ -1282,15 +1365,24 @@ export class Game {
     }
   }
 
+  /** Arena: the spawn point furthest from every other live car. */
+  private arenaSpawn(c: Car) {
+    const sp = freeSpawn(this.track.arena!, this.cars.filter((o) => o !== c && o.alive).map((o) => o.pos))
+    c.placeXZ(sp.x, sp.z, sp.yaw)
+  }
+
   private respawn(c: Car) {
-    const L = this.track.length
-    const s = ((c.safeS % L) + L) % L
-    const lat = [0, -4.5, 4.5].find((l) => {
-      const p = this.track.point(s, l)
-      return !this.cars.some((o) => o !== c && o.alive && o.pos.distanceTo(p) < 5)
-    }) ?? 0
-    c.placeAt(this.track, s + 2, lat)
-    c.s = this.track.s[c.hint]
+    if (this.track.arena) this.arenaSpawn(c)
+    else {
+      const L = this.track.length
+      const s = ((c.safeS % L) + L) % L
+      const lat = [0, -4.5, 4.5].find((l) => {
+        const p = this.track.point(s, l)
+        return !this.cars.some((o) => o !== c && o.alive && o.pos.distanceTo(p) < 5)
+      }) ?? 0
+      c.placeAt(this.track, s + 2, lat)
+      c.s = this.track.s[c.hint]
+    }
     c.vel.copy(c.forward).multiplyScalar(kmh(60))
     c.health = CONFIG.max_health
     c.wrecked = 0
@@ -1299,6 +1391,8 @@ export class Game {
     c.stunKind = 'none'
     c.shield = 0
     c.nitro = 0
+    c.ram = 0
+    c.railCharge = 0
     c.sinceRespawn = 0
     c.bay = [null, null, null]
     c.active = 0
@@ -1307,9 +1401,12 @@ export class Game {
 
   private instantReset(c: Car) {
     if (!c.alive || this.phase === 'intro' || this.phase === 'countdown') return
-    const s = this.track.s[c.hint]
-    c.placeAt(this.track, s, THREE.MathUtils.clamp(c.lateral * 0.5, -4, 4))
-    c.s = s
+    if (this.track.arena) this.arenaSpawn(c)
+    else {
+      const s = this.track.s[c.hint]
+      c.placeAt(this.track, s, THREE.MathUtils.clamp(c.lateral * 0.5, -4, 4))
+      c.s = s
+    }
     c.vel.copy(c.forward).multiplyScalar(kmh(40))
     c.invuln = CONFIG.respawn_invuln
     c.stuckTime = 0
@@ -1342,12 +1439,16 @@ export class Game {
             B.pos.addScaledVector(n, pen / 2)
             const vrel = B.vel.clone().sub(A.vel).dot(n)
             if (vrel < 0) {
-              // Heavier-feeling cars (Stability) get pushed less.
-              const wa = 11 - A.model.stats.stability, wb = 11 - B.model.stats.stability
+              // Heavier-feeling cars (Stability) get pushed less; Ram armour makes a car far heavier.
+              const wa = (11 - A.model.stats.stability) / (A.ram > 0 ? CONFIG.ram_mass_mult : 1)
+              const wb = (11 - B.model.stats.stability) / (B.ram > 0 ? CONFIG.ram_mass_mult : 1)
               const imp = -(1 + 0.3) * vrel
               A.vel.addScaledVector(n, (-imp * wa) / (wa + wb))
               B.vel.addScaledVector(n, (imp * wb) / (wa + wb))
-              if (!hit && -vrel > kmh(CONFIG.ram_damage_threshold)) this.ram(A, B)
+              if (!hit) {
+                if ((A.ram > 0 || B.ram > 0) && -vrel > kmh(CONFIG.ram_hit_speed)) this.ramHit(A, B)
+                else if (-vrel > kmh(CONFIG.ram_damage_threshold)) this.crash(A, B)
+              }
               hit = true
             }
           }
@@ -1372,19 +1473,37 @@ export class Game {
     }
   }
 
-  private ram(A: Car, B: Car) {
-    const key = `${Math.min(A.id, B.id)}:${Math.max(A.id, B.id)}`
-    if ((this.ramCooldown.get(key) ?? -99) > this.time - 0.6) return
-    this.ramCooldown.set(key, this.time)
+  private crash(A: Car, B: Car) {
+    if (!this.ramReady(A, B)) return
     A.vel.multiplyScalar(0.85)
     B.vel.multiplyScalar(0.85)
-    this.damage(A, 1, { by: B, weapon: 'ram', effect: 'none' })
-    this.damage(B, 1, { by: A, weapon: 'ram', effect: 'none' })
+    this.damage(A, 1, { by: B, weapon: 'crash', effect: 'none' })
+    this.damage(B, 1, { by: A, weapon: 'crash', effect: 'none' })
     for (const c of [A, B]) {
       this.ui(c, ['sfx', 'hit'])
       this.shakeFor(c, 0.3)
     }
     this.burst(A.pos.clone().lerp(B.pos, 0.5).setY(0.8), 16, 9, 0.4, 0.5, new THREE.Color(3, 2.4, 1.4))
+  }
+
+  /** One damaging contact per pair of cars every 0.6 s. */
+  private ramReady(A: Car, B: Car) {
+    const key = `${Math.min(A.id, B.id)}:${Math.max(A.id, B.id)}`
+    if ((this.ramCooldown.get(key) ?? -99) > this.time - 0.6) return false
+    this.ramCooldown.set(key, this.time)
+    return true
+  }
+
+  /** A Ram-armoured car hitting another: heavy damage and a spin for the victim, nothing for the rammer. */
+  private ramHit(A: Car, B: Car) {
+    if (!this.ramReady(A, B)) return
+    for (const [me, other] of [[A, B], [B, A]] as const) {
+      if (me.ram <= 0) continue
+      this.damage(other, CONFIG.ram_hit_damage, { by: me, weapon: 'ram', effect: 'spin', stun: CONFIG.ram_hit_stun })
+      this.shakeFor(me, 0.45)
+    }
+    this.burst(A.pos.clone().lerp(B.pos, 0.5).setY(0.8), 40, 14, 0.5, 0.9, new THREE.Color('#ff7a2f').multiplyScalar(2.4), 1, 0.5)
+    this.sfx('hitHeavy', A.pos)
   }
 
   private updatePickups(dt: number) {
@@ -1406,6 +1525,7 @@ export class Game {
         if (dx * dx + dz * dz > r2p) continue
         if (c.isPlayer) this.touchRow(p.row)
         if (c.give(p.type)) {
+          this.usage.picked[p.type] = (this.usage.picked[p.type] ?? 0) + 1
           p.available = false
           p.timer = respawn
           p.group.visible = false
@@ -1459,7 +1579,7 @@ export class Game {
   /** Rank by lap, then checkpoint, then distance (progress covers all three). Deathmatch ranks by score. */
   private rank() {
     const sorted = [...this.cars].sort((a, b) => {
-      if (this.mode === 'deathmatch') return b.combat - a.combat || b.progress - a.progress
+      if (this.mode === 'deathmatch') return b.combat - a.combat || b.damageDealt - a.damageDealt || b.progress - a.progress
       if (a.finished && b.finished) return a.finishTime - b.finishTime
       if (a.finished !== b.finished) return a.finished ? -1 : 1
       return b.progress - a.progress
@@ -1481,7 +1601,8 @@ export class Game {
     this.shakeAmt = Math.max(this.shakeAmt, a)
   }
 
-  onFired(car: Car) {
+  onFired(car: Car, type: PowerType) {
+    this.usage.fired[type] = (this.usage.fired[type] ?? 0) + 1
     this.shakeFor(car, 0.08)
   }
 
@@ -1494,7 +1615,7 @@ export class Game {
   ) {
     if (!victim.alive || victim.invuln > 0 || this.phase !== 'race') return false
     const by = o.by && o.by !== victim ? o.by : null
-    const color = o.weapon === 'wall' ? '#ffffff' : o.weapon === 'ram' ? (by?.model.glow ?? '#ffffff') : POWER_COLORS[o.weapon]
+    const color = o.weapon === 'wall' ? '#ffffff' : o.weapon === 'crash' ? (by?.model.glow ?? '#ffffff') : POWER_COLORS[o.weapon]
     if (victim.shield > 0 && o.weapon !== 'wall') {
       // The Shield is gone the moment it absorbs one hit.
       victim.shield = 0
@@ -1503,8 +1624,12 @@ export class Game {
       this.ui(victim, ['say', 'SHIELD BLOCKED', '#e0f2fe', 0.9])
       return false
     }
+    // Ram armour halves everything but walls.
+    if (victim.ram > 0 && o.weapon !== 'wall') amount *= CONFIG.ram_armor_mult
+    const dealt = Math.min(victim.health, amount)
     victim.health = Math.max(0, victim.health - amount)
-    victim.damageTaken += amount
+    victim.damageTaken += dealt
+    if (by) by.damageDealt += dealt
     victim.flash = 1
     victim.flashColor.set(color)
     const stab = 1.15 - victim.model.stats.stability * 0.03
@@ -1529,25 +1654,31 @@ export class Game {
       default:
         break
     }
-    if (o.weapon !== 'wall' && o.weapon !== 'ram') {
+    if (o.weapon !== 'wall' && o.weapon !== 'crash') {
       this.burst(victim.pos.clone().setY(1), 24, 9, 0.5, 0.9, new THREE.Color(color).multiplyScalar(2.2))
       this.sfx(amount >= 3 ? 'hitHeavy' : 'hit', victim.pos)
     }
     this.ui(victim, ['hit', color, amount >= 3 ? 1 : 0])
     if (by && o.weapon !== 'wall') {
-      if (o.weapon !== 'ram') {
+      if (o.weapon !== 'crash') {
         by.hits++
         if (o.weapon === 'shunt') by.shuntHits++
       }
-      if (victim.health > 0 && o.weapon !== 'ram') {
-        by.combat += CONFIG.combat_hit
+      if (victim.health > 0 && o.weapon !== 'crash') {
+        if (this.mode === 'combat') by.combat += CONFIG.combat_hit
         this.addFans(by, CONFIG.fans_hit, 'HIT')
         if (victim.place === 1) this.addFans(by, CONFIG.fans_hit_leader, 'LEADER HIT')
         if (by.isPlayer && this.fanRun && (this.fanRun.kind === 'hit' || (this.fanRun.kind === 'shunt' && o.weapon === 'shunt'))) this.fanRun.progress++
       }
     }
+    if (by && this.mode === 'deathmatch') this.scoreDeathmatch(by)
     if (victim.health <= 0) this.wreck(victim, by, o.weapon, o.eventId ?? 0)
     return true
+  }
+
+  /** Deathmatch score: wrecks and damage dealt, less a little for every time you were wrecked. */
+  private scoreDeathmatch(c: Car) {
+    c.combat = Math.max(0, Math.round(c.wrecksDealt * CONFIG.dm_points_wreck + c.damageDealt * CONFIG.dm_points_per_damage + c.wrecksTaken * CONFIG.dm_points_wrecked))
   }
 
   private wreck(victim: Car, by: Car | null, weapon: Weapon, eventId: number) {
@@ -1568,31 +1699,36 @@ export class Game {
     this.sfx('boom', victim.pos)
     this.ui(victim, ['slow', 0.7])
     this.shakeFor(victim, 1)
-    const weaponName = weapon === 'wall' ? 'Wall' : weapon === 'ram' ? 'Ram' : weapon[0].toUpperCase() + weapon.slice(1)
+    const weaponName = weapon === 'wall' ? 'Wall' : weapon === 'crash' ? 'Crash' : POWER_NAMES[weapon]
+    const dm = this.mode === 'deathmatch'
     if (by) {
       by.wrecksDealt++
-      // Chain: wrecks within the window raise the multiplier.
-      by.chainMult = this.time - by.lastWreckAt <= CONFIG.combat_chain_window ? Math.min(CONFIG.combat_chain_max, by.chainMult + CONFIG.combat_chain_step) : 1
-      by.lastWreckAt = this.time
-      let pts = CONFIG.combat_wreck
-      if (leaderBefore && leaderBefore === victim) pts += CONFIG.combat_wreck_leader_bonus
-      pts *= by.chainMult
-      const key = `${by.id}:${eventId}`
-      const count = (this.multi.get(key) ?? 0) + 1
-      this.multi.set(key, count)
-      if (eventId && count >= 2 && (weapon === 'barge' || weapon === 'shock' || weapon === 'mine')) pts += CONFIG.combat_multi_wreck
-      by.combat += Math.round(pts)
-      victim.combat = Math.max(0, victim.combat + CONFIG.combat_wrecked_penalty)
+      if (dm) {
+        this.scoreDeathmatch(by)
+        this.ui(by, ['pop', `+${CONFIG.dm_points_wreck} WRECK`, '#f472b6'])
+      } else {
+        // Chain: wrecks within the window raise the multiplier.
+        by.chainMult = this.time - by.lastWreckAt <= CONFIG.combat_chain_window ? Math.min(CONFIG.combat_chain_max, by.chainMult + CONFIG.combat_chain_step) : 1
+        by.lastWreckAt = this.time
+        let pts = CONFIG.combat_wreck
+        if (leaderBefore && leaderBefore === victim) pts += CONFIG.combat_wreck_leader_bonus
+        pts *= by.chainMult
+        const key = `${by.id}:${eventId}`
+        const count = (this.multi.get(key) ?? 0) + 1
+        this.multi.set(key, count)
+        const area: Weapon[] = ['barge', 'shock', 'mine', 'rail', 'flak']
+        if (eventId && count >= 2 && area.includes(weapon)) pts += CONFIG.combat_multi_wreck
+        by.combat += Math.round(pts)
+        victim.combat = Math.max(0, victim.combat + CONFIG.combat_wrecked_penalty)
+        if (this.armed) this.ui(by, ['pop', `+${Math.round(pts)} CP${by.chainMult > 1 ? ` ×${by.chainMult}` : ''}`, '#f472b6'])
+      }
       this.addFans(by, CONFIG.fans_wreck, 'WRECK')
       if (victim.place === 1) this.addFans(by, CONFIG.fans_hit_leader, 'LEADER WRECKED')
-      if (this.armed) this.ui(by, ['pop', `+${Math.round(pts)} CP${by.chainMult > 1 ? ` ×${by.chainMult}` : ''}`, '#f472b6'])
       this.ui(by, ['slow', 0.35])
       this.feed(`${by.name} wrecked ${victim.name} — ${weaponName}`, by, victim)
-    } else {
-      // In Deathmatch your own wrecks cost points too.
-      if (this.mode === 'deathmatch') victim.combat = Math.max(0, victim.combat + CONFIG.combat_wrecked_penalty)
-      this.feed(`${victim.name} wrecked — ${weaponName}`, victim, null)
-    }
+    } else this.feed(`${victim.name} wrecked — ${weaponName}`, victim, null)
+    // In Deathmatch every wreck costs the victim, however it happened.
+    if (dm) this.scoreDeathmatch(victim)
     this.ui(victim, ['say', 'WRECKED', '#ef4444', CONFIG.respawn_delay])
   }
 
@@ -1696,6 +1832,7 @@ export class Game {
         if (Math.random() < dt * 40) this.fx.emit(c.pos.clone().addScaledVector(f, -c.model.shape.len / 2).setY(0.5), f.clone().multiplyScalar(-6), 0.25, 0.9, new THREE.Color(POWER_COLORS.nitro).multiplyScalar(2))
       } else trails.forEach((t) => t.fadeOut(0.85))
     }
+    if (this.dust) this.kickDust(dt)
     this.fx.update(dt)
     this.smoke.update(dt)
     for (const p of this.popups) p.age += dt
@@ -1710,6 +1847,30 @@ export class Game {
       this.hitFlash.t -= dt
       if (this.hitFlash.t <= 0) this.hitFlash = null
     }
+  }
+
+  /** Dust Bowl: sand thrown up behind the wheels (more when drifting) and a light haze drifting across the floor. */
+  private kickDust(dt: number) {
+    const dust = this.dust!
+    const col = new THREE.Color('#c9a06c')
+    const v = new THREE.Vector3()
+    for (const c of this.cars) {
+      if (!c.alive || c.speed < 3) continue
+      const rate = CONFIG.bowl_dust_rate * Math.min(1.3, c.speed / Math.max(1, c.baseTop)) * (c.drifting ? 2.4 : 1) * (c.stun > 0 ? 2 : 1)
+      const n = Math.floor(rate * dt) + (Math.random() < (rate * dt) % 1 ? 1 : 0)
+      const f = c.forward, r = c.right
+      for (let k = 0; k < n; k++) {
+        const side = Math.random() < 0.5 ? -0.9 : 0.9
+        const p = c.pos.clone().addScaledVector(f, -1.5).addScaledVector(r, side).setY(c.groundY + 0.3)
+        v.copy(c.vel).multiplyScalar(-0.12).add(new THREE.Vector3((Math.random() - 0.5) * 3, 1 + Math.random() * 1.6, (Math.random() - 0.5) * 3))
+        dust.emit(p, v, 1.2 + Math.random() * 0.9, 1.3 + Math.random() * 0.8, col, 0.42, 2.6, 1.3)
+      }
+    }
+    if (Math.random() < dt * 5) {
+      const a = Math.random() * Math.PI * 2, rr = Math.random() * CONFIG.bowl_floor_radius
+      dust.emit(new THREE.Vector3(Math.cos(a) * rr, 0.6, Math.sin(a) * rr), v.set(3, 0.25, 1.4), 4.5, 7, col, 0.1, 1.5, 0.05)
+    }
+    dust.update(dt)
   }
 
   private animateProps(dt: number) {
@@ -1742,17 +1903,18 @@ export class Game {
     }
     const f = p.forward
     const sf = Math.min(1.3, p.speed / Math.max(1, p.baseTop))
+    const gy = p.groundY // up the Dust Bowl's bank
     if (p.wrecked > 0) {
       // Pull back and up over the wreck.
-      wantPos = p.pos.clone().addScaledVector(f, -14).setY(11)
-      wantLook = p.pos.clone().setY(1)
+      wantPos = p.pos.clone().addScaledVector(f, -14).setY(11 + gy)
+      wantLook = p.pos.clone().setY(1 + gy)
     } else if (this.lookBack) {
-      wantPos = p.pos.clone().addScaledVector(f, 6.5).setY(2.6)
-      wantLook = p.pos.clone().addScaledVector(f, -20).setY(1)
+      wantPos = p.pos.clone().addScaledVector(f, 6.5).setY(2.6 + gy)
+      wantLook = p.pos.clone().addScaledVector(f, -20).setY(1 + gy)
     } else {
       const dist = 7.0 + sf * 1.4
-      wantPos = p.pos.clone().addScaledVector(f, -dist).setY(2.55 + sf * 0.3)
-      wantLook = p.pos.clone().addScaledVector(f, 6).setY(1.1)
+      wantPos = p.pos.clone().addScaledVector(f, -dist).setY(2.55 + sf * 0.3 + gy)
+      wantLook = p.pos.clone().addScaledVector(f, 6).setY(1.1 + gy)
     }
     const snap = this.phaseTime < 0.05 && this.phase === 'countdown'
     this.camPos.lerp(wantPos, snap ? 1 : this.lookBack ? 1 : k)
@@ -1782,23 +1944,55 @@ export class Game {
     const Y = (z: number) => H / 2 - (z - minZ) * scale * S
     g.clearRect(0, 0, W, H)
     g.lineJoin = 'round'
-    g.beginPath()
-    for (let i = 0; i <= this.track.n; i += 3) {
-      const j = i % this.track.n
-      if (i === 0) g.moveTo(X(this.track.px[j]), Y(this.track.pz[j]))
-      else g.lineTo(X(this.track.px[j]), Y(this.track.pz[j]))
+    const arena = this.track.arena
+    if (arena) {
+      // The bowl: sand floor, the rim, rock, and the pickups that are up.
+      const px = scale * S
+      g.beginPath()
+      g.arc(X(0), Y(0), arena.radius * px, 0, Math.PI * 2)
+      g.fillStyle = 'rgba(150,105,60,0.45)'
+      g.fill()
+      g.strokeStyle = 'rgba(255,138,61,0.9)'
+      g.lineWidth = 2.5
+      g.stroke()
+      g.beginPath()
+      g.arc(X(0), Y(0), arena.floor * px, 0, Math.PI * 2)
+      g.strokeStyle = 'rgba(255,220,170,0.25)'
+      g.lineWidth = 1
+      g.stroke()
+      g.fillStyle = 'rgba(70,40,22,0.95)'
+      for (const o of arena.obstacles) {
+        g.beginPath()
+        g.arc(X(o.x), Y(o.z), Math.max(2.5, o.r * px), 0, Math.PI * 2)
+        g.fill()
+      }
+      for (const p of this.pickups) {
+        if (!p.available) continue
+        g.fillStyle = POWER_COLORS[p.type]
+        g.globalAlpha = 0.7
+        g.fillRect(X(p.pos.x) - 1.5, Y(p.pos.z) - 1.5, 3, 3)
+      }
+      g.globalAlpha = 1
+    } else {
+      g.beginPath()
+      for (let i = 0; i <= this.track.n; i += 3) {
+        const j = i % this.track.n
+        if (i === 0) g.moveTo(X(this.track.px[j]), Y(this.track.pz[j]))
+        else g.lineTo(X(this.track.px[j]), Y(this.track.pz[j]))
+      }
+      g.closePath()
+      g.strokeStyle = 'rgba(15,23,42,0.85)'
+      g.lineWidth = 9
+      g.stroke()
+      g.strokeStyle = 'rgba(34,211,238,0.85)'
+      g.lineWidth = 2.5
+      g.stroke()
     }
-    g.closePath()
-    g.strokeStyle = 'rgba(15,23,42,0.85)'
-    g.lineWidth = 9
-    g.stroke()
-    g.strokeStyle = 'rgba(34,211,238,0.85)'
-    g.lineWidth = 2.5
-    g.stroke()
     for (const p of this.projectiles) {
-      if (p.kind !== 'mine') continue
-      g.fillStyle = POWER_COLORS.mine
-      g.fillRect(X(p.pos.x) - 2.5, Y(p.pos.z) - 2.5, 5, 5)
+      if (p.kind !== 'mine' && p.kind !== 'oil') continue
+      g.fillStyle = POWER_COLORS[p.kind]
+      const sz = p.kind === 'oil' ? 7 : 5
+      g.fillRect(X(p.pos.x) - sz / 2, Y(p.pos.z) - sz / 2, sz, sz)
     }
     for (const d of this.domes) {
       g.strokeStyle = POWER_COLORS.shock
@@ -1886,10 +2080,19 @@ export class Game {
       fanTarget: CONFIG.fan_target_goal,
       fanRun: this.fanRun ? { label: FAN_RUN_LABEL[this.fanRun.kind], progress: this.fanRun.progress, goal: this.fanRun.goal, time: this.fanRun.time } : null,
       killFeed: this.killFeed.map(({ id, text, mine }) => ({ id, text, mine })),
-      chain: this.armed && p.chainMult > 1 && chainLeft > 0 ? { mult: p.chainMult, time: chainLeft } : null,
+      chain: this.mode === 'combat' && p.chainMult > 1 && chainLeft > 0 ? { mult: p.chainMult, time: chainLeft } : null,
       combat: this.armed
         ? { score: p.combat, timeLeft: Math.max(0, this.timeLimit - this.raceTime), leader: leader?.name ?? '—', leaderScore: leader?.combat ?? 0 }
         : null,
+      board:
+        this.mode === 'deathmatch'
+          ? [...this.cars]
+              .sort((a, b) => a.place - b.place)
+              .map((c) => ({
+                name: c.name, score: c.combat, wrecks: c.wrecksDealt, damage: Math.round(c.damageDealt * 10) / 10, wrecked: c.wrecksTaken,
+                color: c.model.glow, me: c === p,
+              }))
+          : null,
       banner: this.banner ? { text: this.banner.text, color: this.banner.color } : null,
       hitFlash: this.hitFlash?.color ?? null,
       hitFlashAmt: this.hitFlash ? this.hitFlash.t / 0.6 : 0,
@@ -1907,7 +2110,7 @@ export class Game {
     const order = [...this.cars].sort((a, b) => (this.armed ? b.combat - a.combat || a.place - b.place : a.place - b.place))
     const rows: ResultRow[] = order.map((c, i) => ({
       name: c.name, car: c.model.name, place: i + 1, time: c.finished ? c.finishTime : null, combat: c.combat,
-      wrecks: c.wrecksDealt, isPlayer: c === me, human: c.human, color: c.model.glow,
+      wrecks: c.wrecksDealt, damage: Math.round(c.damageDealt * 10) / 10, wrecked: c.wrecksTaken, isPlayer: c === me, human: c.human, color: c.model.glow,
     }))
     const place = order.indexOf(me) + 1
     const position = this.mode !== 'race' ? 0 : place === 1 ? 3 : place === 2 ? 2 : place === 3 ? 1 : 0
@@ -1935,7 +2138,9 @@ export class Game {
       lights: { position, fanTarget, fanRuns, total: position + fanTarget + fanRuns },
       awards: [
         top((c) => c.shuntHits, (v) => `${v} hits`, 'Most Shunt Hits'),
-        top((c) => c.longestDrift, (v) => `${Math.round(v)} m`, 'Longest Drift'),
+        this.mode === 'deathmatch'
+          ? top((c) => c.damageDealt, (v) => `${Math.round(v * 10) / 10} damage dealt`, 'Most Damage')
+          : top((c) => c.longestDrift, (v) => `${Math.round(v)} m`, 'Longest Drift'),
         top((c) => c.wrecksDealt, (v) => `${v} wrecks`, 'Most Wrecks'),
         top((c) => c.damageTaken, (v) => `${v} damage taken`, 'Cleanest Driver', true),
       ],
@@ -1963,11 +2168,17 @@ type FxEvent =
   | ['b', number, number, number, number, number, number, number, number, number, number, number, number, number]
   | ['s', string, number, number]
   | ['r', number, number]
+  | ['l', number, number, number, number, number, number]
   | ['x', number, number, number]
   | ['f', string, number, number]
 
+/** Bay slots as 'typeIndex x count', comma separated ('' for an empty slot). */
 function parseBay(s: string) {
-  return s.split(',').map((x) => (x ? { type: POWER_TYPES[Number(x[0])], count: Number(x.slice(1)) } : null))
+  return s.split(',').map((x) => {
+    if (!x) return null
+    const [t, n] = x.split('x')
+    return { type: POWER_TYPES[Number(t)], count: Number(n) }
+  })
 }
 
 /* ---------- Sky ---------- */

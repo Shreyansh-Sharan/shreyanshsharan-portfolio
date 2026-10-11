@@ -2,6 +2,7 @@
 import * as THREE from 'three'
 import { CONFIG } from './config'
 import { normalizeModel } from './assets'
+import { POWER_COLORS } from './track'
 
 export type CarClass = 'D' | 'C' | 'B' | 'A'
 
@@ -142,6 +143,8 @@ export interface CarMesh {
   paint: THREE.MeshStandardMaterial[] // materials that flash on impact
   glow: THREE.Mesh
   shield: THREE.Mesh
+  ram: THREE.Group // Ram armour: a hot plough at the nose and a steel shell
+  charge: THREE.Sprite // Railgun charging at the nose (or tail)
 }
 
 let glowTex: THREE.Texture | null = null
@@ -286,5 +289,28 @@ function finishCar(
   shield.position.y = 0.9
   shield.visible = false
   root.add(shield)
-  return { root, body, wheels, brake, bodyMat, paint, glow, shield }
+  const ram = new THREE.Group()
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 18, 12),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(POWER_COLORS.ram).multiplyScalar(0.9), transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+  )
+  shell.scale.set(s.width * 0.9, 1.3, s.len * 0.62)
+  shell.position.y = 0.85
+  const plough = new THREE.Mesh(
+    new THREE.ConeGeometry(1, 1, 4, 1, true).rotateX(Math.PI / 2).rotateZ(Math.PI / 4),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff5a1f').multiplyScalar(2.6), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  )
+  plough.scale.set(s.width * 0.75, 0.75, 1.5)
+  plough.position.set(0, 0.7, s.len / 2 + 0.45)
+  ram.add(shell, plough)
+  ram.visible = false
+  root.add(ram)
+  const charge = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: radialTexture(), color: new THREE.Color(POWER_COLORS.rail).multiplyScalar(2.6), blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+  )
+  charge.position.y = 0.8
+  charge.userData.reach = s.len / 2 + 0.5
+  charge.visible = false
+  root.add(charge)
+  return { root, body, wheels, brake, bodyMat, paint, glow, shield, ram, charge }
 }
