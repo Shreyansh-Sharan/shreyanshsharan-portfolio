@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
 import { buildCarMesh, topSpeedKmh, type CarClass, type CarMesh, type CarModel, type Driver } from './cars'
 import type { PowerType, Track } from './track'
+import { bowlHeight, bowlSlope, type ArenaLayout } from './arena'
 
 export interface BaySlot {
   type: PowerType
@@ -20,6 +21,9 @@ export type StunKind = 'spin' | 'flip' | 'none'
 
 const WHEELBASE = 2.6
 const HALF_WIDTH = 1.0
+const BOWL_CAR_R = 1.6 // collision radius against the bowl's rim and obstacles
+const qTilt = new THREE.Quaternion()
+const tiltAxis = new THREE.Vector3()
 
 export class Car {
   readonly id: number
@@ -58,6 +62,10 @@ export class Car {
   steerKickDir = 1
   nitro = 0
   boost = 0
+  ram = 0 // s of Ram armour left
+  ramBoost = false // forward Ram (overdrive) rather than the backward brace
+  railCharge = 0 // s until a charging Railgun fires
+  railBack = false
   bog = 0
   airBrake = 0
   airBrakeResume = 0
@@ -87,6 +95,10 @@ export class Car {
   bay: (BaySlot | null)[] = [null, null, null]
   active = 0
 
+  // The Dust Bowl, when racing in one (visual ground height and bank tilt).
+  arena: ArenaLayout | null = null
+  groundY = 0
+
   // Track progress.
   hint = -1
   s = 0
@@ -105,13 +117,18 @@ export class Car {
   wrecksDealt = 0
   wrecksTaken = 0
   damageTaken = 0
+  damageDealt = 0 // health segments taken off rivals (Deathmatch score)
   longestDrift = 0
   combat = 0
   chainMult = 1
   lastWreckAt = -99
 
   // AI scratch.
-  ai = { laneOffset: 0, think: 0, avoid: 0, pickupLat: 0, swerve: 0, boltTimer: 0, launchPerfect: false }
+  ai = {
+    laneOffset: 0, think: 0, avoid: 0, pickupLat: 0, swerve: 0, boltTimer: 0, launchPerfect: false,
+    // Arena: where the bot is heading and its unstick manoeuvre.
+    goal: new THREE.Vector3(), goalKind: 'wander' as 'wander' | 'pickup' | 'hunt', target: null as Car | null, stuck: 0, reverse: 0, reverseSteer: 1,
+  }
 
   constructor(
     id: number,
@@ -256,6 +273,7 @@ export class Car {
     this.shield = Math.max(0, this.shield - dt)
     this.steerKick = Math.max(0, this.steerKick - dt)
     this.nitro = Math.max(0, this.nitro - dt)
+    this.ram = Math.max(0, this.ram - dt)
     this.boost = Math.max(0, this.boost - dt)
     this.bog = Math.max(0, this.bog - dt)
     this.flash = Math.max(0, this.flash - dt * 2.5)
@@ -292,8 +310,10 @@ export class Car {
     }
 
     const nitroOn = this.nitro > 0
-    const top = this.top * (nitroOn ? CONFIG.nitro_topspeed_mult : 1) * (this.boost > 0 ? 1.08 : 1)
-    const acc = this.accel * (nitroOn ? CONFIG.nitro_accel_mult : 1) * (this.boost > 0 ? 1.6 : 1) * (this.bog > 0 ? 0.35 : 1)
+    const ramOn = this.ram > 0 && this.ramBoost
+    const top = this.top * (nitroOn ? CONFIG.nitro_topspeed_mult : 1) * (this.boost > 0 ? 1.08 : 1) * (ramOn ? CONFIG.ram_topspeed_mult : 1)
+    const acc =
+      this.accel * (nitroOn ? CONFIG.nitro_accel_mult : 1) * (this.boost > 0 ? 1.6 : 1) * (this.bog > 0 ? 0.35 : 1) * (ramOn ? CONFIG.ram_accel_mult : 1)
 
     // Rotate first; the velocity keeps its world direction, so turning creates slip that grip then removes.
     const fwd0 = this.forwardSpeed
@@ -316,7 +336,7 @@ export class Car {
       if (vf < top) vf += acc * thr * Math.max(0.05, 1 - (vf / top) ** 2) * dt
       else vf -= (vf - top) * 1.2 * dt
     } else vf -= vf * 0.18 * dt
-    if (vf > top * 1.02 && !nitroOn) vf -= (vf - top) * 1.5 * dt
+    if (vf > top * 1.02 && !nitroOn && !ramOn) vf -= (vf - top) * 1.5 * dt
     if (brk > 0) {
       if (vf > 0.5) vf = Math.max(0, vf - 30 * brk * dt)
       else vf = Math.max(-12, vf - 9 * brk * dt)
@@ -360,20 +380,43 @@ export class Car {
     this.pos.addScaledVector(this.vel, dt)
     this.pos.y = 0
 
-    this.walls(track)
+    this.wallImpact = 0
+    if (track.arena) this.bowl(track.arena, dt)
+    else this.walls(track)
   }
 
-  /** Keep the car between the barriers. Returns the impact speed into the wall (0 if none). */
+  /** Keep the car between the barriers. Sets the impact speed into the wall (0 if none). */
   private walls(track: Track) {
     const n = track.nearest(this.pos.x, this.pos.z, this.hint)
     this.hint = n.i
     this.lateral = n.lateral
     const limit = track.half - HALF_WIDTH
-    this.wallImpact = 0
     if (Math.abs(n.lateral) <= limit) return
     const sign = Math.sign(n.lateral)
-    const nx = -track.tz[n.i] * sign, nz = track.tx[n.i] * sign
-    const over = Math.abs(n.lateral) - limit
+    this.bounce(-track.tz[n.i] * sign, track.tx[n.i] * sign, Math.abs(n.lateral) - limit)
+  }
+
+  /** Dust Bowl: the bank pulls cars back down to the floor; the rim wall and the obstacles stop them. */
+  private bowl(a: ArenaLayout, dt: number) {
+    this.lateral = 0
+    const r = Math.hypot(this.pos.x, this.pos.z)
+    if (r > a.floor) {
+      const pull = 9.8 * CONFIG.bowl_bank_pull * bowlSlope(a, r) * dt
+      this.vel.x -= (this.pos.x / r) * pull
+      this.vel.z -= (this.pos.z / r) * pull
+    }
+    const limit = a.radius - BOWL_CAR_R
+    if (r > limit) this.bounce(this.pos.x / r, this.pos.z / r, r - limit)
+    for (const o of a.obstacles) {
+      const dx = this.pos.x - o.x, dz = this.pos.z - o.z
+      const d = Math.hypot(dx, dz)
+      const min = o.r + BOWL_CAR_R
+      if (d < min && d > 1e-3) this.bounce(-dx / d, -dz / d, min - d)
+    }
+  }
+
+  /** Push out of a wall whose normal (into the wall) is n, losing speed into it. */
+  private bounce(nx: number, nz: number, over: number) {
     this.pos.x -= nx * over
     this.pos.z -= nz * over
     const vn = this.vel.x * nx + this.vel.z * nz
@@ -381,7 +424,7 @@ export class Car {
       this.vel.x -= nx * vn * 1.35
       this.vel.z -= nz * vn * 1.35
       this.vel.multiplyScalar(1 - Math.min(0.45, vn * 0.025))
-      this.wallImpact = vn
+      this.wallImpact = Math.max(this.wallImpact, vn)
       if (vn > 3) this.driftClean = false
     }
   }
@@ -393,7 +436,17 @@ export class Car {
   syncMesh(dt: number, time: number) {
     const m = this.mesh
     m.root.position.copy(this.pos)
-    m.root.rotation.y = this.yaw
+    m.root.rotation.set(0, this.yaw, 0)
+    if (this.arena) {
+      // Ride up the bank, tilted to its slope.
+      const r = Math.hypot(this.pos.x, this.pos.z)
+      this.groundY = bowlHeight(this.arena, r)
+      m.root.position.y += this.groundY
+      if (this.groundY > 0) {
+        tiltAxis.set(-this.pos.z / r, 0, this.pos.x / r)
+        m.root.quaternion.premultiply(qTilt.setFromAxisAngle(tiltAxis, Math.atan(bowlSlope(this.arena, r))))
+      }
+    }
     const body = m.body
     // Lean into corners, nose dip under braking.
     const lean = THREE.MathUtils.clamp(this.yawRate * this.speed * 0.004, -0.09, 0.09)
@@ -431,6 +484,14 @@ export class Car {
     m.brake.color.setRGB(1, 0.1, 0.24).multiplyScalar(this.input.brake > 0 ? 4 : 1.4)
     m.shield.visible = this.shield > 0
     if (m.shield.visible) m.shield.rotation.y = time * 2
+    m.ram.visible = this.ram > 0 && this.wrecked <= 0
+    if (m.ram.visible) m.ram.scale.setScalar(1 + Math.sin(time * 18) * 0.04)
+    m.charge.visible = this.railCharge > 0 && this.wrecked <= 0
+    if (m.charge.visible) {
+      const k = 1 - this.railCharge / CONFIG.rail_charge
+      m.charge.position.z = (this.railBack ? -1 : 1) * m.charge.userData.reach
+      m.charge.scale.setScalar(0.8 + k * 3.2 + Math.random() * 0.4)
+    }
     // Blink while invulnerable.
     m.root.visible = this.invuln > 0 && this.wrecked <= 0 ? Math.floor(time * 14) % 2 === 0 : true
     // Flash the attacker's colour on impact; char when wrecked.
@@ -447,13 +508,20 @@ export class Car {
   /** Put the car back on the racing line at `s`. */
   placeAt(track: Track, s: number, lateral: number) {
     const p = track.point(s, lateral)
-    this.pos.set(p.x, 0, p.z)
-    this.yaw = track.heading(s)
-    this.yawRate = 0
+    this.placeXZ(p.x, p.z, track.heading(s))
     this.hint = track.index(s)
     const n = track.nearest(p.x, p.z, this.hint)
     this.hint = n.i
     this.lateral = lateral
+  }
+
+  /** Put the car at a point (arena spawns). */
+  placeXZ(x: number, z: number, yaw: number) {
+    this.pos.set(x, 0, z)
+    this.yaw = yaw
+    this.yawRate = 0
+    this.hint = 0
+    this.lateral = 0
     this.mesh.body.rotation.set(0, 0, 0)
     this.mesh.body.position.set(0, 0, 0)
   }

@@ -1,15 +1,19 @@
-// The eight power-ups: firing (forward / backward), projectiles, hazards and their counters.
+// The twelve power-ups: firing (forward / backward), projectiles, hazards and their counters.
 // Only the host (or a solo game) simulates these; clients rebuild the visuals from snapshots.
+// On an arena track (the Dust Bowl) shots fly in the open and stop at the rim and the obstacles.
 import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
-import { POWER_COLORS } from './track'
+import { POWER_COLORS, type PowerType } from './track'
 import { Trail } from './fx'
 import { radialTexture } from './cars'
+import { arenaBlocked, onFloor } from './arena'
 import type { Car } from './car'
 import type { Game } from './game'
 
-export type ProjectileKind = 'shunt' | 'rshunt' | 'bolt' | 'mine'
-export const PROJECTILE_KINDS: ProjectileKind[] = ['shunt', 'rshunt', 'bolt', 'mine']
+export type ProjectileKind = 'shunt' | 'rshunt' | 'bolt' | 'mine' | 'flak' | 'oil'
+export const PROJECTILE_KINDS: ProjectileKind[] = ['shunt', 'rshunt', 'bolt', 'mine', 'flak', 'oil']
+
+const KIND_POWER: Record<ProjectileKind, PowerType> = { shunt: 'shunt', rshunt: 'shunt', bolt: 'bolt', mine: 'mine', flak: 'flak', oil: 'oil' }
 
 export interface Projectile {
   id: number
@@ -25,7 +29,9 @@ export interface Projectile {
   hint: number
   age: number
   eventId: number
-  lob: { from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number } | null
+  lob: { from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; arc: number } | null
+  airburst: boolean // a Flak canister that bursts when its lob ends
+  hits: Map<Car, number> | null // Flak: pellets landed per car this volley (shared). Oil: age at each car's last spin.
   mesh: THREE.Object3D
   trail: Trail | null
   dead: boolean
@@ -50,12 +56,25 @@ export interface Ring {
   mesh: THREE.Mesh
 }
 
+/** A Railgun beam, fading out. */
+export interface Beam {
+  t: number
+  mesh: THREE.Group
+}
+
 const tmp = new THREE.Vector3()
+const UP = new THREE.Vector3(0, 1, 0)
 let nextId = 1
 
 const orbGeo = new THREE.IcosahedronGeometry(0.55, 1)
 const boltGeo = new THREE.CapsuleGeometry(0.16, 1.4, 3, 6).rotateX(Math.PI / 2)
 const mineGeo = new THREE.IcosahedronGeometry(0.55, 0)
+const pelletGeo = new THREE.IcosahedronGeometry(0.16, 0)
+const canisterGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.8, 8).rotateX(Math.PI / 2)
+const globGeo = new THREE.SphereGeometry(0.5, 10, 8)
+const slickGeo = new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2)
+const slickRimGeo = new THREE.RingGeometry(0.86, 1, 40).rotateX(-Math.PI / 2)
+const slickMat = new THREE.MeshStandardMaterial({ color: '#141a1f', roughness: 0.12, metalness: 0.5, envMapIntensity: 3, polygonOffset: true, polygonOffsetFactor: -2 })
 
 function glowSprite(color: string, size: number, intensity = 1.6) {
   const s = new THREE.Sprite(
@@ -79,9 +98,45 @@ export function projectileVisual(game: Game, kind: ProjectileKind, lobbed = fals
   } else if (kind === 'bolt') {
     mesh.add(new THREE.Mesh(boltGeo, emissive(POWER_COLORS.bolt, 3)), glowSprite(POWER_COLORS.bolt, 2.2))
     trail = new Trail(POWER_COLORS.bolt, 0.35, 14, 2.6, true)
-  } else {
+  } else if (kind === 'mine') {
     mesh.add(new THREE.Mesh(mineGeo, emissive(POWER_COLORS.mine, 1.6)), glowSprite(POWER_COLORS.mine, 3.2))
     if (lobbed) trail = new Trail(POWER_COLORS.mine, 0.5, 18, 2.4, true)
+  } else if (kind === 'flak') {
+    // A pellet, or (lobbed backwards) the airburst canister.
+    if (lobbed) {
+      mesh.add(new THREE.Mesh(canisterGeo, emissive(POWER_COLORS.flak, 2)), glowSprite(POWER_COLORS.flak, 2.6))
+      trail = new Trail(POWER_COLORS.flak, 0.4, 12, 2.4, true)
+    } else {
+      mesh.add(new THREE.Mesh(pelletGeo, emissive(POWER_COLORS.flak, 3.2)), glowSprite(POWER_COLORS.flak, 1.1, 2))
+      trail = new Trail(POWER_COLORS.flak, 0.18, 7, 2.6, true)
+    }
+  } else {
+    // Oil: a glossy black slick with a teal sheen at the edge; a flying glob while lobbed.
+    const slick = new THREE.Group()
+    const r = CONFIG.oil_radius
+    const disc = new THREE.Mesh(slickGeo, slickMat)
+    disc.scale.setScalar(r)
+    // Teal edge and an oily sheen, drawn over the dark disc.
+    const over = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4 }
+    const rim = new THREE.Mesh(slickRimGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(POWER_COLORS.oil).multiplyScalar(1.4), opacity: 0.85, ...over }))
+    rim.scale.setScalar(r)
+    rim.position.y = 0.02
+    const sheen = new THREE.Mesh(slickGeo, new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color('#5a3cff').lerp(new THREE.Color(POWER_COLORS.oil), 0.5).multiplyScalar(0.55), ...over }))
+    sheen.scale.setScalar(r * 0.8)
+    sheen.position.set(r * 0.15, 0.02, -r * 0.1)
+    slick.add(disc, rim, sheen)
+    for (let k = 0; k < 3; k++) {
+      const blob = new THREE.Mesh(slickGeo, slickMat)
+      blob.scale.setScalar(r * (0.25 + k * 0.08))
+      blob.position.set(Math.cos(k * 2.2) * r * 0.95, 0.005, Math.sin(k * 2.2) * r * 0.95)
+      slick.add(blob)
+    }
+    const glob = new THREE.Group()
+    glob.add(new THREE.Mesh(globGeo, slickMat), glowSprite(POWER_COLORS.oil, 2.2, 1.2))
+    mesh.add(slick, glob)
+    slick.visible = !lobbed
+    glob.visible = lobbed
+    if (lobbed) trail = new Trail(POWER_COLORS.oil, 0.4, 14, 1.6, true)
   }
   game.scene.add(mesh)
   if (trail) game.scene.add(trail.mesh)
@@ -149,8 +204,38 @@ export function lockTarget(game: Game, car: Car, backward = false): Car | null {
     }
   }
   if (best || backward) return best
+  if (game.track.arena) {
+    // Arena: the nearest rival anywhere in front.
+    let bestD: number = CONFIG.lock_range
+    for (const o of game.cars) {
+      if (o === car || !o.alive) continue
+      tmp.subVectors(o.pos, car.pos)
+      const d = tmp.length()
+      if (tmp.dot(f) > 0 && d < bestD) {
+        bestD = d
+        best = o
+      }
+    }
+    return best
+  }
   // Nothing in view: the car directly ahead in the running order.
   return game.cars.find((o) => o.place === car.place - 1 && o.alive) ?? null
+}
+
+/** A point `dist` metres ahead: along the road on a circuit, straight ahead (on open floor) in an arena. */
+function aheadPoint(game: Game, car: Car, dist: number) {
+  const a = game.track.arena
+  if (!a) return game.track.point(car.s + dist, car.lateral)
+  return onFloor(a, car.pos.clone().addScaledVector(car.forward, dist).setY(0))
+}
+
+/** True where a shot would hit a barrier: off the road on a circuit, the rim or an obstacle in an arena. */
+function walled(game: Game, p: { pos: THREE.Vector3; hint: number }, pad = 0.6) {
+  const a = game.track.arena
+  if (a) return arenaBlocked(a, p.pos.x, p.pos.z)
+  const n = game.track.nearest(p.pos.x, p.pos.z, p.hint)
+  p.hint = n.i
+  return Math.abs(n.lateral) > game.track.half + pad
 }
 
 export function fire(game: Game, car: Car, backward: boolean, target?: Car | null) {
@@ -159,6 +244,7 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
   const slot = car.bay[car.active]
   if (!slot) return false
   const type = slot.type
+  if (type === 'rail' && car.railCharge > 0) return false
   car.consume()
   const f = car.forward
   const color = POWER_COLORS[type]
@@ -182,13 +268,13 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
       const from = car.pos.clone().setY(1)
       let to: THREE.Vector3
       if (backward) to = car.pos.clone().addScaledVector(f, -3.2)
-      else to = game.track.point(car.s + CONFIG.mine_forward_range + Math.max(0, car.forwardSpeed) * 0.6, car.lateral)
+      else to = aheadPoint(game, car, CONFIG.mine_forward_range + Math.max(0, car.forwardSpeed) * 0.6)
       to.y = 0.55
       const { mesh, trail } = projectileVisual(game, 'mine', !backward)
       const p: Projectile = {
         id: nextId++, kind: 'mine', owner: car, pos: backward ? to.clone() : from.clone(), vel: new THREE.Vector3(), heading: car.yaw, target: null,
         life: CONFIG.mine_lifetime, hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextId++,
-        lob: backward ? null : { from, to, t: 0, dur: 0.6 }, mesh, trail, dead: false,
+        lob: backward ? null : { from, to, t: 0, dur: 0.6, arc: 5 }, airburst: false, hits: null, mesh, trail, dead: false,
       }
       mesh.position.copy(p.pos)
       game.projectiles.push(p)
@@ -215,8 +301,24 @@ export function fire(game: Game, car: Car, backward: boolean, target?: Car | nul
       car.health = Math.min(CONFIG.max_health, car.health + CONFIG.repair_amount)
       game.burst(car.pos.clone().setY(1), 30, 6, 0.8, 1.2, new THREE.Color(color).multiplyScalar(2), 1, 1.5)
       break
+    case 'rail':
+      // Charge first (the glow at the nose or tail warns everyone); the beam fires from updateWeapons.
+      car.railCharge = CONFIG.rail_charge
+      car.railBack = backward
+      break
+    case 'flak':
+      flak(game, car, backward)
+      break
+    case 'oil':
+      oil(game, car, backward)
+      break
+    case 'ram':
+      car.ram = backward ? CONFIG.ram_brace_duration : CONFIG.ram_duration
+      car.ramBoost = !backward
+      game.burst(car.pos.clone().addScaledVector(f, 2).setY(0.8), 30, 10, 0.5, 0.9, new THREE.Color('#ff7a2f').multiplyScalar(2.2), 1, 0.3)
+      break
   }
-  game.onFired(car)
+  game.onFired(car, type)
   return true
 }
 
@@ -229,7 +331,7 @@ export function fireBolt(game: Game, car: Car, backward: boolean, aimError = 0) 
   game.projectiles.push({
     id: nextId++, kind: 'bolt', owner: car, pos: car.pos.clone().addScaledVector(f, backward ? -2.8 : 2.8).setY(0.9), vel: v,
     heading: Math.atan2(v.x, v.z), target: null, life: CONFIG.bolt_lifetime, hp: 1, weakened: false, hint: car.hint, age: 0,
-    eventId: nextId++, lob: null, mesh, trail, dead: false,
+    eventId: nextId++, lob: null, airburst: false, hits: null, mesh, trail, dead: false,
   })
 }
 
@@ -238,8 +340,171 @@ function spawnOrb(game: Game, car: Car, kind: 'shunt' | 'rshunt', pos: THREE.Vec
   mesh.position.copy(pos)
   game.projectiles.push({
     id: nextId++, kind, owner: car, pos, vel, heading: Math.atan2(vel.x, vel.z), target, life: CONFIG.shunt_lifetime,
-    hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextId++, lob: null, mesh, trail, dead: false,
+    hp: CONFIG.shunt_bolts_to_destroy, weakened: false, hint: car.hint, age: 0, eventId: nextId++, lob: null, airburst: false, hits: null,
+    mesh, trail, dead: false,
   })
+}
+
+/** Flak forward: a spread of short-range pellets. Backward: a canister that airbursts just behind. */
+function flak(game: Game, car: Car, backward: boolean) {
+  const f = car.forward
+  const eventId = nextId++
+  if (!backward) {
+    const volley = new Map<Car, number>()
+    const n = CONFIG.flak_pellets
+    const spread = THREE.MathUtils.degToRad(CONFIG.flak_spread_deg)
+    const muzzle = car.pos.clone().addScaledVector(f, 2.8).setY(0.9)
+    for (let k = 0; k < n; k++) {
+      const a = (k / (n - 1) - 0.5) * spread + (Math.random() - 0.5) * (spread / n)
+      const v = car.vel.clone().add(f.clone().applyAxisAngle(UP, a).multiplyScalar(CONFIG.flak_speed))
+      const { mesh, trail } = projectileVisual(game, 'flak')
+      game.projectiles.push({
+        id: nextId++, kind: 'flak', owner: car, pos: muzzle.clone(), vel: v, heading: Math.atan2(v.x, v.z), target: null, life: CONFIG.flak_lifetime,
+        hp: 1, weakened: false, hint: car.hint, age: 0, eventId, lob: null, airburst: false, hits: volley, mesh, trail, dead: false,
+      })
+    }
+    game.burst(muzzle, 16, 14, 0.25, 0.7, new THREE.Color(POWER_COLORS.flak).multiplyScalar(2.4), 1, 0.2)
+    game.shakeFor(car, 0.2)
+    return
+  }
+  // The canister keeps the car's speed, so it bursts the same distance behind the car at any speed.
+  const dur = CONFIG.flak_airburst_time
+  const from = car.pos.clone().addScaledVector(f, -2.5).setY(1)
+  const to = car.pos.clone().addScaledVector(car.vel, dur).addScaledVector(f, -CONFIG.flak_airburst_distance).setY(2)
+  const { mesh, trail } = projectileVisual(game, 'flak', true)
+  mesh.position.copy(from)
+  game.projectiles.push({
+    id: nextId++, kind: 'flak', owner: car, pos: from.clone(), vel: new THREE.Vector3(), heading: car.yaw, target: null, life: dur + 1,
+    hp: 1, weakened: false, hint: car.hint, age: 0, eventId, lob: { from, to, t: 0, dur, arc: 1.5 }, airburst: true, hits: null, mesh, trail, dead: false,
+  })
+}
+
+function airburst(game: Game, p: Projectile) {
+  destroy(game, p)
+  game.burst(p.pos.clone(), 60, 16, 0.45, 1.0, new THREE.Color(POWER_COLORS.flak).multiplyScalar(2.4), 1, 0.5)
+  game.sfx('hitHeavy', p.pos)
+  for (const o of game.cars) {
+    if (!o.alive || o === p.owner) continue
+    if (Math.hypot(o.pos.x - p.pos.x, o.pos.z - p.pos.z) > CONFIG.flak_airburst_radius) continue
+    game.damage(o, CONFIG.flak_airburst_damage, { by: p.owner, weapon: 'flak', effect: 'kick', eventId: p.eventId })
+  }
+}
+
+/** Oil Slick: dropped behind, or flung ahead like a lobbed Mine. Spins out whoever drives through it. */
+function oil(game: Game, car: Car, backward: boolean) {
+  const f = car.forward
+  const from = car.pos.clone().setY(1)
+  const to = backward ? car.pos.clone().addScaledVector(f, -4) : aheadPoint(game, car, CONFIG.oil_forward_range + Math.max(0, car.forwardSpeed) * 0.5)
+  if (game.track.arena) onFloor(game.track.arena, to, CONFIG.oil_radius)
+  to.y = 0.05
+  const { mesh, trail } = projectileVisual(game, 'oil', !backward)
+  const p: Projectile = {
+    id: nextId++, kind: 'oil', owner: car, pos: backward ? to.clone() : from.clone(), vel: new THREE.Vector3(), heading: car.yaw, target: null,
+    life: CONFIG.oil_lifetime, hp: CONFIG.oil_spins, weakened: false, hint: car.hint, age: 0, eventId: nextId++,
+    lob: backward ? null : { from, to, t: 0, dur: 0.6, arc: 5 }, airburst: false, hits: new Map(), mesh, trail, dead: false,
+  }
+  mesh.position.copy(p.pos)
+  game.projectiles.push(p)
+}
+
+function slick(game: Game, p: Projectile) {
+  const r2 = CONFIG.oil_radius ** 2
+  for (const c of game.cars) {
+    if (!c.alive || c.stun > 0) continue
+    if (c === p.owner && p.age < CONFIG.oil_arm_time) continue
+    if ((c.pos.x - p.pos.x) ** 2 + (c.pos.z - p.pos.z) ** 2 > r2) continue
+    const last = p.hits!.get(c)
+    if (last !== undefined && p.age - last < CONFIG.oil_rehit) continue
+    p.hits!.set(c, p.age)
+    if (game.damage(c, CONFIG.oil_damage, { by: p.owner === c ? null : p.owner, weapon: 'oil', effect: 'spin', stun: CONFIG.oil_stun, eventId: p.eventId })) {
+      game.burst(c.pos.clone().setY(0.4), 14, 6, 0.6, 0.9, new THREE.Color(POWER_COLORS.oil).multiplyScalar(1.6), 0.8, 0.3)
+      if (--p.hp <= 0) destroy(game, p)
+    }
+  }
+}
+
+/** Railgun: an instant beam that pierces every car on the line until a wall or obstacle stops it. */
+function railShot(game: Game, car: Car) {
+  const dir = car.forward.multiplyScalar(car.railBack ? -1 : 1)
+  const range = car.railBack ? CONFIG.rail_back_range : CONFIG.rail_range
+  const from = car.pos.clone().addScaledVector(dir, 2.6).setY(0.9)
+  const probe = { pos: from.clone(), hint: car.hint }
+  let len = 0
+  for (; len < range; len += 1.5) {
+    probe.pos.copy(from).addScaledVector(dir, len)
+    if (walled(game, probe, 1.2)) break
+  }
+  const to = from.clone().addScaledVector(dir, len)
+  const eventId = nextId++
+  const w2 = CONFIG.rail_width ** 2
+  for (const c of game.cars) {
+    if (c === car || !c.alive) continue
+    tmp.subVectors(c.pos, from).setY(0)
+    const t = tmp.dot(dir)
+    if (t < -1 || t > len + 1) continue
+    if (tmp.addScaledVector(dir, -t).lengthSq() > w2) continue
+    game.damage(c, CONFIG.rail_damage, { by: car, weapon: 'rail', effect: 'jolt', eventId })
+  }
+  // The beam also vaporises Shunts, Mines and Bolts it crosses.
+  for (const p of game.projectiles) {
+    if (p.dead || p.owner === car || p.kind === 'oil' || p.kind === 'flak') continue
+    tmp.subVectors(p.pos, from).setY(0)
+    const t = tmp.dot(dir)
+    if (t >= 0 && t <= len && tmp.addScaledVector(dir, -t).lengthSq() < 2.25) destroy(game, p)
+  }
+  railBeam(game, from, to)
+  game.recordBeam(from, to)
+  game.sfx('railshot', car.pos)
+  game.shakeFor(car, 0.3)
+}
+
+/** The beam: a white-hot core in a blue glow, with sparks where it stops. Clients replay it from the fx log. */
+export function railBeam(game: Game, from: THREE.Vector3, to: THREE.Vector3) {
+  const len = Math.max(0.1, from.distanceTo(to))
+  const group = new THREE.Group()
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 6, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3.2, 4), transparent: true, toneMapped: false }))
+  const glow = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.6, 0.6, len, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(POWER_COLORS.rail).multiplyScalar(1.8), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+  )
+  group.add(core, glow)
+  group.position.copy(from).lerp(to, 0.5)
+  group.quaternion.setFromUnitVectors(UP, tmp.subVectors(to, from).normalize())
+  game.scene.add(group)
+  game.beams.push({ t: 0, mesh: group })
+  game.fx.burst(to, 30, 12, 0.4, 0.8, new THREE.Color(POWER_COLORS.rail).multiplyScalar(2.6), 1, 0.6)
+}
+
+export function updateBeams(game: Game, dt: number) {
+  for (const b of game.beams) {
+    b.t += dt
+    const k = Math.max(0, 1 - b.t / CONFIG.rail_beam_fade)
+    for (const m of b.mesh.children as THREE.Mesh[]) {
+      const mat = m.material as THREE.MeshBasicMaterial
+      mat.opacity = (mat.blending === THREE.AdditiveBlending ? 0.4 : 1) * k
+    }
+    b.mesh.scale.x = b.mesh.scale.z = 1 + b.t * 3
+  }
+  game.beams = game.beams.filter((b) => {
+    if (b.t < CONFIG.rail_beam_fade) return true
+    game.scene.remove(b.mesh)
+    for (const m of b.mesh.children as THREE.Mesh[]) {
+      m.geometry.dispose()
+      ;(m.material as THREE.Material).dispose()
+    }
+    return false
+  })
+}
+
+/** Place and spin a projectile's mesh (host and clients). */
+export function animateProjectile(p: Projectile, dt: number) {
+  p.mesh.position.copy(p.pos)
+  p.mesh.rotation.y = p.kind === 'mine' ? p.mesh.rotation.y + dt * 3 : p.heading
+  if (p.kind === 'oil') {
+    p.mesh.children[0].visible = !p.lob
+    p.mesh.children[1].visible = !!p.lob
+  }
+  if (p.trail) p.trail.push(p.pos)
 }
 
 export function bargeRing(game: Game, pos: THREE.Vector3) {
@@ -255,7 +520,8 @@ export function bargeRing(game: Game, pos: THREE.Vector3) {
 function barge(game: Game, car: Car) {
   const eventId = nextId++
   for (const o of game.cars) {
-    if (o === car || !o.alive) continue
+    // Ram armour shrugs off a Barge.
+    if (o === car || !o.alive || o.ram > 0) continue
     const d = o.pos.distanceTo(car.pos)
     if (d > CONFIG.barge_radius) continue
     tmp.subVectors(o.pos, car.pos).setY(0).normalize()
@@ -275,13 +541,21 @@ function barge(game: Game, car: Car) {
 }
 
 function shock(game: Game, car: Car) {
-  const leader = game.cars.find((c) => c.place === 1) ?? car
+  const arena = game.track.arena
+  const leader = (arena ? game.cars.find((c) => c.place === 1 && c.alive) : null) ?? game.cars.find((c) => c.place === 1) ?? car
   const eventId = nextId++
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5)
   for (let k = 0; k < CONFIG.shock_domes; k++) {
-    const s = leader.s + CONFIG.shock_first_offset + k * CONFIG.shock_spacing
-    const lat = lanes[k % 3] * (game.track.half - 3.5) * 0.85 + (Math.random() - 0.5) * 2
-    const pos = game.track.point(s, lat)
+    let pos: THREE.Vector3
+    if (arena) {
+      // In the open the domes land across the leader's path, closer in.
+      pos = leader.pos.clone().addScaledVector(leader.forward, 16 + k * 14).addScaledVector(leader.right, lanes[k % 3] * 7).setY(0)
+      onFloor(arena, pos, CONFIG.shock_dome_radius)
+    } else {
+      const s = leader.s + CONFIG.shock_first_offset + k * CONFIG.shock_spacing
+      const lat = lanes[k % 3] * (game.track.half - 3.5) * 0.85 + (Math.random() - 0.5) * 2
+      pos = game.track.point(s, lat)
+    }
     const { mesh, bolt } = domeVisual(game, pos)
     game.domes.push({ id: nextId++, owner: car, pos, warn: CONFIG.shock_warning + k * 0.12, life: CONFIG.shock_lifetime, hitSet: new Set(), eventId, mesh, bolt, struck: false })
   }
@@ -291,8 +565,9 @@ function shock(game: Game, car: Car) {
 export function destroy(game: Game, p: Projectile) {
   if (p.dead) return
   p.dead = true
-  const color = p.kind === 'bolt' ? POWER_COLORS.bolt : p.kind === 'mine' ? POWER_COLORS.mine : POWER_COLORS.shunt
-  game.burst(p.pos, p.kind === 'bolt' ? 8 : 26, p.kind === 'bolt' ? 6 : 12, 0.45, p.kind === 'bolt' ? 0.5 : 1.1, new THREE.Color(color).multiplyScalar(2))
+  if (p.kind === 'oil') return
+  const small = p.kind === 'bolt' || (p.kind === 'flak' && !p.airburst)
+  game.burst(p.pos, small ? 8 : 26, small ? 6 : 12, 0.45, small ? 0.5 : 1.1, new THREE.Color(POWER_COLORS[KIND_POWER[p.kind]]).multiplyScalar(2))
 }
 
 export function removeProjectileVisual(game: Game, p: Projectile) {
@@ -304,6 +579,19 @@ export function removeProjectileVisual(game: Game, p: Projectile) {
 export function updateWeapons(game: Game, dt: number) {
   const track = game.track
   const turn = THREE.MathUtils.degToRad(CONFIG.shunt_turn_rate)
+  // Railguns finishing their charge.
+  for (const c of game.cars) {
+    if (c.railCharge <= 0) continue
+    if (!c.alive) {
+      c.railCharge = 0
+      continue
+    }
+    c.railCharge -= dt
+    if (c.railCharge <= 0) {
+      c.railCharge = 0
+      railShot(game, c)
+    }
+  }
   for (const p of game.projectiles) {
     if (p.dead) continue
     p.age += dt
@@ -312,7 +600,18 @@ export function updateWeapons(game: Game, dt: number) {
       destroy(game, p)
       continue
     }
-    if (p.kind === 'shunt') {
+    if (p.kind === 'shunt' && track.arena) {
+      // In the open: turn towards the target at the Shunt's rate. Rock and the rim stop it.
+      const tgt = p.target && p.target.alive ? p.target : null
+      if (tgt) {
+        const want = Math.atan2(tgt.pos.x - p.pos.x, tgt.pos.z - p.pos.z)
+        let d = want - p.heading
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        p.heading += THREE.MathUtils.clamp(d, -turn * dt, turn * dt)
+      }
+      const speed = Math.max(CONFIG.shunt_speed, p.vel.length() - dt * 4)
+      p.vel.set(Math.sin(p.heading) * speed, 0, Math.cos(p.heading) * speed)
+    } else if (p.kind === 'shunt') {
       // Ride the track towards the target; home in directly at close range.
       const n = track.nearest(p.pos.x, p.pos.z, p.hint)
       p.hint = n.i
@@ -339,31 +638,35 @@ export function updateWeapons(game: Game, dt: number) {
       p.lob.t += dt
       const k = Math.min(1, p.lob.t / p.lob.dur)
       p.pos.lerpVectors(p.lob.from, p.lob.to, k)
-      p.pos.y = THREE.MathUtils.lerp(p.lob.from.y, p.lob.to.y, k) + Math.sin(k * Math.PI) * 5
-      if (k >= 1) p.lob = null
-    } else if (p.kind !== 'mine') p.pos.addScaledVector(p.vel, dt)
-    if (p.kind === 'rshunt') p.vel.multiplyScalar(Math.max(0, 1 - dt * 0.4))
-    p.mesh.position.copy(p.pos)
-    p.mesh.rotation.y = p.kind === 'mine' ? p.mesh.rotation.y + dt * 3 : p.heading
-    if (p.trail) p.trail.push(p.pos)
-
-    // Walls stop straight-line shots.
-    if (p.kind === 'bolt' || p.kind === 'rshunt') {
-      const n = track.nearest(p.pos.x, p.pos.z, p.hint)
-      p.hint = n.i
-      if (Math.abs(n.lateral) > track.half + 0.6) {
-        destroy(game, p)
-        continue
+      p.pos.y = THREE.MathUtils.lerp(p.lob.from.y, p.lob.to.y, k) + Math.sin(k * Math.PI) * p.lob.arc
+      if (k >= 1) {
+        p.lob = null
+        if (p.airburst) {
+          airburst(game, p)
+          continue
+        }
       }
+    } else if (p.kind !== 'mine' && p.kind !== 'oil') p.pos.addScaledVector(p.vel, dt)
+    if (p.kind === 'rshunt') p.vel.multiplyScalar(Math.max(0, 1 - dt * 0.4))
+    animateProjectile(p, dt)
+
+    // Walls stop straight-line shots (and, in an arena, homing Shunts).
+    if ((p.kind === 'bolt' || p.kind === 'rshunt' || p.kind === 'flak' || (p.kind === 'shunt' && track.arena)) && !p.lob && walled(game, p)) {
+      destroy(game, p)
+      continue
     }
     if (p.lob) continue
+    if (p.kind === 'oil') {
+      slick(game, p)
+      continue
+    }
 
     // Hits on cars.
     for (const c of game.cars) {
       if (!c.alive || p.dead) continue
       if (c === p.owner && (p.kind !== 'mine' || p.age < CONFIG.mine_arm_time) && p.kind !== 'rshunt') continue
       if (c === p.owner && p.kind === 'rshunt' && p.age < 1.2) continue
-      const r = p.kind === 'mine' ? CONFIG.mine_trigger_radius : p.kind === 'bolt' ? 1.7 : 2.0
+      const r = p.kind === 'mine' ? CONFIG.mine_trigger_radius : p.kind === 'bolt' || p.kind === 'flak' ? 1.7 : 2.0
       const dx = c.pos.x - p.pos.x, dz = c.pos.z - p.pos.z
       if (dx * dx + dz * dz > r * r) continue
       hitCar(game, p, c)
@@ -378,6 +681,7 @@ export function updateWeapons(game: Game, dt: number) {
     for (let j = i + 1; j < ps.length; j++) {
       const b = ps[j]
       if (b.dead || b.lob || a.owner === b.owner) continue
+      if (a.kind === 'oil' || a.kind === 'flak' || b.kind === 'oil' || b.kind === 'flak') continue
       const r = a.kind === 'bolt' || b.kind === 'bolt' ? 1.6 : 2.2
       if (a.pos.distanceToSquared(b.pos) > r * r) continue
       const bolt = a.kind === 'bolt' ? a : b.kind === 'bolt' ? b : null
@@ -416,6 +720,7 @@ export function updateWeapons(game: Game, dt: number) {
     return false
   })
   updateRings(game, dt)
+  updateBeams(game, dt)
 }
 
 export function updateRings(game: Game, dt: number) {
@@ -444,7 +749,13 @@ function hitCar(game: Game, p: Projectile, c: Car) {
     return
   }
   destroy(game, p)
-  if (p.kind === 'bolt') {
+  if (p.kind === 'flak') {
+    // Each car takes at most flak_max_hits pellets from one volley.
+    const n = p.hits?.get(c) ?? 0
+    if (n >= CONFIG.flak_max_hits) return
+    p.hits?.set(c, n + 1)
+    game.damage(c, CONFIG.flak_damage, { by: p.owner, weapon: 'flak', effect: 'kick', eventId: p.eventId })
+  } else if (p.kind === 'bolt') {
     game.damage(c, CONFIG.bolt_damage, { by: p.owner, weapon: 'bolt', effect: 'kick', eventId: p.eventId })
   } else if (p.weakened) {
     game.damage(c, CONFIG.shunt_weakened_damage, { by: p.owner, weapon: 'shunt', effect: 'jolt', eventId: p.eventId })

@@ -11,7 +11,7 @@ export type Route =
   | { name: 'resume' }
   | { name: 'embed'; id: string }
   | { name: 'arena'; join?: string }
-  | { name: 'racer'; auto?: 'race' | 'combat'; join?: string }
+  | { name: 'racer'; auto?: 'race' | 'combat' | 'deathmatch'; map?: 'bowl'; join?: string }
   | { name: 'golf'; auto?: boolean }
 
 export function parse(hash: string): Route {
@@ -20,12 +20,15 @@ export function parse(hash: string): Route {
   switch (parts[0]) {
     case 'arena':
       return { name: 'arena', join: new URLSearchParams(query).get('join') ?? undefined }
-    case 'racer':
+    case 'racer': {
+      const q = new URLSearchParams(query)
       return {
         name: 'racer',
-        auto: (['race', 'combat'] as const).find((m) => m === new URLSearchParams(query).get('auto')),
-        join: new URLSearchParams(query).get('join') ?? undefined,
+        auto: (['race', 'combat', 'deathmatch'] as const).find((m) => m === q.get('auto')),
+        map: q.get('map') === 'bowl' ? 'bowl' : undefined,
+        join: q.get('join') ?? undefined,
       }
+    }
     case 'golf':
       return { name: 'golf', auto: new URLSearchParams(query).has('auto') }
     case 'home':

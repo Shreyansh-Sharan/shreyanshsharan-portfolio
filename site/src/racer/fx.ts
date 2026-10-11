@@ -318,6 +318,57 @@ export function glyphCanvas(type: PowerType) {
       g.fillRect(-9, -30, 18, 60)
       g.fillRect(-30, -9, 60, 18)
       break
+    case 'rail': // two rails with a beam between them
+      g.lineWidth = 6
+      for (const y of [-16, 16]) {
+        g.beginPath()
+        g.moveTo(-32, y)
+        g.lineTo(26, y)
+        g.stroke()
+      }
+      g.fillRect(-36, -4, 74, 8)
+      g.beginPath()
+      g.moveTo(38, 0)
+      g.lineTo(28, -10)
+      g.lineTo(28, 10)
+      g.closePath()
+      g.fill()
+      break
+    case 'flak': // a spread of pellets from a muzzle
+      g.fillRect(-34, -8, 16, 16)
+      for (let k = 0; k < 5; k++) {
+        const a = ((k - 2) / 2) * 0.55
+        for (const r of [8, 26]) {
+          g.beginPath()
+          g.arc(-14 + Math.cos(a) * (r + 12), Math.sin(a) * (r + 12), r > 10 ? 5 : 3.5, 0, Math.PI * 2)
+          g.fill()
+        }
+      }
+      break
+    case 'oil': // a drop over a puddle
+      g.moveTo(0, -36)
+      g.bezierCurveTo(20, -8, 18, 14, 0, 16)
+      g.bezierCurveTo(-18, 14, -20, -8, 0, -36)
+      g.fill()
+      g.beginPath()
+      g.ellipse(0, 28, 30, 7, 0, 0, Math.PI * 2)
+      g.fill()
+      break
+    case 'ram': // an armoured plough wedge
+      g.moveTo(34, 0)
+      g.lineTo(-6, -32)
+      g.lineTo(-30, -32)
+      g.lineTo(-30, 32)
+      g.lineTo(-6, 32)
+      g.closePath()
+      g.fill()
+      g.strokeStyle = col
+      g.lineWidth = 5
+      g.beginPath()
+      g.moveTo(-18, -20)
+      g.lineTo(-18, 20)
+      g.stroke()
+      break
   }
   glyphCache.set(type, c)
   return c

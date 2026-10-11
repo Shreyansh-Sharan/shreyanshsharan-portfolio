@@ -65,6 +65,8 @@ export function Results({
                 <th>{r.mode === 'race' ? 'Time' : r.mode === 'deathmatch' ? 'Score' : 'Track CP'}</th>
                 {r.mode === 'combat' && <th>Series</th>}
                 <th>Wrecks</th>
+                {r.mode === 'deathmatch' && <th>Damage</th>}
+                {r.mode === 'deathmatch' && <th>Wrecked</th>}
               </tr>
             </thead>
             <tbody>
@@ -79,6 +81,8 @@ export function Results({
                   <td>{r.mode === 'race' ? fmtTime(row.time) : row.combat}</td>
                   {r.mode === 'combat' && <td>{series[row.name] ?? 0}</td>}
                   <td>{row.wrecks}</td>
+                  {r.mode === 'deathmatch' && <td>{row.damage}</td>}
+                  {r.mode === 'deathmatch' && <td>{row.wrecked}</td>}
                 </tr>
               ))}
             </tbody>

@@ -2344,6 +2344,51 @@ p {
   color: #f472b6;
 }
 
+/* Deathmatch scoreboard, under the minimap and the pause button. */
+.vr-board {
+  position: absolute;
+  top: 252px;
+  right: 16px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(10, 8, 30, 0.55);
+  border-radius: 8px;
+}
+
+.vr-board th,
+.vr-board td {
+  padding: 2px 6px;
+  text-align: right;
+}
+
+.vr-board th {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.vr-board td:first-child {
+  text-align: left;
+  max-width: 96px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.vr-board td i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.vr-board tr.is-me td {
+  color: #f0abfc;
+  font-weight: 800;
+}
+
 .vr-fans {
   position: absolute;
   top: 18px;
@@ -2758,6 +2803,11 @@ p {
   .vr-minimap {
     width: 120px;
     height: 120px;
+  }
+
+  .vr-board {
+    top: 190px;
+    font-size: 10px;
   }
 
   .vr-pausebtn {

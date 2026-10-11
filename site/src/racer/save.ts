@@ -35,5 +35,6 @@ export function fanLevel(fans: number) {
 
 export const POWER_NAMES: Record<PowerType, string> = {
   shunt: 'Shunt', barge: 'Barge', bolt: 'Bolt', mine: 'Mine', shock: 'Shock', nitro: 'Nitro', shield: 'Shield', repair: 'Repair',
+  rail: 'Railgun', flak: 'Flak', oil: 'Oil Slick', ram: 'Ram',
 }
 

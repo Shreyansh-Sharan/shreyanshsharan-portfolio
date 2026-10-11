@@ -32,6 +32,39 @@ export const CONFIG = {
   reverse_nitro_hold: 0.4, // s
   shield_duration: 5.0, // s, ends on first hit
   repair_amount: 6, // segments
+  rail_charge: 0.4, // s of charge before the beam fires
+  rail_range: 240, // m forward
+  rail_back_range: 70, // m backward
+  rail_width: 1.7, // m either side of the beam that counts as a hit
+  rail_damage: 3, // segments, to every car on the line
+  rail_beam_fade: 0.35, // s
+  flak_pellets: 8,
+  flak_spread_deg: 26, // whole cone
+  flak_speed: 100, // m/s
+  flak_lifetime: 0.38, // s (about 40 m of reach)
+  flak_damage: 1, // segment per pellet
+  flak_max_hits: 3, // pellets that can land on one car per volley
+  flak_airburst_distance: 9, // m behind
+  flak_airburst_time: 0.3, // s fuse
+  flak_airburst_radius: 7, // m
+  flak_airburst_damage: 2, // segments
+  oil_radius: 4.2, // m
+  oil_lifetime: 15, // s
+  oil_forward_range: 30, // m
+  oil_damage: 1, // segment
+  oil_stun: 1.3, // s spin-out
+  oil_rehit: 2.5, // s before the same slick can spin the same car again
+  oil_spins: 4, // cars a slick can spin before it's used up
+  oil_arm_time: 1.0, // s before the dropper's own slick catches them
+  ram_duration: 4.0, // s of armoured overdrive (forward)
+  ram_brace_duration: 2.5, // s of armour without the speed (backward)
+  ram_accel_mult: 1.35, // x
+  ram_topspeed_mult: 1.12, // x
+  ram_mass_mult: 4, // x heavier in car-car collisions
+  ram_armor_mult: 0.5, // x incoming damage
+  ram_hit_speed: 25, // km/h closing speed that counts as a ram while armoured
+  ram_hit_damage: 3, // segments
+  ram_hit_stun: 0.9, // s
   wall_hit_damage_threshold: 120, // km/h
   ram_damage_threshold: 60, // km/h relative
   drift_grip_mult: 0.4, // x
@@ -112,11 +145,28 @@ export const CONFIG = {
   fire_below: 0.2, // health fraction
   fan_level_base: 250, // fans for level L = base * (L-1)^2
 
-  // Deathmatch (online or solo): wreck the most cars before time runs out; Combat Points scoring
+  // Deathmatch (online or solo): wrecks and damage dealt score before time runs out
   deathmatch_minutes: 3,
   deathmatch_minutes_options: [2, 3, 5],
   deathmatch_pickup_respawn: 4, // s
+  dm_points_wreck: 100,
+  dm_points_per_damage: 10, // per health segment dealt to rivals (a full car's worth = one wreck)
+  dm_points_wrecked: -50, // per own wreck, however it happened
   race_laps_options: [1, 2, 3, 4, 5],
+
+  // Dust Bowl: the circular deathmatch arena
+  bowl_radius: 94, // m, rim wall (cars can't pass it)
+  bowl_floor_radius: 78, // m of flat floor; banked slope from here out to the rim
+  bowl_bank_height: 4.5, // m at the rim wall
+  bowl_rim_height: 3.5, // m of wall above the bank
+  bowl_bank_pull: 0.75, // x gravity down the bank slope
+  bowl_spawn_radius: 64, // m
+  bowl_pickup_rings: [18, 44, 66], // m
+  bowl_pickups_per_ring: 6,
+  bowl_dust_rate: 26, // dust puffs per second per car at top speed
+  ai_arena_pickup_range: 70, // m: bots detour for a pickup this close while the bay has room
+  ai_arena_unstuck: 1.0, // s reversing out after getting stuck on the rim or an obstacle
+  ai_arena_stuck_time: 0.7, // s nearly stationary before reversing out
 
   // Multiplayer
   max_players: 8, // humans + AI on the grid

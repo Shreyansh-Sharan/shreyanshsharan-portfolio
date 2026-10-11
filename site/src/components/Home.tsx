@@ -41,8 +41,8 @@ function previewCards(tile: Tile): Activity[] {
       ]
     case 'volt-riot':
       return [
-        { title: 'Power-ups', detail: 'Shunt, Barge, Bolt, Mine, Shock, Nitro, Shield and Repair, each with a forward and backward mode.' },
-        { title: 'Modes', detail: 'A 3-lap Race against 7 AI rivals, or a 3-track Combat Points series scored on wrecks.' },
+        { title: 'Power-ups', detail: 'Shunt, Barge, Bolt, Mine, Shock, Nitro, Shield, Repair, Railgun, Flak, Oil Slick and Ram, each with a forward and backward mode.' },
+        { title: 'Modes', detail: 'A 3-lap Race against 7 AI rivals, a 3-track Combat Points series, or Deathmatch on the circuit or in the Dust Bowl arena.' },
         { title: 'Progression', detail: 'Fan Points, Fan Runs and up to 5 Lights per event, saved in your browser.' },
         { title: 'Assets', detail: 'Eight custom 3D cars, street lamps, billboards, towers, cranes and hand-made textures.' },
       ]

@@ -556,7 +556,7 @@ export const tiles: Tile[] = [
     period: 'Play now',
     genre: 'Racing',
     blurb:
-      'A neon street racer with weapons. Eight colour-coded power-ups, a three-slot bay, ten segments of health, drift handling, seven AI rivals and a Combat Points series. Win fans, earn Lights.',
+      'A neon street racer with weapons. Twelve colour-coded power-ups, a three-slot bay, ten segments of health, drift handling, seven AI rivals, a Combat Points series and a Dust Bowl deathmatch arena. Win fans, earn Lights.',
     icon: CarFront,
     accent: ['#831843', '#f0abfc'],
     action: { kind: 'route', to: '#/racer', label: 'Race' },

@@ -229,6 +229,8 @@ function localJoin(code: string): Promise<Link> {
 /* ---------- Protocol ---------- */
 
 export type NetMode = 'race' | 'deathmatch'
+/** Deathmatch map: the city circuit, or the Dust Bowl arena. Races always use the circuit. */
+export type MapId = 'harbor' | 'bowl'
 
 export interface MatchSettings {
   mode: NetMode
@@ -236,6 +238,7 @@ export interface MatchSettings {
   minutes: number
   bots: number
   difficulty: number
+  map: MapId
 }
 
 export interface LobbyPlayer {

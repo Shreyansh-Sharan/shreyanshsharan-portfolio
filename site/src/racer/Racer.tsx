@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, Copy, Crown, Flag, Globe, LogIn, Play, Skull, Star, Swords, User, Users } from 'lucide-react'
 import { tiles } from '../data/content'
-import { navigate } from '../lib/router'
+import { navigate, parse } from '../lib/router'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
 import { CONFIG } from './config'
@@ -13,7 +13,7 @@ import { loadRacerAssets, type RacerAssets } from './assets'
 import { fanLevel, readSave, writeSave, POWER_NAMES, type Save } from './save'
 import { RaceStage } from './RaceStage'
 import { Results, Standings } from './Results'
-import { hostRoom, joinRoom, type Link, type LobbyPlayer, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
+import { hostRoom, joinRoom, type Link, type LobbyPlayer, type MapId, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
 import type { Mode, RaceResult } from './game'
 
 const accent = tiles.find((t) => t.id === 'volt-riot')?.accent ?? (['#831843', '#f0abfc'] as [string, string])
@@ -43,7 +43,12 @@ function store(key: string, value: string) {
   }
 }
 
-const DEFAULT_SETTINGS: MatchSettings = { mode: 'race', laps: CONFIG.race_laps, minutes: CONFIG.deathmatch_minutes, bots: 5, difficulty: 1 }
+const DEFAULT_SETTINGS: MatchSettings = { mode: 'race', laps: CONFIG.race_laps, minutes: CONFIG.deathmatch_minutes, bots: 5, difficulty: 1, map: 'harbor' }
+
+const MAPS: [MapId, string][] = [
+  ['harbor', 'Harbor Loop'],
+  ['bowl', 'Dust Bowl'],
+]
 
 /** Grid for an online match: humans first, AI drivers fill the rest. */
 function buildSetup(players: LobbyPlayer[], settings: MatchSettings): MatchSetup {
@@ -53,8 +58,21 @@ function buildSetup(players: LobbyPlayer[], settings: MatchSettings): MatchSetup
   return { settings, slots: [...humans, ...ai], seed: Math.floor(Math.random() * 1e9) }
 }
 
-export function Racer({ auto, join, onAccent }: { auto?: 'race' | 'combat'; join?: string; onAccent: (a: [string, string], focus: string) => void }) {
+export function Racer({
+  auto,
+  join,
+  onAccent,
+}: {
+  auto?: 'race' | 'combat' | 'deathmatch'
+  join?: string
+  onAccent: (a: [string, string], focus: string) => void
+}) {
   useEffect(() => onAccent(accent, 'volt-riot'), [onAccent])
+  // `#/racer?auto=deathmatch&map=bowl` (tests): straight into a Dust Bowl deathmatch.
+  const [autoMap] = useState<MapId | undefined>(() => {
+    const r = parse(window.location.hash)
+    return r.name === 'racer' ? r.map : undefined
+  })
   const [stage, setStage] = useState<Stage>(auto ? 'race' : 'menu')
   const [playMode, setPlayMode] = useState<PlayMode>(join ? 'join' : 'solo')
   const [mode, setMode] = useState<Mode>(auto ?? 'race')
@@ -319,7 +337,7 @@ export function Racer({ auto, join, onAccent }: { auto?: 'race' | 'combat'; join
         key={runKey}
         options={
           online && s
-            ? { mode: s.mode, carId, difficulty: s.difficulty, round: 0, laps: s.laps, minutes: s.minutes, net: { link: session!.link, setup: setup! } }
+            ? { mode: s.mode, carId, difficulty: s.difficulty, round: 0, laps: s.laps, minutes: s.minutes, map: s.map, net: { link: session!.link, setup: setup! } }
             : {
                 mode: auto ?? mode,
                 carId: auto ? 'sable' : carId,
@@ -328,6 +346,7 @@ export function Racer({ auto, join, onAccent }: { auto?: 'race' | 'combat'; join
                 autopilot: !!auto,
                 laps: settings.laps,
                 minutes: settings.minutes,
+                map: auto ? autoMap : settings.map,
                 bots: auto ? undefined : settings.bots,
               }
         }
@@ -470,15 +489,26 @@ function SettingsPanel({
           <Seg value={settings.laps} options={CONFIG.race_laps_options.map((n) => [n, String(n)] as [number, string])} onChange={(laps) => onChange({ ...settings, laps })} disabled={readOnly} />
         </div>
       ) : (
-        <div className="field">
-          <span>Time limit</span>
-          <Seg
-            value={settings.minutes}
-            options={CONFIG.deathmatch_minutes_options.map((n) => [n, `${n} min`] as [number, string])}
-            onChange={(minutes) => onChange({ ...settings, minutes })}
-            disabled={readOnly}
-          />
-        </div>
+        <>
+          <div className="field">
+            <span>Map</span>
+            <Seg value={settings.map ?? 'harbor'} options={MAPS} onChange={(map) => onChange({ ...settings, map })} disabled={readOnly} />
+          </div>
+          <p className="muted small">
+            {settings.map === 'bowl'
+              ? 'Dust Bowl: an open, banked desert arena. Rock pillars and wrecks for cover, power-ups all over the floor.'
+              : 'Harbor Loop: the city circuit, fighting in traffic.'}
+          </p>
+          <div className="field">
+            <span>Time limit</span>
+            <Seg
+              value={settings.minutes}
+              options={CONFIG.deathmatch_minutes_options.map((n) => [n, `${n} min`] as [number, string])}
+              onChange={(minutes) => onChange({ ...settings, minutes })}
+              disabled={readOnly}
+            />
+          </div>
+        </>
       )}
       <label className="field">
         <span>
@@ -571,7 +601,7 @@ function Menu(p: {
         <p className="eyebrow">Extras · Combat racer</p>
         <h1 className="page-title vr-title">VOLT RIOT</h1>
         <p className="page-lead">
-          Neon street racing with weapons. Eight power-ups, three bay slots, ten segments of health. Race or fight solo against AI, or online with
+          Neon street racing with weapons. Twelve power-ups, three bay slots, ten segments of health. Race or fight solo against AI, or online with
           friends.
         </p>
       </header>
@@ -628,7 +658,7 @@ function Menu(p: {
                 <p className="muted small">
                   {mode === 'race'
                     ? 'First across the line after the set laps. Finish on the podium, meet the fan demand and complete every Fan Run (solo) for up to 5 Lights.'
-                    : 'Weapons-only pickups that respawn fast. Wreck the most cars before time runs out: Combat Points scoring, and your own wrecks cost points.'}
+                    : `Weapons-only pickups that respawn fast. Score until time runs out: ${CONFIG.dm_points_wreck} a wreck, ${CONFIG.dm_points_per_damage} per segment of damage you deal, ${-CONFIG.dm_points_wrecked} off each time you're wrecked.`}
                 </p>
               )}
               <SettingsPanel mode={mode} settings={p.settings} onChange={p.setSettings} online={online} />
@@ -737,7 +767,8 @@ function Lobby({
         <p className="eyebrow">VOLT RIOT · Online lobby</p>
         <h1 className="page-title vr-title">{s.mode === 'deathmatch' ? 'Deathmatch' : 'Race'} room</h1>
         <p className="page-lead">
-          {s.mode === 'deathmatch' ? `${s.minutes} minutes, weapons only` : `${s.laps} lap${s.laps > 1 ? 's' : ''}`} · {session.players.length} driver
+          {s.mode === 'deathmatch' ? `${s.map === 'bowl' ? 'Dust Bowl' : 'Harbor Loop'}, ${s.minutes} minutes, weapons only` : `${s.laps} lap${s.laps > 1 ? 's' : ''}`} ·{' '}
+          {session.players.length} driver
           {session.players.length === 1 ? '' : 's'} + {bots} AI
         </p>
       </header>
@@ -813,6 +844,10 @@ const POWER_HELP: Record<PowerType, string> = {
   nitro: 'Boost. Back: air brake for hairpins.',
   shield: 'Blocks the next hit for 5 s.',
   repair: `Restores ${CONFIG.repair_amount} health segments.`,
+  rail: 'Charges for a moment, then a beam that pierces every car in line. Back: fires out the rear.',
+  flak: 'Short-range shotgun spread. Back: an airburst just behind you.',
+  oil: 'Dropped behind, it spins out whoever drives through. Forward: flung ahead.',
+  ram: `Armoured overdrive: heavy, faster, half damage, Barge-proof; rams hit hard. Back: ${CONFIG.ram_brace_duration} s brace.`,
 }
 
 function CarCard({ car }: { car: CarModel }) {

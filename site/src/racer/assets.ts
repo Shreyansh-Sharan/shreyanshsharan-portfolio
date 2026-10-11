@@ -1,10 +1,11 @@
 // Loads the Higgsfield-generated cars, track props and textures. Anything that fails falls back to procedural meshes.
+// The Dust Bowl borrows a few small props from the open world (public/world/models).
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { CARS } from './cars'
 
-export type PropName = 'lamp' | 'billboard' | 'tower' | 'crane' | 'gantry'
+export type PropName = 'lamp' | 'billboard' | 'tower' | 'crane' | 'gantry' | 'barrels' | 'cactus' | 'ruins' | 'tractor'
 export type TextureName = 'asphalt' | 'facade' | 'metal' | 'concrete'
 
 export interface RacerAssets {
@@ -14,20 +15,22 @@ export interface RacerAssets {
 }
 
 const base = `${import.meta.env.BASE_URL}racer/`
+const worldBase = `${import.meta.env.BASE_URL}world/models/`
+const WORLD_PROPS: PropName[] = ['barrels', 'cactus', 'ruins', 'tractor']
 let pending: Promise<RacerAssets> | null = null
 
 export function loadRacerAssets(onProgress?: (done: number, total: number) => void): Promise<RacerAssets> {
   if (pending) return pending
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const texLoader = new THREE.TextureLoader()
-  const props: PropName[] = ['lamp', 'billboard', 'tower', 'crane', 'gantry']
+  const props: PropName[] = ['lamp', 'billboard', 'tower', 'crane', 'gantry', ...WORLD_PROPS]
   const textures: TextureName[] = ['asphalt', 'facade', 'metal', 'concrete']
   const total = CARS.length + props.length + textures.length
   let done = 0
   const tick = () => onProgress?.(++done, total)
   const glb = (name: string) =>
     loader
-      .loadAsync(`${base}models/${name}.glb`)
+      .loadAsync(WORLD_PROPS.includes(name as PropName) ? `${worldBase}${name}.glb` : `${base}models/${name}.glb`)
       .then((g) => g.scene as THREE.Object3D)
       .catch(() => null)
       .finally(tick)

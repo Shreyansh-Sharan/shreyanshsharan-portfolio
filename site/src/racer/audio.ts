@@ -3,7 +3,7 @@ import { isMuted } from '../lib/sound'
 import type { PowerType } from './track'
 
 const PICKUP_PITCH: Record<PowerType, number> = {
-  shunt: 660, barge: 392, bolt: 880, mine: 523, shock: 988, nitro: 740, shield: 1175, repair: 784,
+  shunt: 660, barge: 392, bolt: 880, mine: 523, shock: 988, nitro: 740, shield: 1175, repair: 784, rail: 1046, flak: 587, oil: 330, ram: 440,
 }
 
 export class RacerAudio {
@@ -215,7 +215,44 @@ export class RacerAudio {
       case 'repair':
         for (let k = 0; k < 3; k++) this.synth(t + k * 0.07, 660 * (1 + k * 0.25), 0.18, 0.08, 'triangle', 6000, this.sfx)
         break
+      case 'rail': {
+        // Charge whine rising over the charge time; railShot() is the crack.
+        const ctx = this.ctx
+        if (!ctx || !this.sfx) break
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        o.type = 'sawtooth'
+        o.frequency.setValueAtTime(220, t)
+        o.frequency.exponentialRampToValueAtTime(2400, t + 0.4)
+        g.gain.setValueAtTime(0.0001, t)
+        g.gain.exponentialRampToValueAtTime(0.07, t + 0.38)
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45)
+        o.connect(g).connect(this.sfx)
+        o.start(t)
+        o.stop(t + 0.5)
+        break
+      }
+      case 'flak':
+        this.noiseBurst(t, 0.25, 0.32, 'lowpass', 3200, this.sfx, 300)
+        this.synth(t, 110, 0.18, 0.2, 'square', 800, this.sfx)
+        break
+      case 'oil':
+        this.synth(t, 160, 0.25, 0.12, 'sine', 600, this.sfx)
+        this.noiseBurst(t + 0.05, 0.3, 0.1, 'lowpass', 500, this.sfx, 120)
+        break
+      case 'ram':
+        this.synth(t, 70, 0.6, 0.18, 'sawtooth', 500, this.sfx)
+        this.synth(t + 0.1, 105, 0.6, 0.12, 'sawtooth', 900, this.sfx)
+        this.noiseBurst(t, 0.4, 0.12, 'bandpass', 300, this.sfx, 1200)
+        break
     }
+  }
+
+  railShot() {
+    const t = this.now()
+    this.noiseBurst(t, 0.35, 0.35, 'highpass', 1800, this.sfx, 6000)
+    this.synth(t, 1800, 0.3, 0.12, 'square', 9000, this.sfx)
+    this.synth(t, 90, 0.4, 0.25, 'sine', 400, this.sfx)
   }
 
   airBrake() {
