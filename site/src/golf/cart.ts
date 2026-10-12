@@ -155,12 +155,17 @@ export class Cart {
       // Slopes: downhill speeds you up, uphill slows you.
       const ahead = ground.y(this.pos.x + f.x * 0.8, this.pos.z + f.z * 0.8) - ground.y(this.pos.x - f.x * 0.8, this.pos.z - f.z * 0.8)
       fwd -= 9.81 * (ahead / 1.6) * 0.6 * dt
-      // Lateral grip: tyres bite, unless you're on ice or yanking the handbrake.
+      // Lateral grip: tyres bite hard so the cart goes where its nose points instead of sliding
+      // sideways; ice and the handbrake let it drift.
       const grip = icy ? 0.7 : hb ? 1.3 : surf === 'sand' ? 5 : CONFIG.cart_grip
       lat *= Math.exp(-grip * dt)
-      // Steering scales with speed (and flips in reverse).
-      const turn = (hb ? CONFIG.cart_turn_rate * 1.5 : CONFIG.cart_turn_rate) * THREE.MathUtils.clamp(fwd / 5, -1, 1)
-      this.yaw -= steer * turn * dt
+      // Steering keeps real authority even at low speed (a floor), so the nose actually turns;
+      // it eases in from a standstill and flips when reversing.
+      const dirSign = fwd < -0.2 ? -1 : 1
+      const speedScale = THREE.MathUtils.clamp(0.45 + Math.abs(fwd) / 6, 0, 1)
+      const turn = (hb ? CONFIG.cart_turn_rate * 1.5 : CONFIG.cart_turn_rate) * speedScale * dirSign
+      // Only steer when actually moving, so a parked cart doesn't spin in place.
+      if (Math.abs(fwd) > 0.3) this.yaw -= steer * turn * dt
     }
     if (this.spin > 0) {
       this.spin = Math.max(0, this.spin - dt)

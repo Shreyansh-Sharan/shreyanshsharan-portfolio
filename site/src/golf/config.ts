@@ -71,8 +71,8 @@ export const CONFIG = {
   cart_accel: 9, // m/s²
   cart_brake: 20, // m/s²
   cart_reverse_speed: 6, // m/s
-  cart_turn_rate: 2.3, // rad/s at speed
-  cart_grip: 9, // lateral grip (1/s); the handbrake drops it for drifts
+  cart_turn_rate: 2.6, // rad/s at speed
+  cart_grip: 16, // lateral grip (1/s): high so the cart tracks its nose; the handbrake drops it for drifts
   cart_gravity: 20, // m/s² when airborne off a ramp
   cart_enter_range: 3.4, // m
   cart_idle_life: 25, // s an empty summoned cart stays before it vanishes
