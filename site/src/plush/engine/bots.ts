@@ -73,12 +73,12 @@ export function keepInside(toy: Toy, cx: number, cz: number, radius: number, mar
   toy.pad.mz = toy.pad.mz * (1 - k) - (dz / r) * k
 }
 
-/** The nearest active rival within `range`, or null. */
+/** The nearest active rival within `range`, or null. In team levels, rivals are the other team. */
 export function nearestRival(ctx: LevelCtx, toy: Toy, range = Infinity) {
   let best: Toy | null = null
   let bd = range
   for (const t of ctx.toys) {
-    if (t === toy || t.status !== 'play') continue
+    if (t === toy || t.status !== 'play' || (toy.team >= 0 && t.team === toy.team)) continue
     const d = t.pos.distanceTo(toy.pos)
     if (d < bd) {
       bd = d
@@ -98,4 +98,35 @@ export function bully(toy: Toy, target: Toy, range = 1.3) {
     const f = toy.facing()
     if ((dx * f.x + dz * f.z) / d > 0.6) toy.pad.shove = true
   }
+}
+
+/** Team levels: the nearest active teammate within `range`, or null. */
+export function nearestMate(ctx: LevelCtx, toy: Toy, range = Infinity) {
+  let best: Toy | null = null
+  let bd = range
+  for (const t of ctx.toys) {
+    if (t === toy || t.status !== 'play' || toy.team < 0 || t.team !== toy.team) continue
+    const d = t.pos.distanceTo(toy.pos)
+    if (d < bd) {
+      bd = d
+      best = t
+    }
+  }
+  return best
+}
+
+/**
+ * Team levels: share out roles. Returns this toy's rank among its active teammates (0..n-1) by `score`
+ * (lower first), so e.g. the two teammates nearest the ball chase it and the rest hold positions.
+ */
+export function teamRank(ctx: LevelCtx, toy: Toy, score: (t: Toy) => number) {
+  const me = score(toy)
+  let rank = 0, n = 1
+  for (const t of ctx.toys) {
+    if (t === toy || t.status !== 'play' || t.team !== toy.team) continue
+    n++
+    const s = score(t)
+    if (s < me || (s === me && t.idx < toy.idx)) rank++
+  }
+  return { rank, n }
 }

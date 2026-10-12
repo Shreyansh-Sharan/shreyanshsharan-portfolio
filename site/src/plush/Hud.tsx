@@ -38,11 +38,12 @@ export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: Pl
               {hud.mode === 'quick' ? 'Quick Play' : hud.round.final ? 'Final' : `Round ${hud.round.index + 1} of ${hud.round.total}`} · {hud.level.name}
             </span>
             <strong className={`pp-timer ${playing && hud.timeLeft < 15 ? 'is-low' : ''}`}>{fmt(hud.timeLeft)}</strong>
-            {hud.mode === 'show' && (
+            {hud.mode === 'show' && !hud.teams && (
               <span className="pp-count">
                 {hud.round.final ? 'One wins the crown' : `${hud.qualified}/${hud.target} through · ${hud.active} still in`}
               </span>
             )}
+            {hud.teams && <TeamScores hud={hud} />}
           </div>
         )}
         <ul className="pp-feed">
@@ -75,8 +76,28 @@ export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: Pl
   )
 }
 
+/** Team levels: both scores side by side, your team marked. */
+function TeamScores({ hud }: { hud: Hud }) {
+  const t = hud.teams!
+  return (
+    <div className="pp-teams" data-testid="pp-teams">
+      {t.map((x, i) => (
+        <span key={x.name} className={`pp-team ${x.mine ? 'is-mine' : ''} ${x.won ? 'is-won' : ''}`} style={{ ['--pp-team' as string]: x.color, order: i * 2 }}>
+          <i />
+          {x.name}
+          <b>{Math.round(x.score)}</b>
+        </span>
+      ))}
+      <span className="pp-teamvs" style={{ order: 1 }}>
+        {hud.teamScoreName}
+      </span>
+    </div>
+  )
+}
+
 function IntroCard({ hud }: { hud: Hud }) {
   const l = hud.level!
+  const myTeam = hud.teams && hud.me.team >= 0 ? hud.teams[hud.me.team] : null
   return (
     <div className="pp-card pp-intro" style={{ ['--pp-accent' as string]: l.accent }}>
       <p className="pp-kicker">
@@ -89,7 +110,14 @@ function IntroCard({ hud }: { hud: Hud }) {
           <li key={h}>{h}</li>
         ))}
       </ul>
-      {hud.mode === 'show' && <p className="pp-goal">{hud.round.final ? 'One toy takes the crown.' : `${hud.target} of ${hud.field} go through.`}</p>}
+      {myTeam && (
+        <p className="pp-myteam" style={{ ['--pp-team' as string]: myTeam.color }}>
+          You are on <strong>Team {myTeam.name}</strong>
+        </p>
+      )}
+      {hud.mode === 'show' && (
+        <p className="pp-goal">{hud.teams ? 'The winning team goes through. The losing team is out.' : hud.round.final ? 'One toy takes the crown.' : `${hud.target} of ${hud.field} go through.`}</p>
+      )}
       {l.tricks.length > 0 && (
         <div className="pp-tricklist">
           {l.tricks.map((t) => {
@@ -113,7 +141,7 @@ function RoundEnd({ hud }: { hud: Hud }) {
   const r = hud.roundEnd!
   return (
     <div className="pp-card pp-roundend">
-      <h2>{hud.round.final ? 'And the crown goes to…' : 'Round over'}</h2>
+      <h2>{hud.round.final ? 'And the crown goes to…' : r.team ? <span style={{ color: r.team.color }}>Team {r.team.name} wins!</span> : 'Round over'}</h2>
       <div className="pp-cols">
         <div>
           <h3 className="pp-through">Through</h3>

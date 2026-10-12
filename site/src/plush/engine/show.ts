@@ -66,6 +66,29 @@ export function roundTarget(field: number, roundsLeft: number, final: boolean, s
   return Math.max(2, Math.min(field - 1, Math.round(field * keep)))
 }
 
+/**
+ * Two balanced random teams for a team round: people are spread across both sides first, then bots fill in so
+ * the sizes differ by at most one. Returns the team of each toy, in order.
+ */
+export function assignTeams(humans: readonly boolean[], rng: Rng): number[] {
+  const n = humans.length
+  const out = new Array<number>(n).fill(0)
+  const order = rng.shuffle([...Array(n).keys()])
+  const people = order.filter((i) => humans[i])
+  const bots = order.filter((i) => !humans[i])
+  const first = rng.int(0, 2)
+  const size = [0, 0]
+  for (const i of [...people, ...bots]) {
+    // The smaller side takes the next toy; ties alternate from a random first side.
+    const t = size[0] === size[1] ? (size[0] + size[1] + first) % 2 : size[0] < size[1] ? 0 : 1
+    out[i] = t
+    size[t]++
+  }
+  return out
+}
+
+export const TEAM_DEFAULTS = { names: ['Buttons', 'Bobbins'] as [string, string], colors: ['#ef4444', '#3b82f6'] as [string, string] }
+
 export interface Award {
   id: 'menace' | 'betrayed' | 'revenge' | 'saint' | 'crown'
   title: string

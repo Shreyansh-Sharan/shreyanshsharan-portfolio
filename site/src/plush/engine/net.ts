@@ -26,6 +26,8 @@ export interface RoundSetup {
   final: boolean
   /** Contestant index → spawn order is the order of `toys`. */
   settings: ShowSettings
+  /** Team levels: the team of each toy, in the order of `toys` (decided by the host). */
+  teams?: number[]
 }
 
 export type RosterRow = Pick<Contestant, 'idx' | 'id' | 'name' | 'kind' | 'tint' | 'human' | 'out' | 'outRound'>

@@ -5225,6 +5225,11 @@ p {
   will-change: transform;
 }
 
+/* Team levels: the tag wears the team colour. */
+.pp-tag.has-team {
+  background: color-mix(in srgb, var(--pp-team) 45%, rgba(20, 12, 6, 0.7));
+}
+
 .pp-tag.is-me {
   background: rgba(120, 53, 15, 0.75);
 }
@@ -5367,6 +5372,65 @@ p {
 .pp-count {
   font-size: 13px;
   color: var(--muted);
+}
+
+/* Team levels: the two scores under the timer. */
+.pp-teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pp-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  border: 2px solid var(--pp-team);
+  background: color-mix(in srgb, var(--pp-team) 22%, rgba(20, 12, 6, 0.6));
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.pp-team i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pp-team);
+}
+
+.pp-team b {
+  font-size: 18px;
+  min-width: 1.2em;
+  text-align: center;
+}
+
+.pp-team.is-mine {
+  box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.8);
+}
+
+.pp-team.is-won {
+  background: var(--pp-team);
+}
+
+.pp-teamvs {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.pp-myteam {
+  margin: 0 0 8px;
+  font-weight: 800;
+}
+
+.pp-myteam strong {
+  color: var(--pp-team);
 }
 
 .pp-feed {

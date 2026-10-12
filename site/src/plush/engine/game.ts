@@ -15,10 +15,10 @@ import { loadPhysics, Phys, RAPIER, STEP, type RigidBody } from './physics'
 import { ANIMS, ToyRig, type AnimKey, type RigState } from './rig'
 import { makeRng, type Rng } from './rng'
 import { Sabotage, THROW_INFO, trickPrice } from './sabotage'
-import { awardsFor, botName, planShow, roundTarget, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
+import { assignTeams, awardsFor, botName, planShow, roundTarget, TEAM_DEFAULTS, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
 import { BALL_DROP, clearOneShots, emptyPad, FOOT, Toy, type BodyMode, type Pad, type ToyEvents } from './toy'
 import {
-  freshStats, THROW_KINDS, type AnyLevel, type Contestant, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice, type ThrowKind,
+  freshStats, THROW_KINDS, type AnyLevel, type Contestant, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice, type TeamInfo, type ThrowKind,
   type TrickDef, type TrickIcon,
 } from './types'
 import { LEVELS, levelById } from '../levels'
@@ -71,7 +71,10 @@ export interface Hud {
   field: number
   timeLeft: number
   countdown: number
-  me: { status: 'play' | 'qualified' | 'failed' | 'gallery' | 'none'; sprinkles: number; busy: number; grudge: string | null; bubble: boolean; name: string; tint: string }
+  me: { status: 'play' | 'qualified' | 'failed' | 'gallery' | 'none'; sprinkles: number; busy: number; grudge: string | null; bubble: boolean; name: string; tint: string; team: number }
+  /** Team levels: both teams with their scores (null otherwise). `won` is set once a team has won. */
+  teams: { name: string; color: string; score: number; alive: number; mine: boolean; won: boolean }[] | null
+  teamScoreName: string
   spectating: string | null
   tricks: TrickHud[]
   ammo: { kind: ThrowKind; name: string; n: number; ready: boolean; desc: string }[]
@@ -79,7 +82,7 @@ export interface Hud {
   levelHud: LevelHud | null
   feed: { id: number; text: string }[]
   banner: { id: number; text: string; color: string } | null
-  roundEnd: { through: string[]; out: string[] } | null
+  roundEnd: { through: string[]; out: string[]; team?: { name: string; color: string } } | null
   results: ShowResults | null
   roster: { idx: number; name: string; tint: string; kind: string; human: boolean; me: boolean; out: boolean }[]
   online: { code: string; role: 'host' | 'client'; people: number } | null
@@ -107,6 +110,9 @@ interface Round {
   ended: boolean
   outOrder: number[]
   tags: { el: HTMLDivElement; name: HTMLSpanElement; mark: HTMLSpanElement }[]
+  /** Team levels: the two teams (empty otherwise) and the winner (-1 until decided). */
+  teams: TeamInfo[]
+  teamWin: number
 }
 
 /** One effect event (host → clients). `to` = contestant index for screen-only effects. */
@@ -240,7 +246,7 @@ class Ctx implements LevelCtx {
     this.fx.feed(`${toy.name} ${this.r.setup.final && this.mode === 'show' ? 'wins the crown!' : 'is through'}${note ? ` (${note})` : ''}`)
   }
 
-  fail(toy: Toy, reason: string) {
+  fail(toy: Toy, reason: string, quiet = false) {
     if (toy.status !== 'play' || !this.isHost) return
     if (this.mode !== 'show') {
       this.fx.popup(toy, reason, '#fca5a5')
@@ -256,8 +262,9 @@ class Ctx implements LevelCtx {
     this.r.outOrder.push(toy.c.idx)
     this.r.sab.joinGallery(toy.c)
     this.fx.puff(toy.pos, 'stuff', 18)
-    this.fx.sfx('out', toy.pos)
     this.fx.popup(toy, 'OUT', '#f87171')
+    if (quiet) return
+    this.fx.sfx('out', toy.pos)
     this.fx.say('ELIMINATED', '#f87171', 2.2, toy)
     this.fx.feed(`${toy.name} is out: ${reason}`)
   }
@@ -283,7 +290,7 @@ class Ctx implements LevelCtx {
 
   knock(toy: Toy, impulse: THREE.Vector3Like, stun: number, by?: Toy | null) {
     toy.knock(impulse.x, impulse.y, impulse.z, stun)
-    if (by && by !== toy) toy.grudge = by
+    if (by && by !== toy && !this.sameTeam(toy, by)) toy.grudge = by
     const pow = Math.hypot(impulse.x, impulse.z)
     if (pow > 4) {
       this.fx.puff(toy.pos, 'stuff', 6)
@@ -307,7 +314,78 @@ class Ctx implements LevelCtx {
   }
 
   blame(victim: Toy, by: Toy) {
-    if (victim !== by) victim.grudge = by
+    if (victim !== by && !this.sameTeam(victim, by)) victim.grudge = by
+  }
+
+  /* ----- Teams ----- */
+
+  get teams() {
+    return this.r.teams
+  }
+
+  teamOf(toy: Toy) {
+    return toy.team
+  }
+
+  sameTeam(a: Toy, b: Toy) {
+    return a !== b && a.team >= 0 && a.team === b.team
+  }
+
+  rivalsOf(toy: Toy) {
+    return this.r.toys.filter((t) => t !== toy && t.status === 'play' && !this.sameTeam(t, toy))
+  }
+
+  teammatesOf(toy: Toy) {
+    return this.r.toys.filter((t) => t !== toy && t.status === 'play' && this.sameTeam(t, toy))
+  }
+
+  teamToys(team: number) {
+    return this.r.toys.filter((t) => t.status === 'play' && t.team === team)
+  }
+
+  addTeamScore(team: number, n: number, why?: string, by?: Toy | null) {
+    const t = this.r.teams[team]
+    if (!t || !this.isHost) return
+    t.score += n
+    if (why) {
+      if (by) this.fx.popup(by, `+${n} ${why}`, t.color)
+      this.fx.feed(`${by ? `${by.name} (${t.name})` : t.name}: +${n} ${why}`)
+    }
+  }
+
+  setTeamScore(team: number, score: number) {
+    const t = this.r.teams[team]
+    if (t && this.isHost) t.score = score
+  }
+
+  winTeam(team: number, note?: string) {
+    const r = this.r
+    if (!this.isHost || !r.teams.length || r.teamWin >= 0) return
+    if (team < 0 || team >= r.teams.length) team = this.g.teamByScore(r)
+    r.teamWin = team
+    const win = r.teams[team]
+    this.fx.say(`${win.name.toUpperCase()} WIN!`, win.color, 3)
+    this.fx.feed(`Team ${win.name} wins${note ? ` (${note})` : ''}!`)
+    this.fx.sfx('cheer')
+    for (const t of r.toys) {
+      if (t.status !== 'play') continue
+      if (t.team === team) {
+        t.status = 'qualified'
+        t.doneAt = this.g.clock
+        t.doneNote = note ?? 'team win'
+        this.fx.confetti(t.pos)
+        this.fx.say(this.mode === 'show' ? 'YOUR TEAM WINS! THROUGH!' : 'YOUR TEAM WINS!', '#86efac', 2.4, t)
+      } else if (this.mode === 'show') {
+        this.fx.say('YOUR TEAM LOST: ELIMINATED', '#f87171', 2.6, t)
+        this.fail(t, `team ${r.teams[t.team]?.name ?? ''} lost`, true)
+      } else this.fx.say('YOUR TEAM LOST', '#fca5a5', 2.4, t)
+    }
+    if (this.mode === 'show') {
+      const lost = r.teams.filter((t) => t.idx !== team).map((t) => t.name).join(', ')
+      this.fx.feed(`Team ${lost} is out of the Show`)
+      this.fx.sfx('out')
+    }
+    this.end()
   }
 
   emit(data: unknown, to?: Toy) {
@@ -718,6 +796,7 @@ export class Game {
       final: p.final,
       settings: { ...this.settings },
     }
+    if (lv.teams) setup.teams = assignTeams(alive.map((c) => c.human), makeRng(setup.seed ^ 0x7ea3))
     this.beginRound(setup)
   }
 
@@ -750,7 +829,12 @@ export class Game {
     root.name = `level:${level.id}`
     this.scene.add(root)
     const rng = makeRng(setup.seed)
-    const r = { setup, level, phys, root, toys: [], rigs: [], props: [], grabbables: [], rng, ended: false, outOrder: [], tags: [] } as unknown as Round
+    const r = { setup, level, phys, root, toys: [], rigs: [], props: [], grabbables: [], rng, ended: false, outOrder: [], tags: [], teams: [], teamWin: -1 } as unknown as Round
+    if (level.teams) {
+      const names = level.teams.names ?? TEAM_DEFAULTS.names
+      const colors = level.teams.colors ?? TEAM_DEFAULTS.colors
+      r.teams = [0, 1].map((i) => ({ idx: i, name: names[i], color: colors[i], score: 0 }))
+    }
     r.ctx = new Ctx(this, r, rng)
     r.hazards = new Hazards(() => r.ctx)
     this.round = r
@@ -777,6 +861,12 @@ export class Game {
       if (!c) return
       const toy = new Toy(phys, r.toys.length, c, { x: i * 2, y: -50, z: 0 }, 0, false)
       toy.isMe = c.idx === this.meIdx
+      if (level.teams) {
+        // Teams come from the host; a deterministic split is the fallback (same on every screen).
+        toy.team = setup.teams?.[i] ?? i % 2
+        const ff = level.teams.friendlyFire
+        toy.friendly = ff === true ? { shove: true, dive: true, grab: true } : { shove: false, dive: false, grab: true, ...(ff || {}) }
+      }
       r.toys.push(toy)
     })
     r.state = level.init(r.ctx)
@@ -789,6 +879,7 @@ export class Game {
       if (level.runSpeed) toy.runSpeed = level.runSpeed
       const rig = new ToyRig(this.opts.assets, toy.c.kind, toy.c.tint, this.shadowsOn)
       toy.rig = rig
+      if (toy.team >= 0 && r.teams[toy.team]) rig.setTeam(r.teams[toy.team].color)
       r.rigs.push(rig)
       root.add(rig.root, rig.ball)
     })
@@ -825,7 +916,9 @@ export class Game {
     r.tags = r.toys.map((t) => {
       const el = document.createElement('div')
       el.className = `pp-tag${t.isMe ? ' is-me' : ''}`
-      el.style.setProperty('--pp-tint', t.c.tint === '#ffffff' ? '#fde68a' : t.c.tint)
+      const team = r.teams[t.team]
+      el.style.setProperty('--pp-tint', team ? team.color : t.c.tint === '#ffffff' ? '#fde68a' : t.c.tint)
+      if (team) el.style.setProperty('--pp-team', team.color)
       const mark = document.createElement('span')
       mark.className = 'pp-tag-mark'
       const name = document.createElement('span')
@@ -1016,16 +1109,17 @@ export class Game {
 
   /** The rival a trick would hit: picked (Tab / click), under the crosshair, or your grudge. */
   aimTarget(r: Round, me: Toy | null): Toy | null {
+    const mate = (t: Toy) => !!me && me.team >= 0 && t.team === me.team
     const p = r.toys[this.pinned]
-    if (p && p.status === 'play' && p !== me) return p
+    if (p && p.status === 'play' && p !== me && !mate(p)) return p
     const h = r.toys[this.hover]
-    if (h && h.status === 'play' && h !== me) return h
+    if (h && h.status === 'play' && h !== me && !mate(h)) return h
     if (me?.grudge && me.grudge.status === 'play') return me.grudge
     return null
   }
 
   private cycleTarget(r: Round, me: Toy | null) {
-    const rivals = r.toys.filter((t) => t !== me && t.status === 'play')
+    const rivals = r.toys.filter((t) => t !== me && t.status === 'play' && !(me && me.team >= 0 && t.team === me.team))
     if (!rivals.length) return
     if (me) rivals.sort((a, b) => a.pos.distanceToSquared(me.pos) - b.pos.distanceToSquared(me.pos))
     const i = rivals.findIndex((t) => t.idx === this.pinned)
@@ -1289,6 +1383,20 @@ export class Game {
       if (!a) r.ended = true
       return
     }
+    if (r.teams.length) {
+      // Team rounds end on winTeam() or the timer; a side with nobody left standing loses.
+      if (!a) r.ended = true
+      else if (r.teamWin < 0) {
+        let a0 = 0, a1 = 0
+        for (const t of r.toys) {
+          if (t.status !== 'play') continue
+          if (t.team === 0) a0++
+          else a1++
+        }
+        if (!a0 || !a1) ctx.winTeam(a0 ? 0 : 1, 'last ones standing')
+      }
+      return
+    }
     if (q >= r.setup.target) {
       r.ended = true
     } else if (q + a <= r.setup.target && a > 0) {
@@ -1298,11 +1406,26 @@ export class Game {
     } else if (!a) r.ended = true
   }
 
+  /** The team with the higher score (then more toys standing; a dead heat goes to a coin toss on the round seed). */
+  teamByScore(r: Round) {
+    const [a, b] = r.teams
+    if (!a || !b) return 0
+    if (a.score !== b.score) return a.score > b.score ? 0 : 1
+    const alive = [0, 0]
+    for (const t of r.toys) if (t.status === 'play' && t.team >= 0) alive[t.team]++
+    if (alive[0] !== alive[1]) return alive[0] > alive[1] ? 0 : 1
+    return r.setup.seed & 1
+  }
+
   private timeUp(r: Round) {
     const ctx = r.ctx
     this.fxApi.say("TIME'S UP", '#fde68a', 1.6)
     if (r.level.onTimeUp) {
       r.level.onTimeUp(ctx, r.state)
+      return
+    }
+    if (r.teams.length) {
+      ctx.winTeam(this.teamByScore(r), 'on points')
       return
     }
     const survival = r.level.type === 'survival' || r.level.type === 'final'
@@ -1326,6 +1449,8 @@ export class Game {
     if (this.phase === 'end') return
     const ctx = r.ctx
     this.setPhase('end')
+    // A team round that ended without a winner (the level's onTimeUp didn't pick one) goes on points.
+    if (r.teams.length && r.teamWin < 0 && this.isPlaying(r)) ctx.winTeam(this.teamByScore(r), 'on points')
     if (r.setup.mode === 'show') {
       // Anyone still playing who didn't make it is out, worst first (by rank).
       const ranked = r.level.rank ? r.level.rank(ctx, r.state) : ctx.active()
@@ -1350,6 +1475,10 @@ export class Game {
     }
     this.fxApi.say(r.setup.mode === 'quick' ? 'ROUND OVER' : r.setup.final ? 'SHOW OVER' : 'ROUND OVER', '#fde68a', 2)
     this.audio.music.stop()
+  }
+
+  private isPlaying(r: Round) {
+    return r.toys.some((t) => t.status === 'play')
   }
 
   private afterRound(r: Round) {
@@ -1633,7 +1762,7 @@ export class Game {
     if (render && (r.level.pointer ?? 'look') === 'look' && me) {
       let best = -1, bd = 0.3
       for (const t of r.toys) {
-        if (t === me || t.status !== 'play') continue
+        if (t === me || t.status !== 'play' || (me.team >= 0 && t.team === me.team)) continue
         const v = _w.set(t.pos.x, t.pos.y + 0.4, t.pos.z).project(this.cam.camera)
         if (v.z > 1) continue
         const d = Math.hypot(v.x, v.y)
@@ -1711,7 +1840,7 @@ export class Game {
       const s = THREE.MathUtils.clamp(9 / dist, 0.55, 1.1)
       tag.el.style.transform = `translate(${((v.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * h).toFixed(1)}px) translate(-50%, -100%) scale(${s.toFixed(2)})`
       const grudge = !!me && me.grudge === t && t !== me
-      const cls = `pp-tag${t.isMe ? ' is-me' : ''}${grudge ? ' is-grudge' : ''}${aim === t ? ' is-aim' : ''}${t.status === 'qualified' ? ' is-through' : ''}${t.status === 'failed' ? ' is-out' : ''}${t.bubble ? ' is-bubble' : ''}`
+      const cls = `pp-tag${t.team >= 0 ? ' has-team' : ''}${t.isMe ? ' is-me' : ''}${grudge ? ' is-grudge' : ''}${aim === t ? ' is-aim' : ''}${t.status === 'qualified' ? ' is-through' : ''}${t.status === 'failed' ? ' is-out' : ''}${t.bubble ? ' is-bubble' : ''}`
       if (tag.el.className !== cls) tag.el.className = cls
       const mark = grudge ? '✕' : t.status === 'qualified' ? '✓' : ''
       if (tag.mark.textContent !== mark) tag.mark.textContent = mark
@@ -1765,7 +1894,12 @@ export class Game {
     let roundEnd: Hud['roundEnd'] = null
     if (this.phase === 'end' && r.setup.mode === 'show') {
       roundEnd = { through: r.toys.filter((t) => t.status === 'qualified').map((t) => t.name), out: r.toys.filter((t) => t.status === 'failed').map((t) => t.name) }
+      const tw = r.teams[r.teamWin]
+      if (tw) roundEnd.team = { name: tw.name, color: tw.color }
     }
+    const teams = r.teams.length
+      ? r.teams.map((t) => ({ name: t.name, color: t.color, score: t.score, alive: r.toys.filter((x) => x.team === t.idx && x.status !== 'failed').length, mine: !!me && me.team === t.idx, won: r.teamWin === t.idx }))
+      : null
     const tricksInfo = (level.tricks ?? []).filter((t: TrickDef<unknown>) => (t.minSpice ?? 0) <= r.setup.settings.spice).map((t: TrickDef<unknown>) => ({ name: t.name, cost: t.cost, desc: t.desc, counter: t.counter, icon: t.icon }))
     return {
       phase: this.phase,
@@ -1788,7 +1922,10 @@ export class Game {
         bubble: !!me?.bubble,
         name: this.roster[this.meIdx]?.name ?? this.look.name,
         tint: this.roster[this.meIdx]?.tint ?? this.look.tint,
+        team: me?.team ?? -1,
       },
+      teams,
+      teamScoreName: level.teams?.scoreName ?? 'points',
       spectating: spec,
       tricks,
       ammo,
@@ -2032,6 +2169,7 @@ export class Game {
         return [r2(tr.x), r2(tr.y), r2(tr.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w)]
       }),
       g: [...r.sab.gallery.entries()].map(([idx, g]) => [idx, g.ammo.crumb, g.ammo.paper, g.ammo.feather, r2(g.cd)]),
+      ts: r.teams.length ? [...r.teams.map((t) => r2(t.score)), r.teamWin] : undefined,
     }
   }
 
@@ -2130,6 +2268,10 @@ export class Game {
         t.yaw += dy * Math.min(1, dt * 12)
         if (t.body.isKinematic()) t.body.setNextKinematicTranslation({ x: t.pos.x, y: t.pos.y, z: t.pos.z })
       })
+      if (s.ts) {
+        r.teams.forEach((t, i) => (t.score = s.ts![i] ?? t.score))
+        r.teamWin = s.ts[r.teams.length] ?? -1
+      }
       if (s.l !== null && r.level.unpack) r.level.unpack(r.ctx, r.state, s.l)
       if (s.h) r.hazards.unpack(s.h)
       s.p.forEach((row, i) => {
@@ -2189,12 +2331,13 @@ export class Game {
       toys: r
         ? r.toys.map((t) => ({
             idx: t.idx, c: t.c.idx, name: t.name, human: t.c.human, afk: this.afk(t), status: t.status, x: r2(t.pos.x), y: r2(t.pos.y), z: r2(t.pos.z), sprinkles: t.sprinkles, mode: t.mode,
-            grudge: t.grudge ? t.grudge.idx : -1, bubble: t.bubble, busy: r2(t.busy), stun: r2(t.stun), note: t.doneNote,
+            grudge: t.grudge ? t.grudge.idx : -1, bubble: t.bubble, busy: r2(t.busy), stun: r2(t.stun), note: t.doneNote, team: t.team,
           }))
         : [],
       roster: this.roster.map((c) => ({ idx: c.idx, id: c.id, name: c.name, human: c.human, out: c.out, outRound: c.outRound, place: c.place, stats: { ...c.stats } })),
       gallery: r ? [...r.sab.gallery.entries()].map(([idx, g]) => ({ idx, ...g.ammo, cd: r2(g.cd) })) : [],
       results: this.results,
+      teams: r?.teams.length ? { list: r.teams.map((t) => ({ ...t })), win: r.teamWin } : null,
       plan: this.plan,
       feed: this.feedList.map((f) => f.text),
       quality: this.quality,
@@ -2243,6 +2386,8 @@ export class Game {
 }
 
 interface Snap {
+  /** Team scores, then the winning team (-1). */
+  ts?: number[]
   ph: number
   pt: number
   ck: number

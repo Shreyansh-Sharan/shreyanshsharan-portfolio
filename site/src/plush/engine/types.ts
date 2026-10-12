@@ -67,6 +67,34 @@ export function freshStats(): ContestantStats {
   return { menace: 0, betrayed: 0, revenge: 0, tricks: 0, shoves: 0, throws: 0, roundsQualified: 0 }
 }
 
+/** One side in a team level (see LevelDef.teams). `score` is kept by the engine and synced to every screen. */
+export interface TeamInfo {
+  idx: number
+  name: string
+  color: string
+  score: number
+}
+
+/**
+ * Team play. Setting `teams` on a level splits the field into two balanced random teams (people spread across
+ * both first). Toys get `toy.team` (0 or 1, -1 in levels without teams), a team-coloured sash, foot ring and name
+ * tag, and the HUD shows the team scores. Rival tricks, bot sabotage, grudges and the crosshair only ever pick
+ * the other team. The round ends with `ctx.winTeam(i)`: in a Show the other team is eliminated.
+ */
+export interface TeamOpts {
+  /** Two team names (default 'Buttons' and 'Bobbins'). */
+  names?: [string, string]
+  /** Two team colours (default red and blue). */
+  colors?: [string, string]
+  /** What the score counts, for the HUD ("goals", "eggs"). Default "points". */
+  scoreName?: string
+  /**
+   * Can teammates hit each other? Default: shove and dive pass through teammates, grab works (carry a
+   * teammate, or throw them over a wall). `true` turns everything on.
+   */
+  friendlyFire?: boolean | { shove?: boolean; dive?: boolean; grab?: boolean }
+}
+
 /** A spawn point: feet position and facing. */
 export interface Spawn {
   x: number
@@ -108,7 +136,7 @@ export interface TrickDef<S = unknown> {
   cooldown: number
   /** Seconds the user is tied up afterwards (needle lifted, paws busy). The engine sets toy.busy. */
   busy?: number
-  /** 'rival' needs a target toy, 'self' acts on the user, 'none' is global. */
+  /** 'rival' needs a target toy (in team levels, a toy on the other team), 'self' acts on the user, 'none' is global. */
   target: 'rival' | 'self' | 'none'
   /** For 'rival': max distance in metres (default: anywhere in the arena). */
   range?: number
@@ -209,6 +237,29 @@ export interface LevelCtx {
   active(): Toy[]
   qualifiedCount(): number
 
+  /* ----- Teams (levels with `teams`; empty / -1 otherwise) ----- */
+  /** The two teams with their synced scores ([] in levels without teams). */
+  readonly teams: readonly TeamInfo[]
+  /** The toy's team (-1 without teams). Same as toy.team. */
+  teamOf(toy: Toy): number
+  /** Same team (always false without teams, or for the same toy). */
+  sameTeam(a: Toy, b: Toy): boolean
+  /** Active toys on other teams (every other active toy in levels without teams). */
+  rivalsOf(toy: Toy): Toy[]
+  /** Active toys on the same team, not including `toy`. */
+  teammatesOf(toy: Toy): Toy[]
+  /** Active toys on team `team`. */
+  teamToys(team: number): Toy[]
+  /** Add to a team's score (host). `why` pops up over `by` and goes in the feed. */
+  addTeamScore(team: number, n: number, why?: string, by?: Toy | null): void
+  /** Set a team's score (host), e.g. a live count of eggs in the nest. */
+  setTeamScore(team: number, score: number): void
+  /**
+   * This team wins (host). Show: every active toy on it goes through and every other toy is eliminated. Quick
+   * Play: the winners are marked through. Ends the round either way. -1 with no winner falls back to scores.
+   */
+  winTeam(team: number, note?: string): void
+
   /* ----- Toys (host) ----- */
   addSprinkles(toy: Toy, n: number, why?: string): void
   /** Push a toy (velocity change) and stun it. `by` gets the blame (grudge). */
@@ -268,6 +319,8 @@ export interface LevelDef<S = unknown> {
   introOrbit?: { radius: number; height: number; center?: [number, number, number] }
   /** Sabotage resource: what each toy starts with. */
   sprinkles?: { start: number; name?: string }
+  /** Split the field into two teams (see TeamOpts). Use with type 'team'. */
+  teams?: TeamOpts
   tricks?: TrickDef<S>[]
   /** Which gallery throwables work here (default all). */
   throwables?: ThrowKind[]
@@ -296,7 +349,7 @@ export interface LevelDef<S = unknown> {
   bot?(ctx: LevelCtx, state: S, toy: Toy, dt: number): void
   /** Active toys, best first: decides the leader, timeouts and Quick Play placings. */
   rank?(ctx: LevelCtx, state: S): Toy[]
-  /** Time ran out. Default: survival-type levels put every active toy through; others go by rank. */
+  /** Time ran out. Default: survival-type levels put every active toy through; others go by rank; team levels: the higher team score wins. */
   onTimeUp?(ctx: LevelCtx, state: S): void
   /** A toy fell below fallY. Default: fail() in survival levels, respawn elsewhere. */
   onFall?(ctx: LevelCtx, state: S, toy: Toy): void

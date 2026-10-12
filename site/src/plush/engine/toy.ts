@@ -142,6 +142,17 @@ export class Toy {
   /** Bubble Wrap: blocks and reflects the next trick. */
   bubble = false
 
+  /* ---------- Teams ---------- */
+  /** Team index in team levels (0 or 1), -1 otherwise. */
+  team = -1
+  /** Which moves hit teammates (team levels set this from LevelDef.teams.friendlyFire). */
+  friendly = { shove: true, dive: true, grab: true }
+  /**
+   * Force an animation (e.g. 'grab' to hold a rope, 'knock' for a stumble). Set it from the level's visual()
+   * so every screen agrees; '' gives control back to the usual choice.
+   */
+  animOverride: AnimKey | '' = ''
+
   /** Per-level scratch space (and bot memory). Not synced: put synced fields in the level state. */
   data: Record<string, unknown> = {}
   /** Animation code chosen by the simulation (and sent to clients). */
@@ -267,8 +278,12 @@ export class Toy {
    */
   preStep(dt: number, _phys: Phys, others: readonly Toy[], ev: ToyEvents, locked: boolean, grabbables: readonly RigidBody[] = []) {
     const b = this.body
+    // Trick timers run for seated toys too (they are kinematic but still play).
+    this.busy = Math.max(0, this.busy - dt)
+    for (const [k, v] of this.cooldowns) if (v > 0) this.cooldowns.set(k, Math.max(0, v - dt))
     if (b.isKinematic()) {
       if (this.mode === 'seated' && this.seat) b.setNextKinematicTranslation({ x: this.seat.x, y: this.seat.y, z: this.seat.z })
+      this.stun = Math.max(0, this.stun - dt)
       return
     }
     this.stun = Math.max(0, this.stun - dt)
@@ -280,12 +295,10 @@ export class Toy {
     this.forced = Math.max(0, this.forced - dt)
     this.grabCd = Math.max(0, this.grabCd - dt)
     this.popped = Math.max(0, this.popped - dt)
-    this.busy = Math.max(0, this.busy - dt)
     if (this.emoteT > 0) {
       this.emoteT -= dt
       if (this.emoteT <= 0) this.emote = ''
     }
-    for (const [k, v] of this.cooldowns) if (v > 0) this.cooldowns.set(k, Math.max(0, v - dt))
 
     const p = this.pad
     const control = !locked && this.canAct && this.status !== 'failed'
@@ -397,6 +410,7 @@ export class Toy {
       const range = this.mode === 'ball' ? MOVE.shoveRange + 0.6 : MOVE.shoveRange
       for (const o of others) {
         if (o === this || o.status === 'failed' || o.mode === 'seated') continue
+        if (!this.friendly.shove && this.team >= 0 && o.team === this.team) continue
         _w.subVectors(o.pos, this.pos)
         _w.y = 0
         const d = _w.length()
@@ -418,6 +432,7 @@ export class Toy {
     if (this.dive > 0) {
       for (const o of others) {
         if (o === this || o.status === 'failed' || o.mode === 'seated' || this.dived.has(o)) continue
+        if (!this.friendly.dive && this.team >= 0 && o.team === this.team) continue
         const d = o.pos.distanceTo(this.pos)
         if (d > (this.mode === 'ball' ? 1.5 : 0.95)) continue
         this.dived.add(o)
@@ -439,6 +454,7 @@ export class Toy {
       let bestD = MOVE.grabRange
       for (const o of others) {
         if (o === this || o.status === 'failed' || o.mode !== 'walk' || o.grabbedBy || o.holding === this) continue
+        if (!this.friendly.grab && this.team >= 0 && o.team === this.team) continue
         _w.subVectors(o.pos, this.pos)
         _w.y = 0
         const d = _w.length()
@@ -547,6 +563,7 @@ export class Toy {
 
   /** What the rig should play (computed where the simulation runs, sent to clients for other toys). */
   pickAnim(): AnimKey {
+    if (this.animOverride) return this.animOverride
     if (this.grabbedBy) return 'held'
     if (this.stun > 0.25 || this.flop > 0) return this.dive > 0 || this.flop > 0 ? 'dive' : 'knock'
     if (this.dive > 0 && this.mode === 'walk') return 'dive'

@@ -65,6 +65,8 @@ export interface GalleryState {
 }
 
 const _v = new THREE.Vector3()
+/** Same team (team levels): rival tricks never pick a teammate. */
+const mates = (a: Toy, b: Toy) => a.team >= 0 && a.team === b.team
 
 export class Sabotage {
   host: SabotageHost
@@ -98,6 +100,7 @@ export class Sabotage {
     if (def.hidden?.(ctx, this.host.state, user)) return 'Not available'
     if (def.target === 'rival') {
       if (!target || target === user || target.status !== 'play') return 'Pick a rival'
+      if (user.team >= 0 && target.team === user.team) return 'That is a teammate'
       if (def.range && target.pos.distanceTo(user.pos) > def.range) return 'Too far'
     }
     const { cost } = trickPrice(def, user, target)
@@ -110,12 +113,12 @@ export class Sabotage {
   /** Resolve "nearest in front" when no target was picked. */
   autoTarget(def: TrickDef<unknown>, user: Toy): Toy | null {
     if (def.target !== 'rival') return null
-    if (user.grudge && user.grudge.status === 'play') return user.grudge
+    if (user.grudge && user.grudge.status === 'play' && !mates(user, user.grudge)) return user.grudge
     let best: Toy | null = null
     let score = -Infinity
     const f = user.facing(_v)
     for (const t of this.host.toys) {
-      if (t === user || t.status !== 'play') continue
+      if (t === user || t.status !== 'play' || mates(user, t)) continue
       const dx = t.pos.x - user.pos.x, dz = t.pos.z - user.pos.z
       const d = Math.hypot(dx, dz) || 1
       if (def.range && d > def.range) continue
@@ -133,7 +136,7 @@ export class Sabotage {
     const def = this.tricks().find((t) => t.id === id)
     if (!def) return 'No such trick'
     let target: Toy | null = def.target === 'rival' ? (this.host.toys[targetIdx] ?? null) : null
-    if (def.target === 'rival' && (!target || target === user || target.status !== 'play')) target = this.autoTarget(def, user)
+    if (def.target === 'rival' && (!target || target === user || target.status !== 'play' || mates(user, target))) target = this.autoTarget(def, user)
     const ok = this.check(def, user, target)
     if (ok !== true) return ok
     const { cost, revenge } = trickPrice(def, user, target)
@@ -216,10 +219,10 @@ export class Sabotage {
   }
 
   defaultTarget(b: Toy): Toy | null {
-    if (b.grudge && b.grudge.status === 'play') return b.grudge
+    if (b.grudge && b.grudge.status === 'play' && !mates(b, b.grudge)) return b.grudge
     const lead = this.host.ctx.leader(b)
-    if (lead && this.host.rng.chance(0.6)) return lead
-    const rivals = this.host.toys.filter((t) => t !== b && t.status === 'play')
+    if (lead && !mates(b, lead) && this.host.rng.chance(0.6)) return lead
+    const rivals = this.host.toys.filter((t) => t !== b && t.status === 'play' && !mates(b, t))
     return rivals.length ? this.host.rng.pick(rivals) : null
   }
 
