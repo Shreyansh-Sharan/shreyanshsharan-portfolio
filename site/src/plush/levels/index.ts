@@ -11,8 +11,9 @@ import trainSet from './train-set'
 import duckRapids from './duck-rapids'
 import pinball from './pinball'
 import conveyor from './conveyor'
+import hamster from './hamster'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf, trainSet, duckRapids, pinball, conveyor]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf, trainSet, duckRapids, pinball, conveyor, hamster]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)

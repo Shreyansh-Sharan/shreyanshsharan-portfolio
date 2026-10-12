@@ -627,8 +627,10 @@ export function follow(
   // A high waypoint (after a bounce or a climb) and we're back on the ground below it: retry the way up.
   const cw = path[d.wp]
   if (d.wp > 0 && toy.grounded && !cw.ride) {
-    const cy = o.toWorld ? o.toWorld(cw, _p).y : cw.y
-    if (cw.minY !== undefined ? toy.feet < cw.minY - 1.2 : cy - toy.feet > 1.5) d.wp--
+    const cwp = o.toWorld ? o.toWorld(cw, _p) : _p.set(cw.x, cw.y, cw.z)
+    // Steeply above us (a ledge, not a ramp we can walk up).
+    const steep = cwp.y - toy.feet > 1.5 && Math.hypot(cwp.x - toy.pos.x, cwp.z - toy.pos.z) < 3.5
+    if (cw.minY !== undefined ? toy.feet < cw.minY - 1.2 : steep) d.wp--
   }
   const w = path[d.wp]
   const wp = target(d.wp, _w)
