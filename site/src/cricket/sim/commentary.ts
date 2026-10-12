@@ -39,8 +39,8 @@ export const C = {
   six(batter: string, rng: Rng) {
     return pick(rng, `SIX! ${batter} has launched that into the crowd!`, `That is huge! ${batter} clears the rope with ease.`, `Up, up and away! Maximum for ${batter}.`, `Oh my word, that's gone all the way. Six!`, `Into the second tier! ${batter} means business.`)
   },
-  wide(rng: Rng) {
-    return pick(rng, 'Wide, called by the umpire. Strayed too far.', "That's a wide. Extra run to the total.", 'Down the leg side and signalled wide.')
+  wide(rng: Rng, leg: boolean) {
+    return leg ? pick(rng, 'Down the leg side and signalled wide.', 'Strays onto the pads and past them: wide.') : pick(rng, 'Wide, called by the umpire. Strayed too far.', "That's a wide. Extra run to the total.", 'Too wide outside off, the umpire stretches his arms.')
   },
   runs(runs: number, extra: ExtraType, batter: string, rng: Rng) {
     if (extra === 'bye') return `${runs} bye${runs > 1 ? 's' : ''}, the keeper couldn't gather it.`

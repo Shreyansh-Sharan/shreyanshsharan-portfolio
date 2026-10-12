@@ -135,13 +135,14 @@ export class Wicket {
 /** The bowler's landing marker on the pitch (a ring with a cross). */
 export function makeMarker() {
   const g = new THREE.Group()
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.22, 32), new THREE.MeshBasicMaterial({ color: '#facc15', transparent: true, opacity: 0.95, depthWrite: false }))
+  // Drawn on top: at the broadcast camera's shallow angle the pitch would otherwise hide it.
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.17, 0.25, 32), new THREE.MeshBasicMaterial({ color: '#facc15', transparent: true, opacity: 0.95, depthWrite: false, depthTest: false }))
   ring.rotation.x = -Math.PI / 2
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), new THREE.MeshBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.95, depthWrite: false }))
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), new THREE.MeshBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.95, depthWrite: false, depthTest: false }))
   dot.rotation.x = -Math.PI / 2
+  ring.renderOrder = dot.renderOrder = 10
   g.add(ring, dot)
   g.position.y = 0.02
-  g.renderOrder = 5
   return g
 }
 

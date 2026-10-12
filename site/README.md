@@ -41,6 +41,25 @@ the first paint; it is skipped for `prefers-reduced-motion`, browsers without We
 listens for `postMessage` events from the game (join code, errors), and turns a join code into an invite link
 (`#/arena?join=CODE`). Until a build is published the page says so. See `../unity/ArenaShooter/README.md` to build it.
 
+## Cricket (Extras)
+
+`#/cricket` is a broadcast-style cricket game written for the browser with three.js (the old Unity project in
+`../unity/CricketGame` is no longer used). `src/components/Cricket.tsx` is the lobby (CPU match, online 1v1 by code,
+team builder); the game itself is a lazily loaded chunk under `src/cricket/`:
+
+- `sim/`: pure TypeScript simulation, a port of the Unity project's calibrated C# (ball physics at 500 Hz with drag,
+  swing, seam and Magnus spin, pitch types and wear; the delivery solver; the shot model; LBW tracking and DRS; rules and
+  scoring; field presets; the match director with fielding, running, appeals and reviews; the CPU batter and bowler).
+- `view/`: procedural stadium and instanced crowd, the rigged cricketer (`public/cricket/cricketer.glb`, CC0) with team
+  kits and a procedural IK layer for strokes, bowling actions, keeping and umpire signals (`poses.ts`), ball tracking.
+- `game.ts`: renderer, cameras, replays, input and the HUD feed; `ui/`: the React HUD, scorecard and team builder;
+  `net.ts`: host-authoritative online play over the shared PeerJS transport.
+
+`npm run test:cricket` runs the offline checks: the physics calibration (seam-up at the crease, bouncer height, spin
+turn, carries, bat speeds) and three CPU v CPU T10 matches. In the browser, `?snap` exposes `window.__cricket` without a
+live loop (advance it with `simulate()` / `simulateUntil()`), `?autopilot` lets the CPU play both sides, `?seed=` fixes
+the match, and `#/cricket?auto` starts a quick match straight away.
+
 ## Structure
 
 - `src/components/Background.tsx`: 2D ribbon background (single WebGL fragment shader), used as fallback

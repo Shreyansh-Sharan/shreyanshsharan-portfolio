@@ -1,7 +1,7 @@
 # Cricket (Unity 6, WebGL) — archived
 
 > **No longer used by the site.** The game at `#/cricket` is now an in-browser three.js rebuild in
-> `site/src/cricket/` (see `site/src/cricket/README.md`). Its simulation is a TypeScript port of this project's
+> `site/src/cricket/`. Its simulation is a TypeScript port of this project's
 > `Assets/Cricket/Scripts/Sim` (same calibration, checked by `npm run test:cricket` in `site/`), and its character is
 > converted from this project's `Cricketer.glb`. This Unity project is kept for reference only; nothing here is built or
 > loaded by the site any more.

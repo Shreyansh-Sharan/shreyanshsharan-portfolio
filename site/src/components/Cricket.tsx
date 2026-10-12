@@ -166,7 +166,14 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
 
   const startOnline = () => {
     if (!net || !guestTeam) return
-    const setup = { ...makeSetup(teamOf(team), guestTeam), online: true }
+    const mine = teamOf(team)
+    let theirs = cloneTeam(guestTeam)
+    // Same side picked twice: the guest plays in another side's colours so the two XIs can be told apart.
+    if (theirs.id === mine.id) {
+      const other = teams.find((t) => t.id !== mine.id && !t.custom) ?? teams[1]
+      theirs = { ...theirs, id: theirs.id + '-b', name: `${theirs.name} B`, short: `${theirs.short.slice(0, 2)}B`, primary: other.primary, secondary: other.secondary, trousers: other.trousers }
+    }
+    const setup = { ...makeSetup(mine, theirs), online: true }
     net.link.send({ t: 'c-start', setup })
     setPlaying({ setup, sideHuman: [true, true], localSide: 0, net, key: Date.now() })
     setStage('play')

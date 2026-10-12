@@ -146,7 +146,7 @@ export function decideShot(d: Director, rng: Rng) {
     else if (u < -0.15) input.type = 'flick'
     else if (spin && full && agg > 0.5 && rng.chance(0.3)) input.type = 'sweep'
     else input.type = 'drive'
-    input.loft = agg > 0.4 && rng.chance((agg - 0.3) * 0.85)
+    input.loft = agg > 0.42 && rng.chance((agg - 0.35) * 0.7)
     if (!input.loft && rng.chance(lerp(0.55, 0.1, agg))) input.power = rng.range(0.4, 0.65)
     const spec = shotSpec(input.type)
     input.aim = findGap(d, spec.dirMin, spec.dirMax, input.loft, preferredAim(input.type, u), rng)

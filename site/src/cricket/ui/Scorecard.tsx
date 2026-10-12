@@ -60,7 +60,7 @@ export function Scorecard({ state, onClose, initialInnings }: { state: MatchStat
                       {c.player === bat.captain ? ' (c)' : ''}
                       {c.player === bat.keeper ? ' †' : ''}
                     </td>
-                    <td className="muted">{state.dismissalText(inn, c)}</td>
+                    <td className="muted ck-how">{state.dismissalText(inn, c)}</td>
                     <td>
                       <strong>{c.runs}</strong>
                     </td>
@@ -72,7 +72,7 @@ export function Scorecard({ state, onClose, initialInnings }: { state: MatchStat
                 ))}
               <tr>
                 <td>Extras</td>
-                <td className="muted">
+                <td className="muted ck-how">
                   b {inn.byes}, lb {inn.legByes}, w {inn.wides}, nb {inn.noBalls}
                 </td>
                 <td>{extrasOf(inn)}</td>
@@ -80,7 +80,7 @@ export function Scorecard({ state, onClose, initialInnings }: { state: MatchStat
               </tr>
               <tr className="ck-total">
                 <td>Total</td>
-                <td className="muted">{oversText(inn.legalBalls)} overs</td>
+                <td className="muted ck-how">{oversText(inn.legalBalls)} overs</td>
                 <td colSpan={5}>
                   <strong>{scoreText(inn)}</strong>
                 </td>

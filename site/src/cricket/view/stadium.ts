@@ -48,11 +48,11 @@ export class Stadium {
     g.add(this.sky())
 
     // Lights.
-    this.hemi = new THREE.HemisphereLight(night ? '#8fa3c8' : dusk ? '#ffd2a6' : '#d9ecff', night ? '#20301c' : '#4a6b2e', night ? 0.75 : dusk ? 0.9 : 1.1)
+    this.hemi = new THREE.HemisphereLight(night ? '#8fa3c8' : dusk ? '#ffd9b8' : '#d9ecff', night ? '#20301c' : '#4a6b2e', night ? 0.75 : dusk ? 1.35 : 1.1)
     g.add(this.hemi)
-    this.sun = new THREE.DirectionalLight(night ? '#f4f7ff' : dusk ? '#ffb46b' : '#fff6e5', night ? 2.2 : dusk ? 2.1 : 2.8)
+    this.sun = new THREE.DirectionalLight(night ? '#f4f7ff' : dusk ? '#ffc184' : '#fff6e5', night ? 2.2 : dusk ? 2.8 : 2.8)
     if (night) this.sun.position.set(-40, 90, -30)
-    else if (dusk) this.sun.position.set(-90, 28, 50)
+    else if (dusk) this.sun.position.set(-80, 38, 50)
     else this.sun.position.set(-50, 85, 35)
     this.sun.target.position.set(0, 0, 0)
     g.add(this.sun, this.sun.target)
@@ -83,6 +83,7 @@ export class Stadium {
     g.add(this.rope())
     g.add(this.adBoards())
     g.add(this.sightScreens(night))
+    g.add(this.pavilions(night))
     g.add(this.stands(assets))
     this.crowd = new Crowd(opts.quality.crowd, opts.colors, night)
     g.add(this.crowd.mesh)
@@ -322,6 +323,41 @@ export class Stadium {
       m.position.set(0, 4.5, end * (RZ + 7))
       m.castShadow = false
       g.add(m)
+    }
+    return g
+  }
+
+  /** A pavilion and a scoreboard end behind the sight screens (so the gaps in the stands aren't empty sky). */
+  private pavilions(night: boolean) {
+    const g = new THREE.Group()
+    const c = document.createElement('canvas')
+    c.width = 512
+    c.height = 256
+    const x = c.getContext('2d')!
+    x.fillStyle = night ? '#1b2333' : '#d9d2c3'
+    x.fillRect(0, 0, 512, 256)
+    for (let row = 0; row < 4; row++)
+      for (let col = 0; col < 16; col++) {
+        const lit = night ? Math.random() < 0.7 : false
+        x.fillStyle = lit ? '#ffe7a8' : night ? '#0d121c' : '#5b6b7d'
+        x.fillRect(12 + col * 31, 26 + row * 54, 20, 30)
+      }
+    x.fillStyle = night ? '#0b0f18' : '#7a6a55'
+    x.fillRect(0, 236, 512, 20)
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: night ? '#ffffff' : '#000000', emissiveIntensity: night ? 0.6 : 0, roughness: 0.8 })
+    const roof = new THREE.MeshStandardMaterial({ color: night ? '#1f2937' : '#7c2d12', roughness: 0.7 })
+    for (const end of [-1, 1]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(46, 20, 12), [mat, mat, mat, mat, mat, mat])
+      b.position.set(0, 10, end * (RZ + 26))
+      b.rotation.y = end > 0 ? Math.PI : 0
+      g.add(b)
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 26, 6, 4, 1), roof)
+      r.rotation.y = Math.PI / 4
+      r.scale.set(1, 1, 0.3)
+      r.position.set(0, 23, end * (RZ + 26))
+      g.add(r)
     }
     return g
   }

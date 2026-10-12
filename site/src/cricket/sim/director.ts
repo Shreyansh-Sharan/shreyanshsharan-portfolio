@@ -1179,8 +1179,9 @@ export class Director {
       legMax = 0.12
     }
     if (r.shot === 'leave' || !input.played) {
+      // Shouldering arms: the front pad is in line with middle stump.
       legMin = -0.6
-      legMax = -0.05
+      legMax = 0.04
     }
     if (u > legMin && u < legMax && at.y < 1.55) {
       this.touchedBody = true
@@ -1385,7 +1386,7 @@ export class Director {
       if (o.extra === 'wide') {
         this.showBanner('WIDE', 1.4)
         this.raise({ type: 'wide' })
-        this.say(C.wide(this.rng))
+        this.say(C.wide(this.rng, this.frame.offsetOff(this.ball.pos) < 0))
       } else if (o.extra === 'noball') {
         this.showBanner('NO BALL', 1.6)
         this.say(runs > 0 ? C.runs(runs, o.extra, batterName, this.rng) : 'No-ball called. Free hit coming up!')

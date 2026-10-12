@@ -5143,3 +5143,91 @@ p {
   right: 12px;
   color: var(--muted);
 }
+
+/* Cricket team builder (lobby page) */
+.ck-builder {
+  display: grid;
+  gap: 14px;
+}
+
+.ck-builder-top {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.ck-builder-top .field {
+  margin: 0;
+}
+
+.ck-builder input[type='color'] {
+  width: 56px;
+  height: 36px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.ck-xi {
+  overflow-x: auto;
+}
+
+.ck-xi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ck-xi-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px;
+}
+
+.ck-xi-table td {
+  padding: 3px 4px;
+  white-space: nowrap;
+}
+
+.ck-xi-table input:not([type='radio']),
+.ck-xi-table select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+}
+
+.ck-xi-table input.ck-num {
+  width: 56px;
+}
+
+.ck-mini {
+  margin-left: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ck-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ck-row-left {
+  justify-content: flex-start;
+}
+
+.ck-code {
+  font-size: 22px;
+  letter-spacing: 0.15em;
+}

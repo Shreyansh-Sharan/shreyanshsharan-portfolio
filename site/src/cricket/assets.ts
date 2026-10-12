@@ -1,5 +1,8 @@
-// The few downloaded files: one shared cricketer (CC0 base body and animation clips, meshopt + WebP) and three
-// small CC0 surface textures. Everything else (stadium, crowd, kit, bat, pads, stumps) is built in code.
+// The few downloaded files: one shared cricketer (meshopt + WebP) and three small surface textures. Everything else
+// (stadium, crowd, kit, bat, pads, stumps) is built in code. All CC0 (public domain):
+//  - cricketer.glb: Quaternius "Universal Base Characters" body with clips from the "Universal Animation Library" 1 and 2
+//    (quaternius.com), converted from unity/CricketGame/Assets/Cricket/Models/Cricketer.glb;
+//  - grass.webp, pitch.webp, concrete.webp: ambientCG Grass005, Ground109 and Concrete034 (ambientcg.com).
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'

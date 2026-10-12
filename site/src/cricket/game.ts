@@ -18,6 +18,7 @@ import { makeBall, makeMarker, Wicket } from './view/props'
 import { Cricketer, type ClipName, type KitKind } from './view/rig'
 import { Stadium } from './view/stadium'
 import { Hawkeye } from './view/hawkeye'
+import type { Post } from './view/post'
 
 export interface GameOptions {
   setup: MatchSetup
@@ -141,6 +142,8 @@ export class Game {
   private followSince = 0
   private shake = 0
   private pendingCommands: Command[] = []
+  private post: Post | null = null
+  private postToken = 0
   onHud?: (h: HudState) => void
   onEvent?: (e: GameEvent) => void
   onCommentary?: (lines: string[]) => void
@@ -158,7 +161,7 @@ export class Game {
     this.renderer.shadowMap.enabled = this.quality.shadows
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = opts.setup.time === 'night' ? 1.05 : 1.0
+    this.renderer.toneMappingExposure = opts.setup.time === 'night' ? 1.05 : opts.setup.time === 'dusk' ? 1.18 : 1.0
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.domElement.className = 'cricket-canvas'
     container.appendChild(this.renderer.domElement)
@@ -175,7 +178,7 @@ export class Game {
     this.ball = makeBall()
     this.ball.visible = false
     this.scene.add(this.ball)
-    this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.35, depthWrite: false }))
+    this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }))
     this.ballShadow.rotation.x = -Math.PI / 2
     this.ballShadow.visible = false
     this.scene.add(this.ballShadow)
@@ -195,6 +198,7 @@ export class Game {
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
     this.resize()
+    this.setupPost()
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('keyup', this.onKeyUp)
     window.addEventListener('blur', this.onBlur)
@@ -222,23 +226,42 @@ export class Game {
     window.removeEventListener('blur', this.onBlur)
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointer)
     this.audio.close()
+    this.postToken++
+    this.post?.dispose()
     this.stadium.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
+  }
+
+  /** Post-processing (ambient occlusion, bloom) on the high tier only. */
+  private setupPost() {
+    const token = ++this.postToken
+    this.post?.dispose()
+    this.post = null
+    if (!this.quality.post) return
+    void import('./view/post')
+      .then((m) => m.makePost(this.renderer, this.scene, this.camera, this.opts.setup.time === 'night'))
+      .then((p) => {
+        if (token !== this.postToken) return p.dispose()
+        this.post = p
+        this.resize()
+      })
+      .catch(() => (this.post = null))
   }
 
   private resize() {
     const w = Math.max(1, this.container.clientWidth)
     const h = Math.max(1, this.container.clientHeight)
     this.renderer.setSize(w, h, false)
+    this.post?.setSize(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
   }
 
   /** Test hook (?snap): advance the match without the live loop, then render once. */
-  simulate(seconds: number, step = 1 / 60) {
+  simulate(seconds: number, step = 1 / 60, render = true) {
     for (let t = 0; t < seconds; t += step) this.frame(step, false)
-    this.frame(0, true)
+    this.frame(0, render)
   }
 
   /** Test hook: run until an event of this type happens (plus `after` seconds), or give up after `max` seconds. */
@@ -280,6 +303,7 @@ export class Game {
       if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => (x.needsUpdate = true))
     })
     this.resize()
+    this.setupPost()
   }
 
   submit(c: Command) {
@@ -317,7 +341,10 @@ export class Game {
       this.hudT = 0.1
       this.pushHud()
     }
-    if (render) this.renderer.render(this.scene, this.camera)
+    if (render) {
+      if (this.post) this.post.render(dt)
+      else this.renderer.render(this.scene, this.camera)
+    }
   }
 
   private trackRelease(dt: number) {
@@ -458,7 +485,7 @@ export class Game {
 
   private updateBall() {
     const d = this.director
-    let vis = d.ballVisible
+    let vis = d.ballVisible && d.phase !== 'review'
     let pos: THREE.Vector3
     if (this.replaying) {
       const f = this.replayFrame()
@@ -583,7 +610,7 @@ export class Game {
       }
       case 'replay':
         this.replayCamera(pos, look)
-        fov = 26
+        fov = this.replayIndex().pass === 1 && this.replayKind === 'wicket' ? 11 : 30
         snap = true
         break
       case 'hawk': {
@@ -644,14 +671,20 @@ export class Game {
 
   /* ---------------- replays ---------------- */
 
+  /** Frame indices of the key moments in the current recording (release, contact, stumps, catch). */
+  private marks: { release?: number; hit?: number; stumps?: number; catch?: number; catcher?: number; stumpsEnd?: number; stumpsAt?: THREE.Vector3; stumpsSpeed?: number } = {}
+  private replayWin = { start: 0, end: 0, key: 0, slowFrom: 0, slowTo: 0 }
+  private replayBroke = -1
+
   private record() {
     const d = this.director
     if (d.phase === 'predelivery') {
       this.recording.length = 0
+      this.marks = {}
       return
     }
     if (d.phase !== 'runup' && d.phase !== 'flight' && d.phase !== 'live' && d.phase !== 'dead') return
-    if (this.recording.length > 1200) return
+    if (this.recording.length > 1500) return
     const arr = new Float32Array(ACTORS * ACTOR_FIELDS)
     const poses: string[] = []
     d.actors.forEach((a, i) => {
@@ -673,52 +706,73 @@ export class Game {
     this.recording.push({ actors: arr, poses, ball: [d.ball.pos.x, d.ball.pos.y, d.ball.pos.z, d.ballVisible ? 1 : 0] })
   }
 
+  private mark(e: GameEvent) {
+    if (this.replaying) return
+    const n = this.recording.length
+    const m = this.marks
+    if (e.type === 'release') m.release = n
+    else if ((e.type === 'bathit' || e.type === 'edge' || e.type === 'pad') && m.hit === undefined) m.hit = n
+    else if (e.type === 'stumps' && m.stumps === undefined) {
+      m.stumps = n
+      m.stumpsEnd = e.i ?? 0
+      m.stumpsAt = e.p ? v3(e.p) : new THREE.Vector3(0, 0.5, stumpsZ(e.i ?? 0))
+      m.stumpsSpeed = e.f ?? 20
+    } else if (e.type === 'catch' && m.catch === undefined) {
+      m.catch = n
+      m.catcher = e.i
+    }
+  }
+
   private startReplay(kind: 'wicket' | 'six' | 'runout') {
     if (this.opts.online || this.recording.length < 20) return false
+    const n = this.recording.length
+    const m = this.marks
+    const key = Math.min(n - 1, kind === 'runout' ? (m.stumps ?? n - 1) : (m.stumps ?? m.catch ?? m.hit ?? n - 1))
+    const start = kind === 'runout' ? Math.max(0, key - 150) : Math.max(0, (m.release ?? 0) - 25)
+    const end = kind === 'six' ? n : Math.min(n, key + 90)
+    this.replayWin = { start, end, key, slowFrom: Math.max(start, (kind === 'six' ? (m.hit ?? key) : key) - 45), slowTo: Math.min(n, (kind === 'six' ? (m.hit ?? key) : key) + 55) }
     this.replayFrames = this.recording.slice()
     this.replayKind = kind
     this.replayT = 0
     this.replaying = true
+    this.replayBroke = -1
     for (const w of this.wickets) w.reset()
-    this.replayStumpsDone = false
     return true
   }
 
-  private replayStumpsDone = false
+  /** Real-time first pass, then slow motion (0.4x) around the key moment. */
+  private get replayPass1() {
+    return (this.replayWin.end - this.replayWin.start) / 60
+  }
 
   get replayDuration() {
-    return Math.min(9, (this.replayFrames.length / 60) * 1.6 + 1)
+    return this.replayPass1 + (this.replayWin.slowTo - this.replayWin.slowFrom) / 60 / 0.4 + 0.3
+  }
+
+  private replayIndex() {
+    const w = this.replayWin
+    const t = this.replayT
+    if (t < this.replayPass1) return { idx: Math.floor(w.start + t * 60), pass: 1 }
+    return { idx: Math.floor(w.slowFrom + (t - this.replayPass1) * 60 * 0.4), pass: 2 }
   }
 
   private replayFrame(): FrameRec | null {
     if (!this.replayFrames.length) return null
-    // First pass at real speed from the release, then a slow-motion second angle around the key moment.
-    const n = this.replayFrames.length
-    const t = this.replayT
-    const firstLen = n / 60
-    let idx: number
-    if (t < firstLen) idx = Math.floor(t * 60)
-    else {
-      const slow = (t - firstLen) * 60 * 0.5
-      const start = Math.max(0, n - 240)
-      idx = Math.floor(start + slow)
-    }
-    return this.replayFrames[Math.min(n - 1, Math.max(0, idx))]
+    const { idx } = this.replayIndex()
+    return this.replayFrames[Math.min(this.replayFrames.length - 1, Math.max(0, idx))]
   }
 
   private applyReplayFrame(dt: number) {
     const f = this.replayFrame()
     if (!f) return
     const d = this.director
-    const tmp = d.actors[0]
-    void tmp
+    const { idx, pass } = this.replayIndex()
     const ballView = f.ball[3] > 0.5 ? new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]) : null
     for (let i = 0; i < ACTORS; i++) {
       const c = this.people[i]
       if (!c) continue
       const o = i * ACTOR_FIELDS
-      const a = d.actors[i]
-      const fake = Object.create(a) as Actor
+      const fake = Object.create(d.actors[i]) as Actor
       fake.pose = POSES[f.actors[o + 3]] ?? 'idle'
       fake.poseTime = f.actors[o + 4]
       fake.aim = f.actors[o + 5]
@@ -729,15 +783,17 @@ export class Game {
       fake.vel = new V3(f.actors[o + 11], 0, 0)
       c.root.visible = f.actors[o + 9] > 0.5 && fake.pose !== 'hidden'
       if (!c.root.visible) continue
-      this.placePerson(c, new V3(f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, dt, this.camera.position)
+      this.placePerson(c, new V3(f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, pass === 2 ? dt * 0.4 : dt, this.camera.position)
     }
-    // Re-break the stumps at the right moment of the replay.
-    const t = this.replayT
-    if (this.replayKind !== 'six' && !this.replayStumpsDone && t > 0.2) {
-      const last = this.replayFrames[this.replayFrames.length - 1]
-      void last
-    }
-    if (t > this.replayDuration) {
+    // The stumps go down again at the right moment of each pass.
+    const m = this.marks
+    if (m.stumps !== undefined && m.stumpsAt && idx >= m.stumps && this.replayBroke !== pass) {
+      this.replayBroke = pass
+      this.wickets[m.stumpsEnd ?? 0].reset()
+      this.wickets[m.stumpsEnd ?? 0].break(m.stumpsAt, m.stumpsSpeed ?? 20, -inward(m.stumpsEnd ?? 0))
+      this.audio.stumps()
+    } else if (m.stumps !== undefined && idx < m.stumps && this.replayBroke === pass - 1 && pass === 2 && this.wickets[m.stumpsEnd ?? 0].broken) this.wickets[m.stumpsEnd ?? 0].reset()
+    if (this.replayT > this.replayDuration) {
       this.replaying = false
       this.director.replayDone = true
     }
@@ -747,31 +803,49 @@ export class Game {
     const d = this.director
     const inn = d.state.current
     const se = inn ? inn.strikerEnd : 1
-    const n = this.replayFrames.length
-    const firstLen = n / 60
     const f = this.replayFrame()
     const ball = f ? new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]) : new THREE.Vector3()
     const sz = stumpsZ(se)
-    const dirOut = -inward(se) // behind the striker
-    if (this.replayT < firstLen) {
-      if (this.replayKind === 'six') {
-        // Side-on from square leg, then follow the ball up.
-        pos.set(-26, 6 + ball.y * 0.4, sz - dirOut * 2)
-        look.copy(ball.y > 0 ? ball : new THREE.Vector3(0, 1, sz))
-      } else {
-        // Behind the keeper (end-on), low.
-        pos.set(0.5, 2.0, sz + dirOut * 16)
-        look.set(0, 0.8, sz - dirOut * 6)
-      }
-    } else {
-      // Slow-motion: side-on to the striker's crease.
-      pos.set(-9, 1.5, sz - dirOut * 1.2)
-      look.set(0, 0.7, sz - dirOut * 0.6)
-      if (this.replayKind === 'six') {
-        pos.set(6, 12 + ball.y * 0.3, sz - dirOut * 30)
-        look.copy(ball)
-      }
+    const toBowler = inward(se)
+    const { pass } = this.replayIndex()
+    const m = this.marks
+    if (this.replayKind === 'runout' && m.stumpsEnd !== undefined) {
+      // Side-on to the crease where the stumps were broken, close in for the slow motion.
+      const z = stumpsZ(m.stumpsEnd) + inward(m.stumpsEnd) * Geo.CreaseDepth
+      pos.set(pass === 1 ? -14 : -6, pass === 1 ? 3 : 1.2, z)
+      look.set(0, 0.6, z)
+      return
     }
+    if (this.replayKind === 'six') {
+      if (pass === 1) {
+        pos.set(-24, 5 + Math.max(0, ball.y) * 0.4, sz + toBowler * 6)
+        look.copy(ball.y > 0.05 ? ball : new THREE.Vector3(0, 1, sz))
+      } else {
+        // Behind the batter, watching it fly.
+        pos.set(0.3, 2.4, sz - toBowler * 7)
+        look.copy(ball.y > 0.05 ? ball : new THREE.Vector3(0, 1.2, sz + toBowler * 10))
+      }
+      return
+    }
+    if (pass === 1) {
+      // The main camera, tighter on the batter.
+      pos.set(0.9, 5.5, stumpsZ(1 - se) - toBowler * 22)
+      look.set(0.2, 0.9, sz - toBowler * 1.5)
+      return
+    }
+    if (m.catch !== undefined && m.catcher !== undefined && m.stumps === undefined) {
+      // The catch, close up.
+      const o = m.catcher * ACTOR_FIELDS
+      const cf = this.replayFrames[Math.min(this.replayFrames.length - 1, m.catch)]
+      const cp = new THREE.Vector3(-cf.actors[o], 1.2, cf.actors[o + 1])
+      const away = cp.clone().setY(0).normalize()
+      pos.copy(cp).addScaledVector(away, 5).setY(1.8)
+      look.copy(cp)
+      return
+    }
+    // Side-on to the striker's crease (square leg's view), low.
+    pos.set(-8.5, 1.3, sz + toBowler * 0.9)
+    look.set(0, 0.6, sz + toBowler * 0.6)
   }
 
   get isReplaying() {
@@ -788,6 +862,7 @@ export class Game {
 
   private handleEvent(e: GameEvent) {
     const d = this.director
+    this.mark(e)
     this.onEvent?.(e)
     switch (e.type) {
       case 'bathit':
@@ -1007,7 +1082,10 @@ export class Game {
         const loft = k === 'l' || k === 'c'
         const aim = this.aimFromKeys() ?? (defend ? 0 : this.naturalAim())
         const shot: ShotType = defend ? 'defend' : 'auto'
-        c({ t: 'shot', side, shot, loft, feet: this.footwork(), aim })
+        const feet = this.footwork()
+        // Online guests time the shot against their own copy of the delivery (what they can see).
+        const timing = this.opts.mirror ? d.timingErrorNow(shot, feet) : undefined
+        c({ t: 'shot', side, shot, loft, feet, aim, timing })
         return
       }
       if (k === 't' && (d.phase === 'predelivery' || d.phase === 'runup')) c({ t: 'charge', side })
@@ -1119,7 +1197,7 @@ export class Game {
       maxOvers: st.activeRules.overs,
       runRate: inn ? runRate(inn).toFixed(2) : '0.00',
       target: inn?.target ?? -1,
-      need: inn && inn.target > 0 ? `Need ${Math.max(0, st.runsNeeded)} from ${st.ballsLeft} ball${st.ballsLeft === 1 ? '' : 's'} · RRR ${st.requiredRate.toFixed(2)}` : '',
+      need: inn && inn.target > 0 && st.runsNeeded > 0 && !inn.complete ? `Need ${Math.max(0, st.runsNeeded)} from ${st.ballsLeft} ball${st.ballsLeft === 1 ? '' : 's'} · RRR ${st.requiredRate.toFixed(2)}` : '',
       powerplay: !!inn && st.isPowerplay,
       superOver: !!inn?.superOver,
       freeHit: !!inn?.freeHit,

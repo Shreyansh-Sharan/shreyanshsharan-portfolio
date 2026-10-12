@@ -109,8 +109,8 @@ function kitMaterial(base: string, trim: string, part: 'shirt' | 'trousers', whi
     const pattern =
       part === 'shirt'
         ? whites
-          ? 'float t = step(1.49, vBind.y) + step(0.44, abs(vBind.x)) * step(abs(vBind.x), 0.47);'
-          : 'float t = step(1.49, vBind.y) + step(0.42, abs(vBind.x)) + step(0.16, abs(vBind.x)) * step(abs(vBind.x), 0.3) * step(1.3, vBind.y) * step(vBind.y, 1.36) + smoothstep(0.155, 0.175, abs(vBind.x)) * step(abs(vBind.x), 0.25) * step(1.0, vBind.y) * step(vBind.y, 1.3);'
+          ? 'float t = step(1.47, vBind.y) * step(vBind.y, 1.5) + step(0.39, abs(vBind.x)) * step(abs(vBind.x), 0.42);'
+          : 'float t = step(1.47, vBind.y) * step(vBind.y, 1.505) + step(0.37, abs(vBind.x)) * step(abs(vBind.x), 0.41) + smoothstep(0.155, 0.175, abs(vBind.x)) * step(abs(vBind.x), 0.25) * step(0.98, vBind.y) * step(vBind.y, 1.32);'
         : 'float t = step(0.17, abs(vBind.x)) * step(abs(vBind.x), 0.2) * step(0.15, vBind.y) * step(vBind.y, 0.8);'
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nuniform vec3 uTrim;')

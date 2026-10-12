@@ -207,9 +207,8 @@ function defendKeys(lead: number, back: boolean): Key[] {
 
 function pullKeys(aim: number, lead: number, loft: boolean): Key[] {
   const a = aimDir(aim)
-  const contactDir: V = [-a[2], -0.18, a[0]].map((x) => -x) as V
-  // Toe out in front (towards the bowler/off), face towards the leg-side target.
-  if (contactDir[0] < 0) (contactDir[0] = -contactDir[0]), (contactDir[2] = -contactDir[2])
+  // Bat horizontal across the body, toe out in front (towards the bowler), face towards the leg-side target.
+  const contactDir: V = [Math.abs(a[2]), -0.18, a[0] * Math.sign(a[2] || 1) * -1]
   const c: Key = {
     t: lead,
     pelvis: [-0.06, -0.06, -0.02],
