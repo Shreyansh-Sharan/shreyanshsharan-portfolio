@@ -14,6 +14,7 @@ export type Route =
   | { name: 'racer'; auto?: 'race' | 'combat' | 'deathmatch'; map?: 'harbor' | 'river' | 'gothic' | 'pier' | 'bowl'; join?: string }
   | { name: 'golf'; auto?: boolean }
   | { name: 'sports'; auto?: boolean }
+  | { name: 'plush'; auto?: string; level?: string; join?: string }
 
 export function parse(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?')
@@ -35,6 +36,11 @@ export function parse(hash: string): Route {
       return { name: 'golf', auto: new URLSearchParams(query).has('auto') }
     case 'sports':
       return { name: 'sports', auto: new URLSearchParams(query).has('auto') }
+    case 'plush': {
+      // `?auto=loft|show|quick|host` skips the menu (tests and deep links); `level` picks the Quick Play level.
+      const q = new URLSearchParams(query)
+      return { name: 'plush', auto: q.get('auto') ?? undefined, level: q.get('level') ?? undefined, join: q.get('join') ?? undefined }
+    }
     case 'home':
       return { name: 'home', tile: parts[1] }
     case 'game':
