@@ -265,9 +265,6 @@ export function Profile({ onAccent }: { onAccent: (a: [string, string], emblem: 
             <a className="btn btn-secondary" href={profile.linkedin} target="_blank" rel="noreferrer">
               <LinkIcon size={16} /> LinkedIn
             </a>
-            <a className="btn btn-secondary" href={profile.github} target="_blank" rel="noreferrer">
-              <LinkIcon size={16} /> GitHub
-            </a>
             <a className="btn btn-primary" href={profile.resumePdf} download>
               <Download size={16} /> Resume PDF
             </a>

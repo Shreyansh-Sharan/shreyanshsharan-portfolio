@@ -654,12 +654,23 @@ function GolfHud({ hud }: { hud: Hud }) {
         ))}
       </ol>
 
-      {hud.markers.map((m) => (
-        <div key={m.id} className={`bb-marker ${m.me ? 'is-me' : ''}`} style={{ left: m.x, top: m.y, borderColor: m.color }}>
-          <span style={{ background: m.color }} />
-          {m.me && <em>{m.dist} m</em>}
-        </div>
-      ))}
+      {hud.markers.map((m) =>
+        m.edge ? (
+          <div
+            key={m.id}
+            className="bb-marker is-me is-edge"
+            style={{ left: m.x, top: m.y, color: m.color, transform: `translate(-50%, -50%) rotate(${m.angle}rad)` }}
+          >
+            <span className="bb-edge-arrow" style={{ borderLeftColor: m.color }} />
+            <em style={{ transform: `rotate(${-m.angle}rad)` }}>Your ball</em>
+          </div>
+        ) : (
+          <div key={m.id} className={`bb-marker ${m.me ? 'is-me' : ''}`} style={{ left: m.x, top: m.y, borderColor: m.color }}>
+            <span style={{ background: m.color }} />
+            {m.me && <em>{m.dist} m</em>}
+          </div>
+        ),
+      )}
 
       <div className="vr-popups bb-popups">
         {hud.popups.map((pp) => (

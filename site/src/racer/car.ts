@@ -336,10 +336,12 @@ export class Car {
     // Rotate first; the velocity keeps its world direction, so turning creates slip that grip then removes.
     const fwd0 = this.forwardSpeed
     const spd = Math.abs(fwd0)
-    const steerAngle = 0.6 * (1 - 0.55 * Math.min(1, spd / Math.max(1, this.baseTop)))
+    // Keep more steering authority at speed so you can turn while on the throttle (less understeer).
+    const steerAngle = 0.6 * (1 - 0.38 * Math.min(1, spd / Math.max(1, this.baseTop)))
     let targetYaw = (-st * spd * Math.tan(steerAngle)) / WHEELBASE * Math.sign(fwd0 || 1)
-    const yawCap = (this.drifting ? this.latMax * 1.55 : this.latMax) / Math.max(spd, 6)
-    targetYaw = THREE.MathUtils.clamp(targetYaw, -Math.min(2.6, yawCap * 1.0), Math.min(2.6, yawCap * 1.0))
+    // The cap shrinks with speed but with a floor, so fast corners don't go numb unless you overcook them.
+    const yawCap = (this.drifting ? this.latMax * 1.55 : this.latMax * 1.25) / Math.max(spd, 9)
+    targetYaw = THREE.MathUtils.clamp(targetYaw, -Math.min(2.6, yawCap), Math.min(2.6, yawCap))
     if (this.drifting) targetYaw *= 1.25
     if (this.airBrake > 0) targetYaw *= 1.6
     this.yawRate += (targetYaw - this.yawRate) * Math.min(1, dt * (this.drifting ? 6 : 10))

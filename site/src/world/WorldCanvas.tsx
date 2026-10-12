@@ -23,10 +23,25 @@ import { world, useWorld } from './store'
 
 export type SceneMode = 'boot' | 'home' | 'page'
 
+/** A rough GPU check: weak integrated graphics (common on Windows laptops) should start on the light path. */
+function weakGpu() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl')
+    const info = gl?.getExtension('WEBGL_debug_renderer_info')
+    const r = (info && gl?.getParameter(info.UNMASKED_RENDERER_WEBGL)) as string | undefined
+    if (!r) return false
+    // Intel HD/UHD integrated, software renderers, and Microsoft's fallback are the usual culprits.
+    return /(Intel.*(HD|UHD) Graphics|Microsoft Basic Render|SwiftShader|llvmpipe|Software)/i.test(r)
+  } catch {
+    return false
+  }
+}
+
 function quality() {
   const small = window.innerWidth < 820 || matchMedia('(pointer: coarse)').matches
   const cores = navigator.hardwareConcurrency ?? 4
-  return small || cores <= 4 ? 'low' : 'high'
+  const deviceMem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
+  return small || cores <= 4 || deviceMem <= 4 || weakGpu() ? 'low' : 'high'
 }
 
 function Terrain({ segments }: { segments: number }) {
@@ -89,12 +104,15 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
   // The costly passes (ambient occlusion, multisampling) only while exploring on a capable, unstrained GPU;
   // the fly-over behind the home screen stays light.
   const rich = high && playing && !degraded
+  // Once the GPU is struggling, also shed the heaviest always-on costs (shadow maps, dense terrain and
+  // clouds) — not just the explore-only effects. This is what rescues weak laptop GPUs that start "high".
+  const heavy = high && !degraded
 
   return (
     <Canvas
       className="world-canvas"
-      shadows={high ? { type: THREE.PCFSoftShadowMap } : false}
-      dpr={high && !degraded ? [1, 1.5] : [1, 1]}
+      shadows={heavy ? { type: THREE.PCFSoftShadowMap } : false}
+      dpr={heavy ? [1, 1.5] : [1, 1]}
       frameloop={paused || frozen ? 'never' : 'always'}
       gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
       camera={{ fov: 48, near: 0.3, far: 4000, position: [0, 180, 320] }}
@@ -120,11 +138,11 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <color attach="background" args={['#9fc0de']} />
       <fog attach="fog" args={['#a9c6e0', 220, 1300]} />
       <SkyDome />
-      <Lighting shadows={high} live={playing} />
-      <Terrain segments={high ? 300 : 170} />
+      <Lighting shadows={heavy} live={playing} />
+      <Terrain segments={heavy ? 300 : 170} />
       <Water />
       <Suspense fallback={null}>
-        <SkyClouds count={high ? 10 : 6} />
+        <SkyClouds count={heavy ? 10 : 6} />
       </Suspense>
       <Suspense fallback={null}>
         <Landmarks />

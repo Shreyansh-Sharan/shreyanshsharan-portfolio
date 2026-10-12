@@ -209,7 +209,7 @@ export interface Hud {
   stun: number
   respawn: number
   lockOn: boolean
-  markers: { id: number; x: number; y: number; color: string; dist: number; me: boolean }[]
+  markers: { id: number; x: number; y: number; color: string; dist: number; me: boolean; edge: boolean; angle: number }[]
   feed: { id: number; text: string; mine: boolean }[]
   popups: { id: number; text: string; color: string; x: number; y: number; age: number }[]
   banner: { text: string; color: string } | null
@@ -537,12 +537,32 @@ export class Game {
     slots.forEach((slot, i) => {
       const p = PLAYERS[i % PLAYERS.length]
       const human = slot.kind === 'human'
+      const mine = slot.id === selfId
       const rig = makeGolfer(this.opts.assets, p.color)
-      const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35, emissive: p.color, emissiveIntensity: 0.25 }))
+      // Your own ball glows brighter so it's easy to pick out among the others.
+      const ballMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 16, 12),
+        new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35, emissive: p.color, emissiveIntensity: mine ? 0.7 : 0.25 }),
+      )
       ballMesh.castShadow = true
-      const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), new THREE.MeshBasicMaterial({ color: p.color, transparent: true, opacity: 0.7 }))
-      marker.position.y = 1.2
+      // Taller, brighter beacon for your ball; a thin pillar for everyone else.
+      const marker = new THREE.Mesh(
+        new THREE.CylinderGeometry(mine ? 0.09 : 0.05, mine ? 0.09 : 0.05, mine ? 3.4 : 2.2, mine ? 10 : 6),
+        new THREE.MeshBasicMaterial({ color: p.color, transparent: true, opacity: mine ? 0.95 : 0.7, toneMapped: false }),
+      )
+      marker.position.y = mine ? 1.7 : 1.2
       ballMesh.add(marker)
+      if (mine) {
+        // A spinning halo over your ball as an extra "this one is yours" cue.
+        const halo = new THREE.Mesh(
+          new THREE.TorusGeometry(0.5, 0.06, 8, 20),
+          new THREE.MeshBasicMaterial({ color: p.color, transparent: true, opacity: 0.9, toneMapped: false }),
+        )
+        halo.rotation.x = Math.PI / 2
+        halo.position.y = 3.5
+        halo.name = 'myHalo'
+        ballMesh.add(halo)
+      }
       const tee = this.course.tee.clone()
       // Bots get a little random spread in skill (decided by the host; clients never run them).
       const g = new Golfer(i, slot.name, p.color, human, human ? 1 : THREE.MathUtils.clamp(skill + (Math.random() - 0.5) * 0.1, 0.2, 0.95), p.personality, rig, ballMesh, tee)
@@ -3009,6 +3029,28 @@ export class Game {
     return { x: (v.x * 0.5 + 0.5) * this.container.clientWidth, y: (-v.y * 0.5 + 0.5) * this.container.clientHeight }
   }
 
+  /** An on-screen arrow clamped to the viewport edge, pointing toward an off-screen world point. */
+  private edgePointer(p: THREE.Vector3) {
+    const w = this.container.clientWidth, h = this.container.clientHeight
+    const v = p.clone().project(this.camera)
+    // Behind the camera: flip so the arrow points the right way.
+    let nx = v.x, ny = v.y
+    if (v.z > 1) {
+      nx = -nx
+      ny = -ny
+    }
+    // Direction from screen centre, in CSS pixels (y is flipped from NDC).
+    const dx = nx,
+      dz = -ny
+    const ang = Math.atan2(dz, dx)
+    const margin = 46
+    const hw = w / 2 - margin,
+      hh = h / 2 - margin
+    // Clamp the ray to the edge rectangle.
+    const scale = Math.min(hw / (Math.abs(Math.cos(ang)) || 1e-3), hh / (Math.abs(Math.sin(ang)) || 1e-3))
+    return { x: w / 2 + Math.cos(ang) * scale, y: h / 2 + Math.sin(ang) * scale, angle: ang }
+  }
+
   private emitHud() {
     if (!this.onHud) return
     const g = this.me
@@ -3020,8 +3062,18 @@ export class Game {
     const markers: Hud['markers'] = []
     for (const o of this.golfers) {
       if (o.ball.mode === 'holed') continue
+      const me = o === g
       const s = this.project(o.ball.pos.clone().setY(o.ball.pos.y + 2.6))
-      if (s) markers.push({ id: o.id, x: s.x, y: s.y, color: o.color, dist: Math.round(o.ball.pos.distanceTo(this.course.cup)), me: o === g })
+      const dist = Math.round(o.ball.pos.distanceTo(this.course.cup))
+      const w = this.container.clientWidth, h = this.container.clientHeight
+      const onScreen = s && s.x >= 0 && s.x <= w && s.y >= 0 && s.y <= h
+      if (onScreen) {
+        markers.push({ id: o.id, x: s.x, y: s.y, color: o.color, dist, me, edge: false, angle: 0 })
+      } else if (me) {
+        // Your own ball is off-screen: clamp a pointer to the screen edge aimed at the ball.
+        const toward = this.edgePointer(o.ball.pos)
+        markers.push({ id: o.id, x: toward.x, y: toward.y, color: o.color, dist, me, edge: true, angle: toward.angle })
+      }
     }
     const popups: Hud['popups'] = []
     for (const p of this.popups) {

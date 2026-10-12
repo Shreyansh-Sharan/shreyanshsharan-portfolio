@@ -28,10 +28,8 @@ export const profile = {
   initials: 'SS',
   headline: 'Solution Architect & Engineering Manager · Data & AI Platforms',
   location: 'India',
-  // Replace these placeholders with your real details.
-  email: 'your.email@example.com',
-  linkedin: 'https://www.linkedin.com/in/your-handle',
-  github: 'https://github.com/your-handle',
+  email: 'nitjshreyannshsharan@gmail.com',
+  linkedin: 'https://www.linkedin.com/in/shreyanshsharan',
   resumePdf: 'Shreyansh_Sharan_Resume.pdf',
   summary:
     'Solution Architect and Engineering Manager with 8+ years across analytics, data engineering, DevOps and ' +

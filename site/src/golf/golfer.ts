@@ -245,6 +245,22 @@ export class Golfer {
         this.pos.x += (dx / d) * (r - d) * 0.5
         this.pos.z += (dz / d) * (r - d) * 0.5
       }
+      // Sabotage: walk into a rival's resting ball to nudge it off its line (no power-up needed).
+      const b = o.ball
+      if (b.mode === 'rest') {
+        const bx = this.pos.x - b.pos.x, bz = this.pos.z - b.pos.z
+        const br = CONFIG.player_radius + CONFIG.ball_radius + 0.15
+        const bd2 = bx * bx + bz * bz
+        const moving = this.vel.x * this.vel.x + this.vel.z * this.vel.z
+        if (bd2 < br * br && moving > 0.5) {
+          // Kick the ball the way the player is moving, a bit harder the faster they're going.
+          const sp = Math.min(6, 2.5 + Math.sqrt(moving))
+          const nx = this.vel.x, nz = this.vel.z
+          const nl = Math.hypot(nx, nz) || 1
+          b.vel.set((nx / nl) * sp, 0, (nz / nl) * sp)
+          b.mode = 'rolling'
+        }
+      }
     }
 
     // Vertical: jumping and falling off ledges.
