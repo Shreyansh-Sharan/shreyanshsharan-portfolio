@@ -165,6 +165,57 @@ export class PlushAudio {
     o2.stop(t + 0.3)
   }
 
+  /** A soft procedural piano: triangle + harmonics through a closing low-pass, with a hammer click. */
+  private piano(f: number, vol: number, at = 0, detune = 1) {
+    const c = this.ctx!
+    const t = c.currentTime + at
+    const g = c.createGain()
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.006)
+    g.gain.exponentialRampToValueAtTime(vol * 0.3, t + 0.3)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.7)
+    const lp = c.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(Math.min(12000, f * 7), t)
+    lp.frequency.exponentialRampToValueAtTime(Math.max(200, f * 1.6), t + 1.2)
+    lp.connect(g).connect(this.bus!)
+    const parts: [number, OscillatorType, number][] = [[1, 'triangle', 1], [2 * detune, 'sine', 0.35], [3, 'sine', 0.12]]
+    for (const [k, type, amp] of parts) {
+      const o = c.createOscillator()
+      o.type = type
+      o.frequency.value = f * k
+      o.detune.value = (Math.random() - 0.5) * 6
+      const og = c.createGain()
+      og.gain.value = amp
+      o.connect(og).connect(lp)
+      o.start(t)
+      o.stop(t + 1.8)
+    }
+    this.noise(0.03, vol * 0.35, 2600, 1, 'bandpass', at)
+  }
+
+  /** A bright toy-trumpet note (fanfare). */
+  private brass(f: number, at: number, dur: number, vol: number) {
+    const c = this.ctx!
+    const t = c.currentTime + at
+    const o = c.createOscillator()
+    o.type = 'sawtooth'
+    o.frequency.setValueAtTime(f * 0.97, t)
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.04)
+    const lp = c.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(f * 2, t)
+    lp.frequency.exponentialRampToValueAtTime(f * 5, t + 0.05)
+    const g = c.createGain()
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.03)
+    g.gain.setValueAtTime(vol, t + dur * 0.7)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.15)
+    o.connect(lp).connect(g).connect(this.bus!)
+    o.start(t)
+    o.stop(t + dur + 0.2)
+  }
+
   private env(t: number, a: number, peak: number, d: number) {
     const g = this.ctx!.createGain()
     g.gain.setValueAtTime(0.0001, t)
@@ -220,6 +271,19 @@ export class PlushAudio {
       if (v < 0.03) return
     }
     const r = 0.9 + Math.random() * 0.2
+    // Pitched notes: 'note:<midi>' or 'note:<midi>:<voice>' (piano, bell, sour).
+    if (name.startsWith('note:')) {
+      const [, m, voice] = name.split(':')
+      const f = midi(Number(m) || 60)
+      if (voice === 'bell') this.pling(this.bus, f, c.currentTime, 0.2 * v)
+      else if (voice === 'sour') {
+        // A wrong key: a detuned low cluster with a dull thunk.
+        this.piano(f * 0.5, 0.22 * v, 0, 1.06)
+        this.piano(f * 0.53, 0.16 * v, 0.02, 1.06)
+        this.tone('sine', 120, 50, 0.25, 0.3 * v)
+      } else this.piano(f, 0.26 * v)
+      return
+    }
     switch (name) {
       case 'boop':
         this.tone('sine', 520 * r, 260 * r, 0.14, 0.25 * v)
@@ -300,6 +364,23 @@ export class PlushAudio {
         break
       case 'count':
         this.tone('square', 440, 440, 0.12, 0.08 * v)
+        break
+      case 'fanfare': {
+        // A little toy-trumpet flourish for the crown: G C E G, then a held C chord.
+        const seq: [number, number, number][] = [[67, 0, 0.12], [72, 0.12, 0.12], [76, 0.24, 0.12], [79, 0.36, 0.2], [84, 0.62, 0.9], [76, 0.62, 0.9], [79, 0.62, 0.9]]
+        for (const [n, at, d] of seq) this.brass(midi(n), at, d, 0.07 * v)
+        this.noise(1.2, 0.08 * v, 1600, 0.6, 'bandpass', 0.6, 3000)
+        break
+      }
+      case 'squawk':
+        // A cheeky parrot: two rough chirps that bend up and down.
+        this.tone('sawtooth', 700 * r, 1500 * r, 0.09, 0.12 * v)
+        this.tone('sawtooth', 1500 * r, 600 * r, 0.14, 0.12 * v, 0.1)
+        this.noise(0.18, 0.08 * v, 2400, 3, 'bandpass', 0.02)
+        break
+      case 'deflate':
+        this.noise(0.9, 0.22 * v, 1800, 1.5, 'bandpass', 0, 250)
+        this.tone('sawtooth', 220, 90, 0.8, 0.05 * v)
         break
       default:
         this.tone('sine', 600, 300, 0.1, 0.15 * v)

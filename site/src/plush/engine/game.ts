@@ -15,7 +15,7 @@ import { loadPhysics, Phys, RAPIER, STEP, type RigidBody } from './physics'
 import { ANIMS, ToyRig, type AnimKey, type RigState } from './rig'
 import { makeRng, type Rng } from './rng'
 import { Sabotage, THROW_INFO, trickPrice } from './sabotage'
-import { awardsFor, botName, planShow, roundTarget, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
+import { awardsFor, botName, pickFinal, planShow, roundTarget, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
 import { BALL_DROP, clearOneShots, emptyPad, FOOT, Toy, type BodyMode, type Pad, type ToyEvents } from './toy'
 import {
   freshStats, THROW_KINDS, type AnyLevel, type Contestant, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice, type ThrowKind,
@@ -693,7 +693,7 @@ export class Game {
       this.plan = []
       this.planMode = 'show'
     }
-    this.plan.splice(this.planIdx, 0, { levelId, final })
+    this.plan.splice(this.planIdx, 0, { levelId, final, forced: true })
     this.nextPlannedRound()
   }
 
@@ -703,6 +703,15 @@ export class Game {
     const alive = this.roster.filter((c) => !c.out)
     // Two left: straight to the final.
     if (this.planMode === 'show' && alive.length <= 2 && !plan[this.planIdx].final) this.planIdx = plan.length - 1
+    // The crown round: swap in a real final that fits the toys actually left (rounds can thin the field early).
+    const fin = plan[this.planIdx]
+    const planned = levelById(fin.levelId)
+    const misfit = !!planned && (alive.length < planned.players[0] || alive.length > planned.players[1])
+    if (this.planMode === 'show' && fin.final && !fin.forced && planned && (planned.type !== 'final' || misfit)) {
+      const played = new Set(plan.slice(0, this.planIdx).map((x) => x.levelId))
+      const better = pickFinal(LEVELS, alive.length, makeRng((Date.now() & 0xffffff) ^ alive.length), played)
+      if (better.type === 'final' || misfit) plan[this.planIdx] = { levelId: better.id, final: true }
+    }
     const p = plan[this.planIdx]
     const lv = levelById(p.levelId) ?? LEVELS[0]
     const quick = this.planMode === 'quick'

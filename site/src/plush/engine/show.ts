@@ -21,6 +21,8 @@ export const MAX_PEOPLE = 8
 export interface RoundPlan {
   levelId: string
   final: boolean
+  /** Chosen by hand (tests: forceRound), so the engine never swaps it for a better-fitting final. */
+  forced?: boolean
 }
 
 /** Round slots by Show length: the field shrinks race → survival → team/logic → survival → crown final. */
@@ -33,13 +35,43 @@ const SLOTS: Record<number, LevelType[][]> = {
 
 const playable = (l: AnyLevel, n: number) => l.type !== 'hub' && l.type !== 'hidden' && n >= l.players[0] - 0 && n <= l.players[1]
 
-/** Pick a level per round. The final is reserved first so a crown-capable level is always left for it. */
+const fitsCount = (l: AnyLevel, n: number) => n >= l.players[0] && n <= l.players[1]
+
+/**
+ * The crown round for `field` toys: a real final (type 'final') that fits the field, else a survival level that
+ * can crown a winner (canBeFinal), else any final, else anything playable. `avoid` skips levels already played.
+ */
+export function pickFinal(levels: readonly AnyLevel[], field: number, rng: Rng, avoid: ReadonlySet<string> = new Set()): AnyLevel {
+  const fresh = (l: AnyLevel) => !avoid.has(l.id) && l.type !== 'hub' && l.type !== 'hidden'
+  const tiers = [
+    levels.filter((l) => fresh(l) && l.type === 'final' && fitsCount(l, field)),
+    levels.filter((l) => fresh(l) && !!l.canBeFinal && fitsCount(l, field)),
+    levels.filter((l) => fresh(l) && (l.type === 'final' || !!l.canBeFinal) && field <= l.players[1]),
+    levels.filter((l) => fresh(l) && fitsCount(l, field)),
+    levels.filter((l) => l.type !== 'hub' && l.type !== 'hidden'),
+  ]
+  for (const t of tiers) if (t.length) return rng.pick(t)
+  return levels[0]
+}
+
+/** How many toys should reach the final of a Show of `size` toys over `rounds` rounds (if nobody drops early). */
+export function expectedFinalField(size: number, rounds: number) {
+  const n = Math.max(2, Math.min(5, rounds))
+  let field = size
+  for (let i = 0; i < n - 1; i++) field = roundTarget(field, n - i, false, size)
+  return Math.max(2, field)
+}
+
+/**
+ * Pick a level per round. The final is reserved first: a real final (type 'final') that fits the expected final
+ * field when one exists, else a crown-capable survival level. The engine re-checks the final against the toys
+ * actually left when it gets there (see `pickFinal`).
+ */
 export function planShow(levels: readonly AnyLevel[], size: number, rounds: number, rng: Rng): RoundPlan[] {
   const slots = SLOTS[Math.max(2, Math.min(5, rounds))]
   const used = new Set<string>()
   const pool = levels.filter((l) => playable(l, Math.min(size, l.players[1])))
-  const finals = pool.filter((l) => l.type === 'final' || l.canBeFinal)
-  const final = finals.length ? rng.pick(finals) : rng.pick(pool)
+  const final = pickFinal(pool.length ? pool : levels, expectedFinalField(size, rounds), rng)
   used.add(final.id)
   const plan: RoundPlan[] = []
   for (let i = 0; i < slots.length - 1; i++) {

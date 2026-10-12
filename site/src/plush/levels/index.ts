@@ -5,8 +5,12 @@ import loft from './loft'
 import cookieCutter from './cookie-cutter'
 import musicBox from './music-box'
 import topSumo from './top-sumo'
+import blockMemory from './block-memory'
+import pianoBridge from './piano-bridge'
+import crayonMatch from './crayon-match'
+import toyPile from './toy-pile'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, blockMemory, pianoBridge, crayonMatch, toyPile]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)

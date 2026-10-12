@@ -139,7 +139,11 @@ export interface FxApi {
   confetti(pos: THREE.Vector3Like): void
   /** Camera shake; with `toy`, only on that toy's screen. */
   shake(amount: number, toy?: Toy): void
-  /** Short procedural sound: 'boop', 'squeak', 'pop', 'crunch', 'cheer', 'whoosh', 'thud', 'ding', 'buzz', 'zap', 'tick', 'snip', 'slam', 'splash', 'crack', 'wind', 'boing'. */
+  /**
+   * Short procedural sound: 'boop', 'squeak', 'pop', 'crunch', 'cheer', 'whoosh', 'thud', 'ding', 'buzz', 'zap',
+   * 'tick', 'snip', 'slam', 'splash', 'crack', 'wind', 'boing', 'fanfare', 'squawk', 'deflate'. Pitched notes:
+   * 'note:<midi>' (a soft piano), 'note:<midi>:bell' or 'note:<midi>:sour' (a wrong, detuned key).
+   */
   sfx(name: string, pos?: THREE.Vector3Like, toy?: Toy): void
   /** Big centre banner; with `toy`, only on that toy's screen. */
   say(text: string, color?: string, seconds?: number, toy?: Toy): void
