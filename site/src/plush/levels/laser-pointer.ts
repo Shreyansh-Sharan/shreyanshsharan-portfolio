@@ -156,7 +156,7 @@ function sunTexture() {
     for (let i = 0; i < cols; i++) {
       const x0 = (i / cols) * w + 10, x1 = ((i + 1) / cols) * w - 10
       const gr = g.createLinearGradient(0, 0, 0, h)
-      gr.addColorStop(0, 'rgba(255,226,150,0.32)')
+      gr.addColorStop(0, 'rgba(255,226,150,0.22)')
       gr.addColorStop(1, 'rgba(255,226,150,0.04)')
       g.fillStyle = gr
       g.beginPath()
@@ -320,20 +320,21 @@ export default defineLevel<LaserState>({
       target: 'rival',
       desc: 'Point the laser at a rival: the nearest dot zips straight to them and the paw follows.',
       counter: 'When the dot lands on you, run the moment the shadow appears.',
+      can: (_c, s) => (s.paws.some((p) => p.on && p.ph !== 2) ? true : 'The paw is mid-pounce'),
       apply: (ctx, s, _user, target) => {
         if (!target) return
-        let best = 0, bd = Infinity
+        let best = -1, bd = Infinity
         s.paws.forEach((p, i) => {
-          if (!p.on) return
+          if (!p.on || p.ph === 2) return
           dotAt(p, ctx.time, _d)
           const d = Math.hypot(_d.x - target.pos.x, _d.z - target.pos.z)
-          if (d < bd && p.ph !== 2) {
+          if (d < bd) {
             bd = d
             best = i
           }
         })
         const p = s.paws[best]
-        if (p.ph === 2) return
+        if (!p) return
         startMove(ctx, s, best, clampSill(target.pos.x, target.pos.z, _e), 0.55)
         p.fake = 0
         p.aimed = 1
@@ -393,7 +394,7 @@ export default defineLevel<LaserState>({
     ctx.phys.box({ x: 0, y: -0.3, z: 0 }, { x: HX, y: 0.3, z: HZ }, { friction: 0.8 })
     const wood = new THREE.MeshStandardMaterial({
       map: paint(512, 128, (g, w, h) => {
-        g.fillStyle = '#eadcc2'
+        g.fillStyle = '#d8c09a'
         g.fillRect(0, 0, w, h)
         g.strokeStyle = 'rgba(160,140,110,0.25)'
         for (let y = 6; y < h; y += 12) {

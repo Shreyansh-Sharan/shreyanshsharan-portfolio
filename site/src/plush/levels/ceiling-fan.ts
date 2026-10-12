@@ -23,7 +23,7 @@ const B_T = 0.25
 const FLOOR_Y = -16
 /** Spin by speed setting (rad/s) and when each setting clicks in. */
 const OMEGA = [0, 0.42, 0.78, 1.18]
-const SPEED_AT = [0, 0, 40, 80]
+const SPEED_AT = [0, 0, 30, 60]
 const CORD_Y = 0.95
 const CORD_LEN = 7.2
 const FLIP_TIME = 1.3
@@ -76,7 +76,7 @@ function pitch(f: number, t: number) {
   const e = t - f
   if (e < 0 || e > FLIP_TIME) return 0
   const k = e < 0.15 ? e / 0.15 : e < 0.95 ? 1 : 1 - (e - 0.95) / (FLIP_TIME - 0.95)
-  return k * 0.62
+  return k * 0.45
 }
 
 function bladeQuat(s: FanState, b: number, th: number, t: number, out: THREE.Quaternion) {
@@ -236,7 +236,7 @@ export default defineLevel<FanState>({
       counter: 'Feel it twitch and run for the hub, or jump as it tips.',
       can: (ctx, s, _u, target) => {
         if (!target) return 'Pick a rival'
-        if (ctx.time < 12) return 'The fan is still warming up'
+        if (ctx.time < 25) return 'The fan is still warming up'
         const o = onBlade(s.vis.th, target.pos.x, target.pos.z)
         if (o.r < HUB_R) return 'They are on the hub'
         if (!o.on) return 'They are not on a blade'
@@ -265,7 +265,7 @@ export default defineLevel<FanState>({
             best = t
           }
         }
-        return best ?? false
+        return bc >= 2 ? best ?? false : false
       },
     },
     {
@@ -511,7 +511,7 @@ export default defineLevel<FanState>({
         const lx = -Math.sin(a), lz = -Math.cos(a)
         if ((toy.data.flipT as number) === f) continue
         toy.data.flipT = f
-        ctx.knock(toy, { x: lx * 3.8, y: 4, z: lz * 3.8 }, 0.45)
+        ctx.knock(toy, { x: lx * 2.4, y: 4, z: lz * 2.4 }, 0.35)
       }
     }
     for (const toy of active) {

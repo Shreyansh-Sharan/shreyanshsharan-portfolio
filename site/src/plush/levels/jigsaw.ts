@@ -72,7 +72,7 @@ function pieceShape(size: number) {
     }
     sweep = mid(sweep)
     if (!passes(sweep)) sweep = sweep > 0 ? sweep - Math.PI * 2 : sweep + Math.PI * 2
-    const k = 7
+    const k = 6
     for (let i = 1; i < k; i++) {
       const a = a0 + (sweep * i) / k
       pts.push(new THREE.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r))
@@ -89,10 +89,11 @@ function pieceShape(size: number) {
 }
 
 function pieceGeometry() {
-  const g = new THREE.ExtrudeGeometry(pieceShape(SIZE), { depth: THICK, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1, curveSegments: 1 })
+  // No bevel: 363 of these, so every triangle counts.
+  const g = new THREE.ExtrudeGeometry(pieceShape(SIZE), { depth: THICK, bevelEnabled: false, curveSegments: 1 })
   // Lie flat with the top at y = 0 (shape +y → world -z).
   g.rotateX(-Math.PI / 2)
-  g.translate(0, -THICK - 0.03, 0)
+  g.translate(0, -THICK, 0)
   return g
 }
 
