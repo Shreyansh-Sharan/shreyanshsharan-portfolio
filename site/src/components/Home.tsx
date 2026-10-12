@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Mountain, Volume2, VolumeX } from 'lucide-react'
+import { FileText, Gauge, Mountain, Volume2, VolumeX, Zap } from 'lucide-react'
 import { profile, skillTree, tiles, trophies, type Activity, type Tile } from '../data/content'
 import { useActions, type Action } from '../lib/input'
 import { isMuted, play, setMuted } from '../lib/sound'
+import { isLowGraphics, setLowGraphics } from '../lib/graphics'
 import { navigate } from '../lib/router'
 import { TileArt } from './TileArt'
 import { accentVars } from '../lib/style'
@@ -102,6 +103,7 @@ export function Home({
   const [actionIdx, setActionIdx] = useState(0)
   const [cardIdx, setCardIdx] = useState(0)
   const [muted, setMutedState] = useState(isMuted)
+  const [lowGfx, setLowGfx] = useState(isLowGraphics)
   const [toast, setToast] = useState<string | null>(null)
   const [launching, setLaunching] = useState(false)
   const clock = useClock()
@@ -292,6 +294,20 @@ export function Home({
             }}
           >
             {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <button
+            className={`icon-btn ${lowGfx ? 'is-active' : ''}`}
+            aria-label={lowGfx ? 'Switch to full graphics' : 'Switch to low graphics (faster on weak laptops)'}
+            title={lowGfx ? 'Low graphics is ON — click for full graphics' : 'Low graphics (faster on weak laptops / fixes lag)'}
+            onClick={() => {
+              const next = !lowGfx
+              setLowGraphics(next)
+              setLowGfx(next)
+              // The render tier is chosen when the 3D canvas is created, so reload to apply it cleanly.
+              window.location.reload()
+            }}
+          >
+            {lowGfx ? <Zap size={18} /> : <Gauge size={18} />}
           </button>
           <button className="avatar" aria-label="Player profile" onClick={() => navigate('#/profile')}>
             {profile.initials}
