@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, Crosshair, Expand, LogOut, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
+import { AdSlot } from './AdSlot'
+import { GearShelf } from './GearShelf'
+import { adBreak, useGameAds } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'arena')!.accent
 const GAME_URL = 'games/arena/index.html'
@@ -62,6 +65,19 @@ function saveName(name: string) {
   } catch {
     // Not persisted in private mode; that's fine.
   }
+}
+
+/** Turn the game's raw connection error into something a player can act on. */
+function describeError(raw: string) {
+  const text = (raw || '').toLowerCase()
+  if (text.includes('project') && (text.includes('cloud') || text.includes('id')))
+    return 'Online play isn’t set up yet: the game needs to be linked to a Unity Cloud project. Solo mode still works.'
+  if (text.includes('not found') || text.includes('404') || text.includes('code'))
+    return 'No match with that code. Check it, or ask your friend to host again.'
+  if (text.includes('full')) return 'That match is full.'
+  if (text.includes('network') || text.includes('websocket') || text.includes('timeout'))
+    return 'Couldn’t reach the game servers. Check your connection and try again.'
+  return raw ? `Couldn’t connect: ${raw}` : 'Couldn’t connect. Check the code, or try solo mode.'
 }
 
 /** Lobby for the Unity WebGL shooter, plus the full-screen player that embeds it. */
@@ -244,12 +260,17 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
           </p>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="gaming" />
     </Page>
   )
 }
 
-function ArenaPlayer({ src, onExit }: { src: string; onExit: () => void }) {
+function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  // Leaving a match is a natural break for an interstitial; the lobby comes back once it's done.
+  const onExit = useCallback(() => adBreak('arena-exit', { done: exit }), [exit])
+  useGameAds(frame, 'arena')
   const [code, setCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -273,7 +294,7 @@ function ArenaPlayer({ src, onExit }: { src: string; onExit: () => void }) {
       const msg = ev.data as ArenaMessage
       if (!msg || msg.source !== 'arena') return
       if (msg.type === 'code') setCode(msg.payload)
-      if (msg.type === 'error') setError('Couldn’t connect. Check the code, or try solo mode.')
+      if (msg.type === 'error') setError(describeError(msg.payload))
       if (msg.type === 'started') setError(null)
       if (msg.type === 'left') onExit()
     }

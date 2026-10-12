@@ -15,6 +15,8 @@ import { RaceStage } from './RaceStage'
 import { Results, Standings } from './Results'
 import { CIRCUIT_MAPS, MAP_INFO, hostRoom, joinRoom, type Link, type LobbyPlayer, type MapId, type MatchSettings, type MatchSetup, type Msg, type Slot } from './net'
 import type { Mode, RaceResult } from './game'
+import { AdSlot } from '../components/AdSlot'
+import { GearShelf } from '../components/GearShelf'
 
 const accent = tiles.find((t) => t.id === 'volt-riot')?.accent ?? (['#831843', '#f0abfc'] as [string, string])
 
@@ -773,6 +775,8 @@ function Menu(p: {
           </ul>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="racing" />
     </Page>
   )
 }
