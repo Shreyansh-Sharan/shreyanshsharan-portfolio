@@ -34,6 +34,8 @@ namespace UnityEngine
         public static Vector3 ProjectOnPlane(Vector3 v, Vector3 n) => v - n * Dot(v, n) / Math.Max(1e-8f, Dot(n, n));
         public static Vector3 Normalize(Vector3 v) => v.normalized;
         public static Vector3 Scale(Vector3 a, Vector3 b) => new Vector3(a.x * b.x, a.y * b.y, a.z * b.z);
+        public static Vector3 MoveTowards(Vector3 c, Vector3 t, float d) { var v = t - c; float m = v.magnitude; return m <= d || m == 0f ? t : c + v / m * d; }
+        public static Vector3 ClampMagnitude(Vector3 v, float max) { float m = v.magnitude; return m > max ? v / m * max : v; }
         public override string ToString() => $"({x:0.00}, {y:0.00}, {z:0.00})";
     }
 
@@ -74,6 +76,8 @@ namespace UnityEngine
         public static float SmoothStep(float a, float b, float t) { t = Clamp01(t); t = -2f * t * t * t + 3f * t * t; return b * t + a * (1f - t); }
         public static float MoveTowards(float c, float t, float d) => Math.Abs(t - c) <= d ? t : c + Math.Sign(t - c) * d;
         public static float DeltaAngle(float a, float b) { float d = Repeat(b - a, 360f); if (d > 180f) d -= 360f; return d; }
+        public static float MoveTowardsAngle(float c, float t, float d) { float delta = DeltaAngle(c, t); if (-d < delta && delta < d) return t; return MoveTowards(c, c + delta, d); }
+        public static float LerpAngle(float a, float b, float t) { float delta = Repeat(b - a, 360f); if (delta > 180f) delta -= 360f; return a + delta * Clamp01(t); }
         public static bool Approximately(float a, float b) => Math.Abs(a - b) < 1e-6f;
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds and runs the offline physics sanity sim with the .NET SDK (no Unity needed):
-compiles Assets/Cricket/Scripts/Sim/*.cs + UnityShim.cs + Program.cs with Roslyn and runs it.
+compiles the ball physics, delivery, shot and umpiring code from Assets/Cricket/Scripts/Sim + UnityShim.cs + Program.cs with Roslyn and runs it.
 Usage: python3 Tools/PhysicsSim/run.py"""
 import glob, json, os, subprocess, sys, tempfile
 
@@ -13,7 +13,8 @@ if not csc or not runtimes:
     sys.exit('Needs the .NET 8 SDK (dotnet).')
 runtime = runtimes[-1]
 out = tempfile.mkdtemp(prefix='cricket-sim-')
-sources = sorted(glob.glob(os.path.join(project, 'Assets/Cricket/Scripts/Sim/*.cs'))) + [os.path.join(here, 'UnityShim.cs'), os.path.join(here, 'Program.cs')]
+sim = os.path.join(project, 'Assets/Cricket/Scripts/Sim')
+sources = [os.path.join(sim, f) for f in ('Geometry.cs', 'Conditions.cs', 'BallPhysics.cs', 'Delivery.cs', 'Shots.cs', 'Umpiring.cs')] + [os.path.join(here, 'UnityShim.cs'), os.path.join(here, 'Program.cs')]
 refs = [f for f in glob.glob(os.path.join(runtime, '*.dll')) if os.path.basename(f).startswith(('System', 'netstandard', 'mscorlib', 'Microsoft.CSharp'))]
 exe = os.path.join(out, 'CricketSim.dll')
 args = ['dotnet', csc[-1], '-nologo', '-nostdlib+', '-target:exe', '-langversion:9.0', '-nowarn:CS0649,CS0414', '-out:' + exe] + ['-r:' + r for r in refs] + sources

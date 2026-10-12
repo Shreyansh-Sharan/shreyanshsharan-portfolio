@@ -22,6 +22,8 @@ namespace Cricket.Sim
         public bool Played;
         /// <summary>Bat arrival minus ball arrival at the contact point, seconds (negative = early).</summary>
         public float TimingError;
+        /// <summary>How hard he swings: 1 (or 0) a full stroke, ~0.5 a soft push into a gap for a single.</summary>
+        public float Power;
     }
 
     /// <summary>A shot's coverage and character.</summary>
@@ -80,11 +82,11 @@ namespace Cricket.Sim
             default, // Auto
             new ShotSpec { Type = ShotType.Defend, Name = "Defence", DirMin = -70, DirMax = 70, UMin = -0.38f, UMax = 0.5f, HMin = 0f, HMax = 1.5f, LenMin = 0f, LenMax = 20f, Feet = Footwork.Auto, BatSpeed = 2.5f, GroundElevation = -10f, LoftElevation = -6f, Lead = 0.14f },
             new ShotSpec { Type = ShotType.Leave, Name = "Leave", Lead = 0f },
-            new ShotSpec { Type = ShotType.Drive, Name = "Drive", DirMin = -50, DirMax = 85, UMin = -0.3f, UMax = 0.75f, HMin = 0f, HMax = 0.85f, LenMin = 1.6f, LenMax = 5.8f, Feet = Footwork.Front, BatSpeed = 19.5f, GroundElevation = 3f, LoftElevation = 29f, Lead = 0.2f },
-            new ShotSpec { Type = ShotType.Cut, Name = "Cut", DirMin = 60, DirMax = 150, UMin = 0.2f, UMax = 1.25f, HMin = 0.2f, HMax = 1.35f, LenMin = 6.5f, LenMax = 14f, Feet = Footwork.Back, BatSpeed = 20f, GroundElevation = 2f, LoftElevation = 24f, Lead = 0.18f },
-            new ShotSpec { Type = ShotType.Pull, Name = "Pull", DirMin = -155, DirMax = -20, UMin = -0.55f, UMax = 0.5f, HMin = 0.55f, HMax = 2.1f, LenMin = 7f, LenMax = 14f, Feet = Footwork.Back, BatSpeed = 22f, GroundElevation = 4f, LoftElevation = 26f, Lead = 0.2f },
-            new ShotSpec { Type = ShotType.Sweep, Name = "Sweep", DirMin = -170, DirMax = -40, UMin = -0.55f, UMax = 0.7f, HMin = 0f, HMax = 0.75f, LenMin = 1.5f, LenMax = 5.5f, Feet = Footwork.Front, BatSpeed = 17f, GroundElevation = 2f, LoftElevation = 27f, Lead = 0.22f },
-            new ShotSpec { Type = ShotType.Flick, Name = "Flick", DirMin = -115, DirMax = 5, UMin = -0.75f, UMax = 0.2f, HMin = 0f, HMax = 0.95f, LenMin = 0f, LenMax = 9f, Feet = Footwork.Auto, BatSpeed = 17.5f, GroundElevation = 3f, LoftElevation = 27f, Lead = 0.17f },
+            new ShotSpec { Type = ShotType.Drive, Name = "Drive", DirMin = -50, DirMax = 85, UMin = -0.3f, UMax = 0.75f, HMin = 0f, HMax = 0.85f, LenMin = 1.6f, LenMax = 5.8f, Feet = Footwork.Front, BatSpeed = 17.5f, GroundElevation = 3f, LoftElevation = 29f, Lead = 0.2f },
+            new ShotSpec { Type = ShotType.Cut, Name = "Cut", DirMin = 60, DirMax = 150, UMin = 0.2f, UMax = 1.25f, HMin = 0.2f, HMax = 1.35f, LenMin = 6.5f, LenMax = 14f, Feet = Footwork.Back, BatSpeed = 18f, GroundElevation = 2f, LoftElevation = 24f, Lead = 0.18f },
+            new ShotSpec { Type = ShotType.Pull, Name = "Pull", DirMin = -155, DirMax = -20, UMin = -0.55f, UMax = 0.5f, HMin = 0.55f, HMax = 2.1f, LenMin = 7f, LenMax = 14f, Feet = Footwork.Back, BatSpeed = 20f, GroundElevation = 4f, LoftElevation = 26f, Lead = 0.2f },
+            new ShotSpec { Type = ShotType.Sweep, Name = "Sweep", DirMin = -170, DirMax = -40, UMin = -0.55f, UMax = 0.7f, HMin = 0f, HMax = 0.75f, LenMin = 1.5f, LenMax = 5.5f, Feet = Footwork.Front, BatSpeed = 15.5f, GroundElevation = 2f, LoftElevation = 27f, Lead = 0.22f },
+            new ShotSpec { Type = ShotType.Flick, Name = "Flick", DirMin = -115, DirMax = 5, UMin = -0.75f, UMax = 0.2f, HMin = 0f, HMax = 0.95f, LenMin = 0f, LenMax = 9f, Feet = Footwork.Auto, BatSpeed = 16f, GroundElevation = 3f, LoftElevation = 27f, Lead = 0.17f },
         };
 
         public static ShotSpec Get(ShotType t) => All[(int)t];
@@ -180,7 +182,7 @@ namespace Cricket.Sim
             float late = Mathf.Max(0f, c.LateMovement - 0.04f);
 
             // Swing and miss: badly mistimed, or the ball simply wasn't where the bat went.
-            float pMiss = timingQ <= 0f ? 0.85f : Mathf.Clamp01(zoneMiss > 0.45f ? 0.9f : (1f - zoneQ) * 0.55f + late * 1.5f - c.BatterSkill * 0.05f);
+            float pMiss = timingQ <= 0f ? 0.85f : Mathf.Clamp01(zoneMiss > 0.45f ? 0.9f : (1f - zoneQ) * 0.55f + late * 1.0f - c.BatterSkill * 0.05f);
             if (input.Type == ShotType.Defend) pMiss *= 0.6f;
             if (rng.Chance(pMiss))
             {
@@ -189,7 +191,7 @@ namespace Cricket.Sim
                 return r;
             }
 
-            float pEdge = Mathf.Clamp(0.03f + 0.55f * (1f - zoneQ) + 0.28f * (1f - timingQ) + late * 2.2f + (1f - lengthQ) * 0.3f - 0.04f * c.BatterSkill, 0f, 0.85f);
+            float pEdge = Mathf.Clamp(0.03f + 0.55f * (1f - zoneQ) + 0.28f * (1f - timingQ) + late * 1.6f + (1f - lengthQ) * 0.3f - 0.04f * c.BatterSkill, 0f, 0.85f);
             if (input.Type == ShotType.Defend) pEdge *= 0.7f;
             var up = Vector3.up;
             if (rng.Chance(pEdge))
@@ -250,13 +252,15 @@ namespace Cricket.Sim
             float aim = Mathf.Clamp(input.Aim, spec.DirMin, spec.DirMax);
             // Early closes the face (ball goes leg side), late opens it (off side / behind square).
             float skew = Mathf.Clamp(err * 320f, -40f, 40f);
-            float direction = aim + skew + rng.Gauss() * (1f - q) * 12f;
+            // Even a middled shot doesn't go exactly where it was aimed.
+            float direction = aim + skew + rng.Gauss() * (4f + (1f - q) * 12f);
             r.Direction = direction;
 
-            float batSpeed = spec.BatSpeed * Mathf.Lerp(0.3f, 1f, q) * Mathf.Lerp(0.9f, 1.12f, c.BatterPower) * (input.Loft ? 1.12f : 1f);
+            float power = input.Power > 0f ? Mathf.Clamp(input.Power, 0.3f, 1f) : 1f;
+            float batSpeed = spec.BatSpeed * Mathf.Lerp(0.3f, 1f, q) * Mathf.Lerp(0.9f, 1.12f, c.BatterPower) * (input.Loft ? 1.35f : 1f) * power;
             // Collision: effective bat-ball restitution ~0.5 with a bat effective mass of ~0.9 kg.
             const float qA = 0.25f;
-            float speedOut = qA * vin * Mathf.Lerp(0.6f, 1f, q) + (1f + qA) * batSpeed;
+            float speedOut = qA * vin * Mathf.Lerp(0.6f, 1f, q) * Mathf.Lerp(0.5f, 1f, power) + (1f + qA) * batSpeed;
             float elevation;
             if (input.Type == ShotType.Defend)
             {

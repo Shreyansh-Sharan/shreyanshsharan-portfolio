@@ -189,7 +189,7 @@ namespace Cricket.Game
                 case Phase.Dead: UpdateDead(dt); break;
                 case Phase.Review: UpdateReview(dt); break;
                 case Phase.Replay: if (PhaseTime > 8f || PhaseTime > 0.5f && (ReplayRecorder.Instance == null || !ReplayRecorder.Instance.Playing)) AfterBall(); break;
-                case Phase.InningsBreak: if (PhaseTime > (HumanBats || HumanBowls ? 30f : 6f)) StartNextInnings(); break;
+                case Phase.InningsBreak: if (PhaseTime > (HumanBats || HumanBowls ? 45f : 6f)) ContinueFromBreak(); break;
                 case Phase.MatchEnd: break;
             }
             UpdateIdleActors(dt);
@@ -427,9 +427,9 @@ namespace Cricket.Game
             ApplyField();
             LayoutForDelivery();
 
-            // Default marker: the selected delivery's length on off stump.
+            // Marker: a human bowler keeps his last line and length; otherwise the delivery's default on off stump.
             var spec = Deliveries.Get(SelectedDelivery);
-            Marker = frame.Local(0.12f, spec.DefaultLength);
+            Marker = HumanBowls && hasLastMarker ? frame.Local(lastMarkerOff, lastMarkerLen) : frame.Local(0.12f, spec.DefaultLength);
 
             // Pitch wear grows through the match.
             float overs = 0f;
@@ -589,6 +589,8 @@ namespace Cricket.Game
         // ------------------------------------------------------------------ pre-delivery
 
         float aiReadyAt;
+        bool hasLastMarker;
+        float lastMarkerOff, lastMarkerLen;
 
         void UpdatePreDelivery(float dt)
         {
@@ -652,10 +654,9 @@ namespace Cricket.Game
         {
             var bowler = FieldingTeam.Players[Inn.Bowler];
             bool spin = Deliveries.IsSpinStyle(bowler.Bowl);
-            float t = PhaseTime / runUpDuration;
-            // Ease in: accelerate over the first third.
-            float s = t < 0.35f ? t * t / 0.35f * 0.5f / 0.5f : t;
-            s = Mathf.Clamp01(Mathf.SmoothStep(0f, 1f, t * 0.6f + 0.4f * t * t));
+            float t = Mathf.Clamp01(PhaseTime / runUpDuration);
+            // Accelerates through the run-up and arrives at the crease at full speed.
+            float s = t * 0.65f + t * t * 0.35f;
             var prev = BowlerActor.Pos;
             BowlerActor.Pos = Vector3.Lerp(runUpStart, runUpEnd, s);
             BowlerActor.Vel = (BowlerActor.Pos - prev) / Mathf.Max(dt, 1e-4f);
@@ -668,7 +669,7 @@ namespace Cricket.Game
             {
                 var dir = (frame.Origin - a.Home);
                 dir.y = 0f;
-                float walk = Mathf.Clamp01(PhaseTime / runUpDuration) * (a.Home - frame.Origin).magnitude > 15f ? 2.5f : 0.8f;
+                float walk = (a.Home - frame.Origin).magnitude > 15f ? 2.5f : 0.8f;
                 a.Pos = a.Home + dir.normalized * walk * Mathf.Clamp01(PhaseTime / runUpDuration);
                 a.SetPose(Pose.Ready);
             }
@@ -721,6 +722,9 @@ namespace Cricket.Game
                 else plan.ReleaseError = BowlingAI.ReleaseError(this, bowler, rng);
             }
             MeterRunning = false;
+            hasLastMarker = true;
+            lastMarkerOff = frame.OffsetOff(plan.Target);
+            lastMarkerLen = frame.OffsetFwd(plan.Target);
             // Overstepping: needle past the end of the zone.
             plan.NoBall = plan.ReleaseError > 1.15f;
             if (!HumanBowls && rng.Chance(0.012f)) plan.NoBall = true;
@@ -738,6 +742,7 @@ namespace Cricket.Game
             releasedBall = Ball;
             BallVisible = true;
             released = true;
+            flightAccum = 0f;
             SimTime = 0f;
             BowlerActor.SetPose(Pose.FollowThrough, (byte)bowler.Bowl);
             PredictForBatter();
@@ -770,16 +775,17 @@ namespace Cricket.Game
             float planeFront = Vector3.Dot(ContactPlanePoint(Footwork.Front) - frame.Origin, frame.Fwd);
             float planeBack = Vector3.Dot(ContactPlanePoint(Footwork.Back) - frame.Origin, frame.Fwd);
             float planeCharge = Vector3.Dot(ContactPlanePoint(Footwork.Charge) - frame.Origin, frame.Fwd);
-            float lineAtBounce = 0f;
             bool bounced = false;
+            Vector3 preBounceVel = Vector3.zero;
             for (int i = 0; i < 1500; i++)
             {
+                var vBefore = s.Vel;
                 BallPhysics.Step(ref s, Env, BallPhysics.Dt);
                 if (!bounced && s.Bounces > 0)
                 {
                     bounced = true;
                     pitchedAt = s.FirstBounce;
-                    lineAtBounce = frame.OffsetOff(s.Pos);
+                    preBounceVel = vBefore;
                 }
                 float dPrev = Vector3.Dot(prev - frame.Origin, frame.Fwd), dNow = Vector3.Dot(s.Pos - frame.Origin, frame.Fwd);
                 Check(1, planeFront); Check(2, planeBack); Check(3, planeCharge);
@@ -797,18 +803,23 @@ namespace Cricket.Game
                     }
                 }
             }
-            pitchedBeforeBatter = bounced;
+            // A ball that first lands behind the batter was a full toss as far as he is concerned.
+            pitchedBeforeBatter = bounced && frame.OffsetFwd(pitchedAt) > Geo.CreaseDepth - 0.4f;
             crossTime[0] = crossTime[NaturalPlane()];
             crossPos[0] = crossPos[NaturalPlane()];
             crossVel[0] = crossVel[NaturalPlane()];
-            // Late movement: how far the line changes after the ball pitches (seam/turn), relative to the straight continuation.
+            // Late movement: how far the ball moved off its pre-bounce line (seam, turn) by the time it reaches the bat.
             crossLate = 0f;
-            if (bounced)
+            if (pitchedBeforeBatter && crossTime[0] > 0f)
             {
-                var pre = releasedBall;
-                // Straight-line extrapolation of the pre-bounce line to the contact plane vs where it actually got to.
-                float expected = lineAtBounce;
-                crossLate = Mathf.Abs(frame.OffsetOff(crossPos[0]) - expected) * 0.6f;
+                var flat = new Vector3(preBounceVel.x, 0f, preBounceVel.z);
+                float along = Vector3.Dot(flat.normalized, frame.Fwd);
+                if (Mathf.Abs(along) > 0.1f)
+                {
+                    float toPlane = frame.OffsetFwd(crossPos[0]) - frame.OffsetFwd(pitchedAt);
+                    var straight = pitchedAt + flat.normalized * (toPlane / along);
+                    crossLate = Mathf.Abs(frame.OffsetOff(crossPos[0]) - frame.OffsetOff(straight));
+                }
             }
         }
 
@@ -861,6 +872,7 @@ namespace Cricket.Game
         }
 
         float footTarget;
+        float flightAccum;
         ShotInput aiShot;
         bool aiShotQueued;
         float aiShotAt;
@@ -910,15 +922,17 @@ namespace Cricket.Game
                 Striker.Face(Striker.Pos + frame.Off);
             }
 
-            int steps = Mathf.Max(1, Mathf.CeilToInt(dt / BallPhysics.Dt));
-            float h = dt / steps;
-            for (int i = 0; i < steps && Phase == Phase.BallInFlight; i++)
+            // Same fixed step as the prediction, so the ball arrives exactly when the timing was judged against.
+            flightAccum += dt;
+            while (flightAccum >= BallPhysics.Dt && Phase == Phase.BallInFlight)
             {
+                flightAccum -= BallPhysics.Dt;
                 var prev = Ball.Pos;
-                var r = BallPhysics.Step(ref Ball, Env, h);
+                var r = BallPhysics.Step(ref Ball, Env, BallPhysics.Dt);
                 if (r.Bounced && Ball.Bounces == 1) Raise(new GameEvent { Type = EvType.Bounce, P = r.BouncePos, F = r.ImpactSpeed });
                 CheckDeliveryPlanes(prev, Ball.Pos);
             }
+            if (Phase == Phase.BallInFlight && (Ball.Stopped || Ball.Time > 4f)) StartLivePhase();
             KeeperTrackBall(dt);
             UpdateNonStrikerBackingUp(dt);
         }
@@ -1035,7 +1049,8 @@ namespace Cricket.Game
                 BallPos = at,
                 BallVel = Ball.Vel,
                 Length = length,
-                LateMovement = crossLate,
+                // Turn is read off the pitch (the batter sees it grip); seam and late swing are harder to adjust to.
+                LateMovement = crossLate * (Deliveries.Get(plan.Type).IsSpin ? 0.35f : 1f),
                 Spin = Deliveries.Get(plan.Type).IsSpin,
                 BatterSkill = batter.Bat01,
                 BatterPower = Mathf.Clamp01(batter.Bat01 * 0.6f + (batter.Role == Role.Batter ? 0.3f : 0.1f)),
@@ -1146,7 +1161,7 @@ namespace Cricket.Game
             float lateral = Mathf.Abs(frame.OffsetOff(at) - frame.OffsetOff(KeeperActor.Pos));
             bool upToStumps = Vector3.Distance(KeeperActor.Home, frame.Origin) < 3f;
             float reach = upToStumps ? 1.0f : 1.7f;
-            if (lateral < reach && at.y < 2.3f && rng.Chance(Mathf.Lerp(0.9f, 0.995f, KeeperActor.Skill) - lateral * 0.05f))
+            if (lateral < reach && at.y < 2.3f && rng.Chance(Mathf.Lerp(0.93f, 0.997f, KeeperActor.Skill) - lateral * 0.04f))
             {
                 GiveBall(KeeperActor, at);
                 KeeperActor.SetPose(Pose.KeeperTake);
@@ -1185,7 +1200,7 @@ namespace Cricket.Game
             if (Charging) return fwd > Geo.CreaseDepth - 0.2f;
             // A lunge that misses can overbalance him.
             bool lunged = lastShot.Feet == Footwork.Front && lastShot.Contact == Contact.Miss;
-            return lunged && rng.Chance(0.3f);
+            return lunged && rng.Chance(0.12f);
         }
 
         void StartLivePhase()
@@ -1214,8 +1229,10 @@ namespace Cricket.Game
         {
             if (ballDeadQueued) return;
             ballDeadQueued = true;
-            deadAt = PhaseTime + delay;
+            deadTimer = delay;
         }
+
+        float deadTimer;
 
         void GoDead()
         {

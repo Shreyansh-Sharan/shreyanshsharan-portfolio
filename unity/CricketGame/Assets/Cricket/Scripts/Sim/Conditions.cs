@@ -83,8 +83,8 @@ namespace Cricket.Sim
                 SwingFactor = time == TimeOfDay.Day ? 0.85f : time == TimeOfDay.Dusk ? 1.05f : 1.2f, // the ball swings more under lights
                 Pitch = Surfaces.Pitch(pitch, wear01),
                 Outfield = Surfaces.Outfield,
-                RollingFriction = 0.085f,
-                GrassDrag = 0.11f,
+                RollingFriction = 0.1f,
+                GrassDrag = 0.16f,
             };
         }
     }

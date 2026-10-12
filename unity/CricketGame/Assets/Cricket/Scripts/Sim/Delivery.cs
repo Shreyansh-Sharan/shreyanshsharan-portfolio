@@ -41,7 +41,7 @@ namespace Cricket.Sim
             new DeliverySpec { Type = DeliveryType.SeamUp, Name = "Seam up", Short = "SEAM", SpeedFactor = 1f, DefaultLength = 6.5f, Swing = 0f, Seam = 1.3f, RevsPerSec = 18f, TopSpin = -1f },
             new DeliverySpec { Type = DeliveryType.Inswing, Name = "Inswinger", Short = "IN", SpeedFactor = 0.98f, DefaultLength = 5.5f, Swing = -1f, Seam = 0.9f, RevsPerSec = 16f, TopSpin = -1f },
             new DeliverySpec { Type = DeliveryType.Outswing, Name = "Outswinger", Short = "OUT", SpeedFactor = 0.98f, DefaultLength = 5.5f, Swing = 1f, Seam = 0.9f, RevsPerSec = 16f, TopSpin = -1f },
-            new DeliverySpec { Type = DeliveryType.Bouncer, Name = "Bouncer", Short = "BNCR", SpeedFactor = 1.03f, DefaultLength = 11f, Swing = 0f, Seam = 0.8f, RevsPerSec = 20f, TopSpin = -1f },
+            new DeliverySpec { Type = DeliveryType.Bouncer, Name = "Bouncer", Short = "BNCR", SpeedFactor = 1.03f, DefaultLength = 12f, Swing = 0f, Seam = 0.8f, RevsPerSec = 20f, TopSpin = -1f },
             new DeliverySpec { Type = DeliveryType.Yorker, Name = "Yorker", Short = "YRKR", SpeedFactor = 1.01f, DefaultLength = 1.6f, Swing = 0f, Seam = 0.6f, RevsPerSec = 16f, TopSpin = -1f },
             new DeliverySpec { Type = DeliveryType.SlowerBall, Name = "Slower ball", Short = "SLOW", SpeedFactor = 0.78f, DefaultLength = 6f, Swing = 0f, Seam = 1f, RevsPerSec = 9f, TopSpin = 0.6f },
             new DeliverySpec { Type = DeliveryType.OffBreak, Name = "Off-break", Short = "OFF", SpeedFactor = 1f, DefaultLength = 4.6f, RevsPerSec = 25f, Break = 1f, SideSpin = 0.8f, TopSpin = 0.45f, IsSpin = true, Seam = 0.3f },

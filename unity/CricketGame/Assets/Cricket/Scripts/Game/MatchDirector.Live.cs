@@ -235,7 +235,8 @@ namespace Cricket.Game
                 UpdateRunners(dt);
                 if (heldBy == null) StepBall(dt);
                 else FollowHolder();
-                if (PhaseTime >= deadAt || ballDeadQueued && deadAt - PhaseTime > 5f) GoDead();
+                deadTimer -= dt;
+                if (deadTimer <= 0f) GoDead();
                 return;
             }
 
@@ -297,6 +298,12 @@ namespace Cricket.Game
                     return;
                 }
                 if (ballDeadQueued) return;
+            }
+            // A throw that got past everyone (or died) is just a loose ball again: the backups go for it.
+            if (throwInFlight && (Ball.Rolling || Ball.Bounces >= 2 || Ball.Speed < 5f))
+            {
+                throwInFlight = false;
+                PlanFielding();
             }
             // Throw arriving at the receiver.
             if (throwInFlight && throwTarget != null)
@@ -449,29 +456,32 @@ namespace Cricket.Game
         void TryField(Actor a)
         {
             if (heldBy != null || throwInFlight && a != throwTarget) return;
-            var hands = a.Pos + Vector3.up * (a.Pose == Pose.Dive ? 0.4f : 1.0f);
-            float reach = a.Pose == Pose.Dive ? 1.6f : a.Kind == ActorKind.Keeper ? 1.2f : 0.9f;
-            float d = Vector3.Distance(Ball.Pos, hands);
-            bool airCatch = hitBat && !bouncedSinceHit && Ball.Pos.y > 0.12f && Ball.Pos.y < (a.Pose == Pose.Dive ? 1.2f : 2.7f);
-            if (airCatch && d < reach + 0.4f)
+            bool diving = a.Pose == Pose.Dive;
+            var flat = new Vector3(Ball.Pos.x - a.Pos.x, 0f, Ball.Pos.z - a.Pos.z);
+            float horiz = flat.magnitude;
+            float h = Ball.Pos.y;
+            float reach = diving ? 1.7f : a.Kind == ActorKind.Keeper ? 1.1f : 0.95f;
+            // Catch: the ball comes within arm's reach of his body (up to a jump above his head) before it bounces.
+            bool airCatch = hitBat && !bouncedSinceHit && h > 0.12f && h < (diving ? 1.3f : 2.8f);
+            if (airCatch && horiz < reach + 0.35f)
             {
-                AttemptCatch(a, d > reach);
+                AttemptCatch(a, horiz > reach);
                 return;
             }
-            if (Ball.Pos.y < 1.2f && d < reach + 0.2f)
+            // Ground fielding: anything at knee height or below within reach (a diving stop reaches further).
+            if (h < 1.3f && horiz < reach)
             {
-                // Ground fielding: a hard-hit ball can beat him.
                 float speed = Ball.Speed;
-                float fumble = Mathf.Clamp01((speed - 14f) * 0.025f) * (1f - a.Skill * 0.6f) + (a.Pose == Pose.Dive ? 0.12f : 0.02f);
+                float fumble = Mathf.Clamp01((speed - 16f) * 0.02f) * (1f - a.Skill * 0.6f) + (diving ? 0.1f : 0.015f);
                 if (rng.Chance(fumble))
                 {
-                    DropBall(Ball.Vel * 0.35f + Vector3.up * 1.2f + a.Forward * -2f);
+                    DropBall(Ball.Vel * 0.3f + Vector3.up * 1.0f - flat.normalized * 1.5f);
                     Raise(GameEvent.Make(EvType.Fielded, a.Index, 1));
                     PlanFielding();
                     return;
                 }
                 GiveBall(a, Ball.Pos);
-                a.SetPose(speed > 3f && a.Pose != Pose.Dive && a.Pose != Pose.Slide ? Pose.Pickup : a.Pose == Pose.Dive || a.Pose == Pose.Slide ? Pose.GetUp : Pose.Pickup);
+                a.SetPose(diving || a.Pose == Pose.Slide ? Pose.GetUp : Pose.Pickup);
                 Raise(GameEvent.Make(EvType.Fielded, a.Index));
                 CatchPromptAt = -1f;
             }
@@ -632,6 +642,7 @@ namespace Cricket.Game
             Ball.Spin = Vector3.zero;
             Ball.Rolling = Ball.Stopped = false;
             Ball.SwingCoef = 0f;
+            Ball.Bounces = 0;
             bouncedSinceHit = true;
             throwInFlight = true;
             throwTarget = receiver;
@@ -691,8 +702,8 @@ namespace Cricket.Game
                 }
                 float crease = Geo.PoppingZ(r.ToEnd);
                 float inward = Geo.Inward(r.ToEnd);
-                // Run through the crease, a stride past it.
-                var target = new Vector3(r.Lane, 0f, crease - inward * 1.2f);
+                // Run through the crease (no braking before it).
+                var target = new Vector3(r.Lane, 0f, crease - inward * 3f);
                 a.MoveTo(target, dt, r.Sliding ? 0.7f : 1f, 0.3f);
                 if (!r.Sliding) a.SetPose(Pose.Run, 1);
                 if (Grounded(r, r.ToEnd))
@@ -764,9 +775,13 @@ namespace Cricket.Game
             QueueDead(1.2f);
         }
 
+        /// <summary>Hook for the offline match test (logs why runs are called); unused in the game.</summary>
+        public static System.Action<string> Trace;
+
         public void CallRun()
         {
             if (Phase != Phase.BallLive || ballDeadQueued || caught) return;
+            Trace?.Invoke($"call run at {liveTime:0.00}s, est. return {EstimatedReturnTime():0.00}s, held {heldBy != null}, throw {throwInFlight}, boundary {BoundaryLikely()}");
             humanCallAt = liveTime;
             if (Runners[0].Running || Runners[1].Running) return;
             if (Runners[0].A.Pose == Pose.BatSlide && Runners[0].A.PoseTime < 0.5f) return;
@@ -782,6 +797,7 @@ namespace Cricket.Game
 
         public void CallBack()
         {
+            Trace?.Invoke($"send back at {liveTime:0.00}s");
             if (Phase != Phase.BallLive) return;
             humanCallAt = liveTime;
             foreach (var r in Runners)
@@ -810,6 +826,20 @@ namespace Cricket.Game
 
         int RunsCompleted() => runsCompleted;
 
+        /// <summary>How long the next run would take both batters (from where they are, with the call and the turn).</summary>
+        public float RunTimeEstimate()
+        {
+            float t = 0f;
+            foreach (var r in Runners)
+            {
+                int to = r.Running ? r.ToEnd : 1 - r.AtEnd;
+                var target = new Vector3(r.Lane, 0f, Geo.PoppingZ(to) + Geo.Inward(to) * 0.35f);
+                float turn = r.A.Speed < 1f && Mathf.Abs(r.A.Pos.z - Geo.PoppingZ(r.AtEnd)) > 1f ? 0.45f : 0.2f;
+                t = Mathf.Max(t, r.A.TimeTo(target) + turn);
+            }
+            return t;
+        }
+
         /// <summary>Seconds for runner k to make his ground at the end he's running to (-1 when not running).</summary>
         public float RunnerTimeToGround(int k)
         {
@@ -834,22 +864,39 @@ namespace Cricket.Game
         public bool BallCaught => caught;
         public float EstimatedReturnTime()
         {
-            // Time until a fielder has the ball and it reaches the nearer set of stumps.
+            // Time until the stumps can be broken at either end: the first fielder to the ball collects it, then
+            // either runs it to the stumps (close in) or throws it to whoever is there.
             float collect = 0f;
             Actor who = heldBy;
+            Vector3 at = heldBy != null ? heldBy.Pos : Ball.Pos;
+            // A throw on its way in: the stumps can go down as soon as it arrives.
+            if (throwInFlight && throwTarget != null)
+                return Vector3.Distance(Ball.Pos, throwTarget.Pos) / Mathf.Max(8f, Ball.Speed) + 0.35f;
             if (who == null)
             {
-                foreach (var p in plans) if (p != null && (p.Job == Job.Chase || p.Job == Job.Catch)) { collect = Mathf.Max(0f, p.At - liveTime) + 0.35f; }
-                for (int i = FirstFielder; i < FirstFielder + FielderCount; i++) if (plans[i].Job == Job.Chase || plans[i].Job == Job.Catch) { who = Actors[i]; break; }
-                if (who == null) return 6f;
+                float best = float.MaxValue;
+                for (int i = FirstFielder; i < FirstFielder + FielderCount; i++)
+                {
+                    var p = plans[i];
+                    if (p == null || (p.Job != Job.Chase && p.Job != Job.Catch)) continue;
+                    float t = Mathf.Max(0f, p.At - liveTime);
+                    if (t < best) { best = t; who = Actors[i]; at = p.Target; }
+                }
+                if (who == null)
+                {
+                    // Nobody planned yet: assume the nearest fielder goes for it.
+                    var near = NearestFielders(Ball.Pos, 1);
+                    if (near.Count == 0) return 6f;
+                    who = near[0];
+                    best = 0.3f + who.TimeTo(Ball.Pos);
+                }
+                collect = best + 0.35f;
             }
-            float d = Mathf.Min(Vector3.Distance(who.Pos, Geo.Stumps(0)), Vector3.Distance(who.Pos, Geo.Stumps(1)));
-            if (heldBy == null && path.Count > 0)
-            {
-                var p = plans[who.Index].Target;
-                d = Mathf.Min(Vector3.Distance(p, Geo.Stumps(0)), Vector3.Distance(p, Geo.Stumps(1)));
-            }
-            return collect + d / ThrowSpeed(who) + 0.5f;
+            float d = Mathf.Min(Vector3.Distance(at, Geo.Stumps(0)), Vector3.Distance(at, Geo.Stumps(1)));
+            // Close to the stumps he just runs it in (or underarms it); otherwise pick up, steady, throw, and the
+            // keeper or bowler gathers and breaks the wicket.
+            if (d < 8f) return collect + 0.25f + d / 6f;
+            return collect + 0.6f + d / ThrowSpeed(who) + 0.35f;
         }
         public bool BoundaryLikely()
         {

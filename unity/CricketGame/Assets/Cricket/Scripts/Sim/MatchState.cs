@@ -226,9 +226,9 @@ namespace Cricket.Sim
             inn.StrikerEnd = 1;
             if (Innings.Count > 0)
             {
+                // Chasing when the previous innings was the first half of the same kind (match or super over).
                 var prev = Current;
-                bool chase = superOver ? (prev.SuperOver) : !prev.SuperOver;
-                if (chase) inn.Target = prev.Runs + 1;
+                if (prev.SuperOver == superOver && prev.Target < 0) inn.Target = prev.Runs + 1;
             }
             Innings.Add(inn);
             return inn;

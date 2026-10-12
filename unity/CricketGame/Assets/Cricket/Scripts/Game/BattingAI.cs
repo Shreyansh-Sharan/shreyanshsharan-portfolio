@@ -23,13 +23,13 @@ namespace Cricket.Game
             if (inn.Target > 0)
             {
                 float rrr = st.RequiredRate;
-                a = Mathf.InverseLerp(5f, 13f, rrr);
+                a = Mathf.InverseLerp(6f, 14f, rrr);
                 if (ballsLeft < 18) a = Mathf.Max(a, Mathf.InverseLerp(4f, 9f, rrr));
             }
             else
             {
                 float progress = inn.LegalBalls / (float)(rules.Overs * 6);
-                a = st.IsPowerplay ? 0.55f : progress > 0.75f ? 0.85f : 0.4f;
+                a = st.IsPowerplay ? 0.45f : progress > 0.75f ? 0.75f : 0.3f;
                 if (rules.Overs >= 40 && progress < 0.6f) a -= 0.15f;
             }
             if (st.InSuperOver) a = 0.95f;
@@ -97,7 +97,9 @@ namespace Cricket.Game
                 else if (u < -0.15f) input.Type = ShotType.Flick;
                 else if (spin && full && aggression > 0.5f && rng.Chance(0.3f)) input.Type = ShotType.Sweep;
                 else input.Type = ShotType.Drive;
-                input.Loft = aggression > 0.55f && rng.Chance((aggression - 0.45f) * 0.9f);
+                input.Loft = aggression > 0.4f && rng.Chance((aggression - 0.3f) * 0.85f);
+                // Not every attacking stroke is a full swing: low on aggression he works it into a gap for one.
+                if (!input.Loft && rng.Chance(Mathf.Lerp(0.55f, 0.1f, aggression))) input.Power = rng.Range(0.4f, 0.65f);
                 var spec = Shots.Get(input.Type);
                 input.Aim = FindGap(d, spec.DirMin, spec.DirMax, input.Loft, PreferredAim(input.Type, u), rng);
                 if (input.Type == ShotType.Sweep || input.Type == ShotType.Drive) input.Feet = Footwork.Front;
@@ -108,7 +110,7 @@ namespace Cricket.Game
             if (input.Feet != Footwork.Charge && rng.Chance(0.08f * (1.2f - skill))) input.Feet = input.Feet == Footwork.Front ? Footwork.Back : Footwork.Front;
 
             // Timing.
-            float sigma = (diff == Difficulty.Easy ? 0.05f : diff == Difficulty.Hard ? 0.026f : 0.036f) * (1.35f - 0.55f * skill);
+            float sigma = (diff == Difficulty.Easy ? 0.055f : diff == Difficulty.Hard ? 0.03f : 0.042f) * (1.35f - 0.55f * skill);
             float pace = d.Plan.SpeedKmh / 3.6f;
             sigma *= Mathf.Sqrt(Mathf.Max(0.6f, pace / 30f));
             input.TimingError = rng.Gauss() * sigma;
@@ -194,8 +196,9 @@ namespace Cricket.Game
             {
                 if (d.LiveTime < 0.45f) return;
                 bool startOfFirst = d.Runners[0].AtEnd == d.Inn.StrikerEnd;
-                float tRun = 17.7f / 6.6f + (startOfFirst ? 0.35f : 0.8f);
-                float threshold = Mathf.Lerp(0.9f, 0.05f, aggression);
+                float tRun = d.RunTimeEstimate();
+                // Safety margin: more for a second run (turning, tired) or when the fielder already has the ball.
+                float threshold = Mathf.Lerp(0.6f, 0.05f, aggression) + (startOfFirst ? 0f : 0.35f) + (d.BallHeld ? 0.3f : 0f);
                 if (tBall - tRun > threshold) d.CallRun();
             }
             else

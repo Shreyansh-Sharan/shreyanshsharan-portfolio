@@ -22,8 +22,8 @@ namespace Cricket.Sim
         public const float BallMass = 0.16f;             // 156-163 g
         public const float BallArea = Mathf.PI * BallRadius * BallRadius;
 
-        public const float BoundarySquare = 65f;         // rope distance square of the wicket (x)
-        public const float BoundaryStraight = 72f;       // rope distance down the ground (z)
+        public const float BoundarySquare = 63f;         // rope distance from the centre of the pitch, square of the wicket (x)
+        public const float BoundaryStraight = 68f;       // rope distance from the centre of the pitch, down the ground (z)
         public const float InnerCircle = 27.43f;         // 30 yards
         public const float WideLineOff = 0.9f;           // limited-overs wide guide from middle stump (off side)
         public const float WideLineLeg = 0.2f;           // past leg stump plus a little

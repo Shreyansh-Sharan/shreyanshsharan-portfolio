@@ -18,6 +18,7 @@ static class Program
         Console.WriteLine("=== Deliveries (bowled from end 0 to a right-hander at end 1; x>0 is ... see 'off' column) ===");
         Bowl("Fast seam-up, good length, flat", PitchType.Flat, TimeOfDay.Day, DeliveryType.SeamUp, BowlStyle.Fast, 145f, 6.5f, 0.05f);
         Bowl("Fast bouncer, green", PitchType.Green, TimeOfDay.Day, DeliveryType.Bouncer, BowlStyle.Fast, 148f, 10.5f, 0f);
+        Bowl("Fast bouncer dug in short, green", PitchType.Green, TimeOfDay.Day, DeliveryType.Bouncer, BowlStyle.Fast, 148f, 12.5f, 0f);
         Bowl("Fast yorker, flat", PitchType.Flat, TimeOfDay.Day, DeliveryType.Yorker, BowlStyle.Fast, 146f, 1.3f, 0f);
         Bowl("Medium outswinger, green, under lights", PitchType.Green, TimeOfDay.Night, DeliveryType.Outswing, BowlStyle.Medium, 128f, 5.0f, 0.1f);
         Bowl("Medium inswinger, flat, day", PitchType.Flat, TimeOfDay.Day, DeliveryType.Inswing, BowlStyle.Medium, 126f, 5.5f, 0.05f);
@@ -39,6 +40,59 @@ static class Program
         Hit("Pull, middled", 35f, 18f, 25f);
         Hit("Lofted drive into a 6 m/s headwind", 37f, 30f, 30f, new Vector3(0, 0, 6f));
         Hit("Lofted drive with a 6 m/s tailwind", 37f, 30f, 30f, new Vector3(0, 0, -6f));
+
+        Console.WriteLine();
+        Console.WriteLine("=== Shot model (a 135 km/h good-length ball outside off, right-hander; what the bat does with it) ===");
+        Stroke("Front-foot drive, perfect", ShotType.Drive, Footwork.Front, 30f, false, 0f);
+        Stroke("Front-foot drive, 40 ms early", ShotType.Drive, Footwork.Front, 30f, false, -0.04f);
+        Stroke("Front-foot drive, 40 ms late", ShotType.Drive, Footwork.Front, 30f, false, 0.04f);
+        Stroke("Lofted drive, perfect", ShotType.Drive, Footwork.Front, 10f, true, 0f);
+        Stroke("Lofted drive, 60 ms late", ShotType.Drive, Footwork.Front, 10f, true, 0.06f);
+        Stroke("Cut on the back foot to a full ball", ShotType.Cut, Footwork.Back, 100f, false, 0f);
+        Stroke("Forward defence", ShotType.Defend, Footwork.Front, 0f, false, 0f);
+    }
+
+    static void Stroke(string label, ShotType type, Footwork feet, float aim, bool loft, float err)
+    {
+        var f = BatFrame.For(1, true);
+        var ctx = new ContactContext
+        {
+            Frame = f,
+            BallPos = f.Local(0.25f, Geo.CreaseDepth + 0.62f, 0.55f),
+            BallVel = -f.Fwd * 33f + Vector3.up * 2f,
+            Length = 5.5f,
+            LateMovement = 0.02f,
+            BatterSkill = 0.8f,
+            BatterPower = 0.7f,
+            Window = 1f,
+        };
+        var input = new ShotInput { Type = type, Feet = feet, Aim = aim, Loft = loft, Played = true, TimingError = err };
+        // Average a few outcomes (the model is probabilistic: edges and misses happen).
+        var rng = new Rng(11);
+        int edges = 0, misses = 0, n = 200;
+        float speed = 0, dir = 0, elev = 0, carry = 0; int middled = 0, sixes = 0, fours = 0;
+        for (int i = 0; i < n; i++)
+        {
+            var r = Shots.Resolve(input, ctx, rng);
+            if (r.Contact == Contact.Edge) { edges++; continue; }
+            if (r.Contact != Contact.Middle) { misses++; continue; }
+            middled++;
+            speed += r.ExitVel.magnitude; dir += r.Direction;
+            elev += Mathf.Asin(r.ExitVel.normalized.y) * Mathf.Rad2Deg;
+            var env = Env.Make(PitchType.Flat, TimeOfDay.Day, Vector3.zero);
+            var s = new BallState { Pos = ctx.BallPos, Vel = r.ExitVel, Spin = r.ExitSpin };
+            float c = -1; bool bounced = false;
+            for (int k = 0; k < 800 && !s.Stopped; k++)
+            {
+                var res = BallPhysics.Advance(ref s, env, 0.02f);
+                if (res.Bounced && !bounced) { bounced = true; c = Dist(ctx.BallPos, res.BouncePos); }
+                if (Geo.BeyondRope(s.Pos) >= 0f) { if (!bounced) sixes++; else fours++; break; }
+            }
+            carry += c < 0 ? 80f : c;
+        }
+        if (middled == 0) { Console.WriteLine($"-- {label}: never middled (edges {edges}, misses {misses} of {n})"); return; }
+        Console.WriteLine($"-- {label}: timing {Shots.ClassifyTiming(err, 1f)}; middled {middled * 100 / n}%, edged {edges * 100 / n}%, missed {misses * 100 / n}%; " +
+                          $"exit {speed / middled:0.0} m/s ({speed / middled * 3.6f:0} km/h) at {elev / middled:0} deg towards {dir / middled:0} deg; carry {carry / middled:0} m; fours {fours * 100 / middled}% sixes {sixes * 100 / middled}%");
     }
 
     static void Bowl(string label, PitchType pitch, TimeOfDay time, DeliveryType type, BowlStyle style, float kmh, float lengthFromStumps, float lineOff)
