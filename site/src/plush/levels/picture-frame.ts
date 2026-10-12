@@ -10,7 +10,7 @@ import { buildAttic, textSprite } from '../engine/helpers'
 import { PROP_GROUPS, type RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { flat, paint, r1, r2, rbox, soft } from './kit'
+import { flat, paint, r1, r2, rbox, soft, survivalTimeUp } from './kit'
 
 /** Hall half width, the landing's back edge and the invisible front wall. */
 const W = 8.5
@@ -664,6 +664,9 @@ export default defineLevel<FrameState>({
 
   rank(ctx) {
     return ctx.active().sort((a, b) => b.pos.z - a.pos.z)
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'front of the landing', "too far back")
   },
 
   onFall(ctx, _s, toy) {

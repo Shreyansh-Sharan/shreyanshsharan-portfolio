@@ -10,7 +10,7 @@ import { buildAttic } from '../engine/helpers'
 import { PROP_GROUPS, type RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { blobShadow, flat, paint, r1, r2, rbox, soft } from './kit'
+import { blobShadow, flat, paint, r1, r2, rbox, soft, survivalTimeUp } from './kit'
 
 const HALF = 9
 const THICK = 0.6
@@ -430,13 +430,15 @@ export default defineLevel<MarbleState>({
     s.tz += THREE.MathUtils.clamp(wantZ - s.tz, -0.16 * dt, 0.16 * dt)
     s.tx += THREE.MathUtils.clamp(wantX - s.tx, -0.16 * dt, 0.16 * dt)
     // Marbles pour in from the high side, faster and faster; huge ones from 30 s.
+    if (ctx.round.final && t >= 80 && t - dt < 80) ctx.fx.say('MARBLE AVALANCHE!', '#7dd3fc', 1.6)
     if (t >= s.nextDrop) {
-      s.nextDrop = t + Math.max(0.45, 1.5 - t * 0.009 - press * 0.3) * ctx.rng.range(0.7, 1.3)
+      const rush = ctx.round.final && t > 80 ? 0.55 : 1
+      s.nextDrop = t + Math.max(0.3, (1.5 - t * 0.009 - press * 0.3) * rush) * ctx.rng.range(0.7, 1.3)
       launch(ctx, s, false, undefined, ctx.rng.range(1.5, 3.5))
       if (t > 60 && ctx.rng.chance(0.3)) launch(ctx, s, false, undefined, ctx.rng.range(1.5, 3))
     }
     if (t >= s.nextHuge) {
-      s.nextHuge = t + Math.max(5, 10 - t * 0.04) * ctx.rng.range(0.8, 1.2)
+      s.nextHuge = t + Math.max(ctx.round.final && t > 80 ? 3 : 5, 10 - t * 0.04) * ctx.rng.range(0.8, 1.2)
       if (launch(ctx, s, true, undefined, 1.2)) ctx.fx.say('HUGE MARBLE!', '#7dd3fc', 1.1)
     }
     // Hits, and marbles that have rolled away.
@@ -539,6 +541,9 @@ export default defineLevel<MarbleState>({
 
   rank(ctx) {
     return ctx.active().sort((a, b) => Math.max(Math.abs(a.pos.x), Math.abs(a.pos.z)) - Math.max(Math.abs(b.pos.x), Math.abs(b.pos.z)))
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'nearest the middle', "too near the edge")
   },
 
   onFall(ctx, _s, toy) {

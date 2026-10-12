@@ -10,7 +10,7 @@ import { skill, steerTo } from '../engine/bots'
 import { textSprite } from '../engine/helpers'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft, warnRing } from './kit'
+import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft, warnRing, survivalTimeUp } from './kit'
 
 /** The sill: x half length, z half depth (front edge at -HZ, window at +HZ). */
 const HX = 11
@@ -302,6 +302,7 @@ export default defineLevel<LaserState>({
   accent: '#ef4444',
   players: [2, 16],
   duration: 90,
+  canBeFinal: true,
   camera: { kind: 'chase', dist: 8 },
   introOrbit: { radius: 13, height: 8, center: [0, 2, 0] },
   sprinkles: { start: 2 },
@@ -721,6 +722,9 @@ export default defineLevel<LaserState>({
 
   rank(ctx) {
     return ctx.active().sort((a, b) => b.pos.z - a.pos.z)
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'furthest from the paws', "in the paw's sights")
   },
 
   onFall(ctx, s, toy) {

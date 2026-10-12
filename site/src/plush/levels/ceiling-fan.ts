@@ -11,7 +11,7 @@ import { buildAttic } from '../engine/helpers'
 import type { RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type Toy } from '../engine/types'
-import { flat, paint, r2, rbox, soft, wrap } from './kit'
+import { flat, paint, r2, rbox, soft, wrap, survivalTimeUp } from './kit'
 
 const BLADES = 5
 const HUB_R = 1.9
@@ -453,6 +453,10 @@ export default defineLevel<FanState>({
     const press = ctx.mode === 'show' ? Math.max(0, (t / 120 - 0.6) / 0.4) * (active.length > ctx.target ? 1 : 0.2) : 0
     // Speed settings.
     const lvl = t >= SPEED_AT[3] ? 3 : t >= SPEED_AT[2] ? 2 : 1
+    if (ctx.round.final && t >= 95 && t - dt < 95) {
+      ctx.fx.say('OVERDRIVE!', '#f87171', 1.6)
+      ctx.fx.shake(0.5)
+    }
     if (lvl !== s.level) {
       s.level = lvl
       ctx.fx.say(`SPEED ${lvl}!`, lvl === 3 ? '#f87171' : '#fbbf24', 1.6)
@@ -460,7 +464,9 @@ export default defineLevel<FanState>({
       ctx.fx.shake(0.4)
       if (lvl === 2) ctx.fx.feed('The pull cords swing out!')
     }
-    const target = OMEGA[Math.min(3, s.level + (s.boost > t ? 1 : 0))] + (s.boost > t && s.level === 3 ? 0.35 : 0) + press * 0.25
+    // A final has to end: in the last 25 s the fan runs past its top setting.
+    const overdrive = ctx.round.final && t > 95 ? (t - 95) * 0.035 : 0
+    const target = OMEGA[Math.min(3, s.level + (s.boost > t ? 1 : 0))] + (s.boost > t && s.level === 3 ? 0.35 : 0) + press * 0.25 + overdrive
     s.omega += THREE.MathUtils.clamp(target - s.omega, -0.4 * dt, 0.4 * dt)
     s.theta += s.omega * dt
     // Pull cords sweep across the blades at chest height: jump them or grab them.
@@ -605,6 +611,9 @@ export default defineLevel<FanState>({
   rank(ctx) {
     // Nearest the middle is best.
     return ctx.active().sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'closest to the hub', "too far out on the blades")
   },
 
   onFall(ctx, _s, toy) {

@@ -2,6 +2,7 @@
 // materials, canvas-painted textures, a soft blob shadow, a pulsing warning ring and a few maths bits.
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import type { LevelCtx, Toy } from '../engine/types'
 
 /** A soft, smooth-shaded toy material. */
 export function soft(color: string, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) {
@@ -107,4 +108,24 @@ export function pressure(time: number, duration: number, active: number, target:
   const k = THREE.MathUtils.clamp((time / duration - from) / (1 - from), 0, 1)
   const crowd = target > 0 ? THREE.MathUtils.clamp((active - target) / Math.max(1, target), 0, 1) : 0
   return k * (0.4 + 0.6 * crowd)
+}
+
+/**
+ * Time's up in a survival round: in a normal round everyone still standing goes through; in a final the best by
+ * `ranked` take the places, with level-flavoured notes (instead of the engine's generic "too slow").
+ */
+export function survivalTimeUp(ctx: LevelCtx, ranked: Toy[], winNote: string, loseNote: string) {
+  if (ctx.mode === 'quick') return
+  if (!ctx.round.final) {
+    for (const t of ctx.active()) ctx.qualify(t, 'survived')
+    return
+  }
+  let room = ctx.target - ctx.qualifiedCount()
+  for (const t of ranked) {
+    if (t.status !== 'play') continue
+    if (room > 0) {
+      ctx.qualify(t, winNote)
+      room--
+    } else ctx.fail(t, loseNote)
+  }
 }

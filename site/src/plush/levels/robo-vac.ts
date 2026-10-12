@@ -13,7 +13,7 @@ import type { RigidBody } from '../engine/physics'
 import { PROP_GROUPS } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft, wrap } from './kit'
+import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft, wrap, survivalTimeUp } from './kit'
 
 /** Rug radius and the round fence of furniture round it (metres). */
 const RUG = 9.5
@@ -780,6 +780,9 @@ export default defineLevel<VacState>({
   rank(ctx, s) {
     // Best first: furthest from danger.
     return ctx.active().sort((a, b) => danger(s, a.pos.x, a.pos.z) - danger(s, b.pos.x, b.pos.z))
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'furthest from the vacuums', "too close to a vacuum")
   },
 
   retry(ctx, s, toy) {

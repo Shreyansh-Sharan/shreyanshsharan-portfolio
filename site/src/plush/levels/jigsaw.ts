@@ -9,7 +9,7 @@ import { buildAttic } from '../engine/helpers'
 import { PROP_GROUPS, type Collider } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type Toy } from '../engine/types'
-import { flat, paint, r1, rbox, soft } from './kit'
+import { flat, paint, r1, rbox, soft, survivalTimeUp } from './kit'
 
 const N = 11
 const SIZE = 1.75
@@ -18,7 +18,7 @@ const LAYER_Y = [0, -7, -14]
 const THICK = 0.32
 const HALF = (N * SIZE) / 2
 const PER = N * N
-const DELAY = 2.6
+const DELAY = 2.9
 const SELF_FALL_AT = 60
 const FALL_HIDE = 2.6
 
@@ -572,6 +572,9 @@ export default defineLevel<JigState>({
 
   rank(ctx, s) {
     return ctx.active().sort((a, b) => s.layerOf[a.idx] - s.layerOf[b.idx] || b.pos.y - a.pos.y)
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'highest puzzle', "lower down at the bell")
   },
 
   onFall(ctx, _s, toy) {

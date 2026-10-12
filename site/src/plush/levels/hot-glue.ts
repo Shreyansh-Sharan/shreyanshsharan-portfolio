@@ -9,7 +9,7 @@ import { hopObstacles, nearestRival, skill, steerTo } from '../engine/bots'
 import { buildAttic } from '../engine/helpers'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx } from '../engine/types'
-import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft } from './kit'
+import { blobShadow, feltTexture, flat, paint, r1, r2, rbox, soft, survivalTimeUp } from './kit'
 
 /** Table half sizes, glue cell size and grid. */
 const HX = 11
@@ -510,7 +510,7 @@ export default defineLevel<GlueState>({
         if (i < 0) return 'They are not on an island'
         if (s.melt[i] >= 0) return 'It is already melting'
         if (i === islandAt(s, user.pos.x, user.pos.z, 0.2, ctx.time)) return 'That is your island too'
-        if (s.melt.some((m) => m >= 0 && ctx.time - m < MELT_WARN + MELT_SINK)) return 'One is already melting'
+        if (s.melt.filter((m) => m >= 0 && ctx.time - m < MELT_WARN + MELT_SINK).length >= 2) return 'Two are already melting'
         return s.islands.filter((_il, k) => s.melt[k] < 0).length > 3 ? true : 'Too few islands left'
       },
       apply: (ctx, s, _user, target) => {
@@ -941,6 +941,9 @@ export default defineLevel<GlueState>({
 
   rank(ctx, s) {
     return ctx.active().sort((a, b) => s.stuck[a.idx] - s.stuck[b.idx])
+  },
+  onTimeUp(ctx, s) {
+    survivalTimeUp(ctx, this.rank!(ctx, s), 'least stuck', "stuck in the glue at the bell")
   },
 
   retry(ctx, s, toy) {
