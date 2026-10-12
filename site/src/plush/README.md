@@ -18,6 +18,12 @@ plush/
     cookie-cutter.ts logic: trace a biscuit (free pointer, seated toys, lots of tricks)
     music-box.ts     survival: move while the music plays (synced phases, WebAudio, a key pickup)
     top-sumo.ts      survival: ride balls on a shrinking stool (ball mode, custom hazard, shrinking floor)
+    block-memory.ts  logic: remember the pattern on the block tops; wrong blocks drop (screen-only fakes)
+    piano-bridge.ts  logic: one key holds, one sinks; procedural piano notes; a closing fallboard
+    crayon-match.ts  logic: stand on the called colour (and mixes); a lying parrot; scribbled-out patches
+    toy-pile.ts      final: climb a wobbling heap, hold the crown 10 s (a crown prop you can knock off)
+    cushion-king.ts  final: last toy on a tipping, deflating sofa cushion over a pit of bricks
+    merry-go-round.ts  final: ride a carousel, then huddle into rooms in groups of the number shown
     robo-vac.example.ts  the worked example below (compiles, not registered)
   engine/
     types.ts         THE LEVEL API: LevelDef, LevelCtx, TrickDef, Contestant, FxApi, LevelHud
@@ -28,6 +34,8 @@ plush/
     hazards.ts       shared hazards (rotating bar, pusher, falling tiles, shrinking disc, conveyor, bouncy pad)
     sabotage.ts      tricks, costs, grudges, Bubble Wrap, peanut gallery, bot sabotage
     show.ts          Show planner, round sizes, awards, buttons, saved profile
+    finale.ts        the crown mesh and the crown ceremony a final runs when it ends
+    paint.ts         canvas-painted textures: canvasTex, scribble, blobShape, roundRect
     helpers.ts       attic backdrop, spawn layouts, signs, timers
     bots.ts          bot steering helpers
     camera.ts        chase / overhead / fixed camera rig with collision and shake
@@ -95,7 +103,7 @@ defineLevel<State>({
   accent: '#hex',
   players: [min, max],
   duration: 90,             // seconds
-  canBeFinal?: true,        // a survival level that can crown a winner if no 'final' level fits
+  canBeFinal?: true,        // a survival level that can crown a winner if no 'final' level fits the field
   bodyMode?: 'walk' | 'ball' | 'seated',
   runSpeed?: 5.6,           // top speed (m/s) for this level
   pointer?: 'look' | 'free',// 'free' keeps the mouse visible (tracing, clicking plates)
@@ -111,6 +119,16 @@ defineLevel<State>({
   ...hooks
 })
 ```
+
+### How the Show picks the final
+
+`planShow` reserves the crown round first. It works out how many toys should reach it (`expectedFinalField`:
+the round targets applied to the Show size), then picks a **real final** (`type: 'final'`) whose `players`
+range fits that number. Only if none fits does it fall back to a survival level with `canBeFinal`. When the
+Show gets to the final, the engine checks again against the toys actually left (rounds can thin the field
+early, and two left skips straight to the final): if the planned level is not a real final, or does not fit,
+it swaps in one that does (`pickFinal(levels, field, rng, played)`). Rounds placed with `forceRound` (tests)
+are marked `forced` and never swapped.
 
 ### How a round ends (Show mode)
 
@@ -142,7 +160,9 @@ streams a dynamic body to clients. `grabbable(body, mesh)` does the same, and to
 Effects: `fx` and `fxLocal`, each with `puff(pos, 'dust'|'stuff'|'spark'|'crumbs'|'milk', n)`, `confetti(pos)`,
 `shake(amount, toy?)`, `sfx(name, pos?, toy?)`, `say(text, color, secs, toy?)` (the big banner), `feed(text)`,
 `popup(toy, text, color)` and `hitStop(secs)`. Sound names: boop squeak pop crunch crack cheer whoosh thud
-ding coin buzz zap tick snip slam splash wind boing throw out go count.
+ding coin buzz zap tick snip slam splash wind boing throw out go count fanfare squawk deflate. Pitched notes
+are `note:<midi>` (a soft procedural piano), `note:<midi>:bell` or `note:<midi>:sour` (a wrong, detuned key):
+Piano Key Bridge plays a scale up the bridge with `ctx.fxLocal.sfx('note:64', pos)` from `onEvent`.
 
 Helpers: `spawnGrid(n, {x,z,yaw,spacing,cols})`, `spawnRing(n, {x,z,radius,faceIn})`, `nearest(pos, filter?)`,
 `leader(except?)`.
@@ -226,6 +246,33 @@ boxes sewing armchair. Textures: floor biscuit stool tinlid.
 
 `bots.ts` has `skill(ctx)` (reaction, accuracy, pace, blunder and aggression by difficulty), `steerTo`,
 `hopObstacles`, `avoidWalls`, `keepInside`, `nearestRival` and `bully`.
+
+### Finals: the crown and the ceremony
+
+`finale.ts` has what a final needs. `crownMesh(assets, width)` is the crown model (a gold band if it is
+missing), resting on y = 0, to put on a head with `toy.rig.attach('head', crownMesh(ctx.assets, 0.42), { offset:
+[0, 0.18, 0] })` or to leave lying about as a prop. Set `toy.data.crowned = true` on whoever wears it so the
+name tag sits above it and the engine does not add a second crown at the results. The ceremony is two calls
+in your level, and it needs no syncing (it reads toy statuses, which every screen has):
+
+```ts
+init: () => ({ ..., cer: ceremony() }),
+visual(ctx, s, dt) { crownCeremony(ctx, s.cer, dt) },              // fanfare, banner, confetti, spotlight
+cameraUpdate: (ctx, s, cam, dt) => ceremonyCamera(ctx, s.cer, cam, dt), // swings round the winner
+```
+
+When the round ends with a qualified toy, every screen plays the fanfare, shows "<name> WINS THE CROWN!",
+rains confetti round the winner (who does the victory cheer), lights them with a beam, and orbits the camera
+round them (pulling in past scenery). Move the winner somewhere open first if they might be indoors (Merry-Go-
+Round puts the last toy back on the carousel).
+
+### Painting textures
+
+`paint.ts` builds scenery textures from code, deterministically: `canvasTex(w, h, draw, { repeat })` wraps a
+canvas as an sRGB texture, `roundRect` draws a rounded box path, `scribble(g, x, y, w, h, color, { density,
+seed })` is waxy crayon colouring, `blobShape(rng, cx, cy, rx, ry)` is a hand-drawn patch outline, and
+`toyMat(color)` is a soft plastic material. The six levels above use them for letters, animals, piano keys,
+sheet music, crayon wax, fabric and feathers instead of image files.
 
 ## Online, in one paragraph
 

@@ -182,7 +182,7 @@ export default defineLevel<PBState>({
         // Plant it while I'm safely behind and others are about to test the row.
         const r = frontier(s)
         if (r >= ROWS || s.best[user.idx] >= r) return false
-        const near = ctx.toys.filter((t) => t !== user && t.status === 'play' && s.best[t.idx] === r - 1).length
+        const near = ctx.toys.filter((t) => t !== user && t.status === 'play' && s.best[t.idx] >= r - 2).length
         return near > 0 ? null : false
       },
     },
