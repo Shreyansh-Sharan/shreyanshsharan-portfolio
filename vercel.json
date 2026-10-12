@@ -22,15 +22,6 @@
           "value": "gzip"
         }
       ]
-    },
-    {
-      "source": "/games/cricket/Build/(.*)\\.unityweb",
-      "headers": [
-        {
-          "key": "Content-Encoding",
-          "value": "br"
-        }
-      ]
     }
   ]
 }
