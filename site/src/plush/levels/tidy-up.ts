@@ -426,7 +426,7 @@ export default defineLevel<TidyState>({
       const bx = basketX(team)
       const p = b.translation()
       const d = Math.hypot(p.x - bx, p.z)
-      if (d < 4.2 && s.tipped[team] <= t) {
+      if (ev.tossed && d < 4.2 && s.tipped[team] <= t) {
         const T = 0.38 + d * 0.06
         b.setLinvel({ x: (bx - p.x) / T + ctx.rng.range(-0.3, 0.3), y: (BH + 0.4 - p.y + 12 * T * T) / T, z: (0 - p.z) / T + ctx.rng.range(-0.3, 0.3) }, true)
       }

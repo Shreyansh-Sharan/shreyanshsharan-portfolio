@@ -1,7 +1,7 @@
 // Pillow Fort Siege (team). Two cushion forts face off across a big bouncy bed, each round its own flag. Pull their
 // cushions out of the walls (grab and carry, throw pillows, dive in), use the bed springs to get over the high
 // front wall, and rebuild your own walls: a cushion dropped in your fort clicks back into an empty gap. Once a fort
-// is down to fewer than half its cushions its flag is exposed: carry it home to win outright. Otherwise the team
+// is down to its last few cushions (under 40%) its flag is exposed: carry it home to win outright. Otherwise the team
 // that has knocked out more of the other fort when time runs out wins. Sudden death: the bed bounces on its own.
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
@@ -11,7 +11,7 @@ import { buildAttic, textSprite } from '../engine/helpers'
 import { PROP_GROUPS, type RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { carryTo, fetch, poss, holdChanges, holderOf, looseBody, mat, park, parked, paint, quiltTex, r2, throwBody, unpark } from './team-kit'
+import { carryTo, fetch, poss, setSpeeds, speeds, holdChanges, holderOf, looseBody, mat, park, parked, paint, quiltTex, r2, throwBody, unpark } from './team-kit'
 
 const BED_X = 13
 const BED_Z = 8.5
@@ -24,6 +24,8 @@ const EXTRA = 4
 const LOOSE = 6
 /** Seconds to tug a cushion free of a rival wall. */
 const TUG = 0.9
+/** A fort's flag is exposed once fewer than this share of its cushions stand. */
+const EXPOSE = 0.4
 
 interface Slot {
   x: number
@@ -111,7 +113,7 @@ export default defineLevel<FortState>({
   howTo: [
     'Grab (E) their cushions and carry them off, or throw pillows at the walls',
     'Drop a cushion in your own fort to plug a gap in the walls',
-    'Under half its cushions, a fort’s flag is exposed: carry it home to win',
+    'Knock out most of a fort and its flag is exposed: carry it home to win',
     'Bed springs launch you over walls. Last 30 s: the whole bed bounces',
   ],
   accent: '#a78bfa',
@@ -423,13 +425,13 @@ export default defineLevel<FortState>({
     ctx.setTeamScore(0, Math.max(0, s.size - s.standing[1]))
     ctx.setTeamScore(1, Math.max(0, s.size - s.standing[0]))
 
-    // Flags: locked while the fort holds, exposed under half, captured when carried into the other fort.
+    // Flags: locked while the fort holds, exposed when the walls are mostly down, captured when carried into the other fort.
     for (const team of [0, 1]) {
       const fb = s.flags[team]
       const p = fb.translation()
       const holder = holderOf(ctx, fb)
       const home = Math.hypot(p.x - fortX(team), p.z) < 0.6
-      const exposed = s.standing[team] < s.size / 2
+      const exposed = s.standing[team] < s.size * EXPOSE
       if (holder && holder.team !== team && !exposed && home) {
         holder.release(false)
         ctx.fx.popup(holder, 'Knock the walls down first!', '#fca5a5')
@@ -654,12 +656,13 @@ export default defineLevel<FortState>({
     return ctx.active().sort((a, b) => (a.team === lead ? 0 : 1) - (b.team === lead ? 0 : 1))
   },
 
-  pack(_c, s) {
-    return [s.standing[0], s.standing[1], s.flag[0], s.flag[1], r2(s.bounceAt), s.duvet.map(r2)]
+  pack(ctx, s) {
+    return [s.standing[0], s.standing[1], s.flag[0], s.flag[1], r2(s.bounceAt), s.duvet.map(r2), speeds(ctx)]
   },
 
-  unpack(_c, s, d) {
-    const a = d as [number, number, number, number, number, number[]]
+  unpack(ctx, s, d) {
+    const a = d as [number, number, number, number, number, number[], number[]]
+    setSpeeds(ctx, a[6])
     s.standing[0] = a[0]
     s.standing[1] = a[1]
     s.flag[0] = a[2]

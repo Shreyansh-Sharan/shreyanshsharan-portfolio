@@ -9,7 +9,7 @@ import { buildAttic } from '../engine/helpers'
 import type { RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { basketMesh, fetch, holdChanges, holderOf, looseBody, mat, paint, poss, r2, stripeTex } from './team-kit'
+import { basketMesh, fetch, setSpeeds, speeds, holdChanges, holderOf, looseBody, mat, paint, poss, r2, stripeTex } from './team-kit'
 
 const HW = 12
 const HD = 8.5
@@ -83,7 +83,7 @@ function tileTex() {
     const s = w / 4
     for (let y = 0; y < 4; y++)
       for (let x = 0; x < 4; x++) {
-        g.fillStyle = (x + y) % 2 ? '#d7ebe6' : '#9ccfc4'
+        g.fillStyle = (x + y) % 2 ? '#bcd7d0' : '#82b5a9'
         g.fillRect(x * s, y * s, s, s)
       }
     g.strokeStyle = 'rgba(255,255,255,0.8)'
@@ -574,12 +574,13 @@ export default defineLevel<HoopState>({
     return ctx.active().sort((a, b) => (a.team === lead ? 0 : 1) - (b.team === lead ? 0 : 1))
   },
 
-  pack(_c, s) {
-    return [r2(s.hoopX[0]), r2(s.hoopX[1]), r2(s.wet), r2(s.pegged[0]), r2(s.pegged[1]), s.scoredIn, r2(s.resetAt), s.lastPts, s.lint.map(r2)]
+  pack(ctx, s) {
+    return [r2(s.hoopX[0]), r2(s.hoopX[1]), r2(s.wet), r2(s.pegged[0]), r2(s.pegged[1]), s.scoredIn, r2(s.resetAt), s.lastPts, s.lint.map(r2), speeds(ctx)]
   },
 
-  unpack(_c, s, d) {
+  unpack(ctx, s, d) {
     const a = d as (number | number[])[]
+    setSpeeds(ctx, a[9])
     s.hoopX = [a[0] as number, a[1] as number]
     s.wet = a[2] as number
     s.pegged = [a[3] as number, a[4] as number]

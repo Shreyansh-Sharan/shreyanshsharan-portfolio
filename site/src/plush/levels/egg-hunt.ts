@@ -10,7 +10,7 @@ import { buildAttic } from '../engine/helpers'
 import type { RigidBody } from '../engine/physics'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
-import { basketMesh, carryTo, fetch, holdChanges, holderOf, instanced, looseBody, mat, paint, park, parked, poss, r2, unpark } from './team-kit'
+import { basketMesh, carryTo, fetch, setSpeeds, speeds, holdChanges, holderOf, instanced, looseBody, mat, paint, park, parked, poss, r2, unpark } from './team-kit'
 
 const HW = 13
 const HD = 9.5
@@ -38,6 +38,8 @@ interface EggState {
   rustle: number[]
   /** Per plant: a decoy planted by this team (-1). Each team sees its own. */
   decoyBy: number[]
+  /** Host only: which toy planted each decoy. */
+  decoyWho: number[]
   /** Eggs in each nest right now (synced, for the HUD). */
   inNest: [number, number]
   goldPlant: number
@@ -116,19 +118,20 @@ export default defineLevel<EggState>({
       target: 'none',
       desc: 'Hide a decoy egg in the nearest empty plant. Whoever finds it gets a faceful of paint.',
       counter: 'Watch who was rummaging there before you.',
-      can: (_c, s, user) => (nearestPlant(s, user, (i) => s.hidden[i] < 0 && s.progress[i] >= 1) < 0 ? 'No empty plant nearby' : spareDecoy(s) < 0 ? 'Out of decoys' : true),
+      can: (_c, s, user) => (nearestPlant(s, user, (i) => s.hidden[i] < 0) < 0 ? 'No empty plant nearby' : spareDecoy(s) < 0 ? 'Out of decoys' : true),
       apply: (ctx, s, user) => {
-        const p = nearestPlant(s, user, (i) => s.hidden[i] < 0 && s.progress[i] >= 1)
+        const p = nearestPlant(s, user, (i) => s.hidden[i] < 0)
         const e = spareDecoy(s)
         if (p < 0 || e < 0) return
         s.hidden[p] = e
         s.kind[e] = 1
         s.progress[p] = 0
         s.decoyBy[p] = user.team
+        s.decoyWho[p] = user.idx
         s.rustle[p] = ctx.time
         ctx.fx.popup(user, 'Decoy planted…', ctx.teams[user.team].color)
       },
-      botUse: (ctx, s, user) => (nearestPlant(s, user, (i) => s.hidden[i] < 0 && s.progress[i] >= 1, 5) >= 0 && spareDecoy(s) >= 0 && ctx.rng.chance(0.5) ? null : false),
+      botUse: (ctx, s, user) => (nearestPlant(s, user, (i) => s.hidden[i] < 0, 5) >= 0 && spareDecoy(s) >= 0 && ctx.rng.chance(0.5) ? null : false),
     },
     {
       id: 'butter',
@@ -320,7 +323,7 @@ export default defineLevel<EggState>({
       return b
     })
     return {
-      hidden, progress: new Array(plants.length).fill(0), rustle: new Array(plants.length).fill(-9), decoyBy: new Array(plants.length).fill(-1), inNest: [0, 0], goldPlant: -1,
+      hidden, progress: new Array(plants.length).fill(0), rustle: new Array(plants.length).fill(-9), decoyBy: new Array(plants.length).fill(-1), decoyWho: new Array(plants.length).fill(-1), inNest: [0, 0], goldPlant: -1,
       plants, eggs, kind, heldFor: new Array(total).fill(0), prev: new Array(total).fill(-1), wobbleAt: 4,
       vis: { leaves, leafBase, beam, marks, dirty: new Set(), bars },
     }
@@ -378,9 +381,13 @@ export default defineLevel<EggState>({
         ctx.fx.sfx('pop', c.pos)
         ctx.fx.shake(0.4, c)
         park(b, i)
-        // The team that planted it gets the credit.
-        const planted = s.decoyBy.indexOf(-2 - i)
-        if (planted >= 0) s.decoyBy[planted] = -1
+        // Whoever planted it gets the credit.
+        const by = (b.userData as { by?: number; who?: number } | undefined)?.who
+        const planter = by !== undefined ? ctx.toys[by] : null
+        if (planter && planter.team !== c.team) {
+          ctx.blame(c, planter)
+          ctx.addSprinkles(planter, 1, 'decoy')
+        }
       }
     })
     // Let go near your nest: the egg rolls in (a small assist), like dropping it in.
@@ -389,7 +396,7 @@ export default defineLevel<EggState>({
       const p = b.translation()
       const nx = nestX(ev.by.team)
       const d = Math.hypot(p.x - nx, p.z)
-      if (d < 3 && d > 0.3) {
+      if (ev.tossed && d < 3 && d > 0.3) {
         const T = 0.35 + d * 0.06
         b.setLinvel({ x: (nx - p.x) / T, y: (0.7 - p.y + 12 * T * T) / T, z: -p.z / T }, true)
       }
@@ -421,7 +428,7 @@ export default defineLevel<EggState>({
     ctx.setTeamScore(0, sc[0])
     ctx.setTeamScore(1, sc[1])
     // The golden egg turns up for the last 20 seconds.
-    if (t >= GOLD_AT && s.goldPlant < 0) {
+    if (t >= GOLD_AT && s.goldPlant === -1) {
       const options = s.plants.map((_, i) => i).filter((i) => s.hidden[i] < 0)
       const pi = options.length ? ctx.rng.pick(options) : ctx.rng.int(0, s.plants.length)
       const gi = s.eggs.length - 1
@@ -476,12 +483,18 @@ export default defineLevel<EggState>({
       }
     }
     // A loose egg we can see: go and get it (not one of our own decoys, not one already in our nest).
-    if (d.egg === undefined || !validEgg(ctx, s, d.egg, team)) {
+    // One raider per team (with three or more of us) goes after eggs in their nest; everyone does once the
+    // jungle has been searched.
+    const { rank: myRank, n: teamN } = teamRank(ctx, toy, (o) => o.idx)
+    const searchedOut = s.progress.every((p, i) => p >= 1 || s.decoyBy[i] === team)
+    const raiding = searchedOut || (teamN >= 3 && myRank === 0 && t > 25)
+    if (d.egg === undefined || !validEgg(ctx, s, d.egg, team) || (!raiding && inNest(them, s.eggs[d.egg].translation()))) {
       d.egg = undefined
       let best = -1, bd = 14
       s.eggs.forEach((b, i) => {
         if (!validEgg(ctx, s, i, team)) return
         const p = b.translation()
+        if (!raiding && inNest(them, p)) return
         const dd = Math.hypot(p.x - toy.pos.x, p.z - toy.pos.z) - value(s.kind[i]) * 3 + (inNest(them, p) ? 4 : 0)
         const taken = ctx.teammatesOf(toy).some((m) => (m.data as { egg?: number }).egg === i)
         if (!taken && dd < bd) {
@@ -529,8 +542,6 @@ export default defineLevel<EggState>({
     avoidWalls(ctx, toy)
   },
 
-  canThrow: (ctx, s, kind, target) => kind !== 'paper' || !!target.holdingProp || ctx.time > 0 || s.inNest.length > 0,
-
   onThrow(ctx, s, kind, target) {
     // A paper ball makes an egg carrier drop it.
     if (kind === 'paper' && target.holdingProp && s.eggs.includes(target.holdingProp)) {
@@ -545,12 +556,13 @@ export default defineLevel<EggState>({
     return ctx.active().sort((a, b) => (a.team === lead ? 0 : 1) - (b.team === lead ? 0 : 1))
   },
 
-  pack(_c, s) {
-    return [s.hidden.map((h) => (h >= 0 ? 1 : 0)), s.progress.map((p) => Math.round(p * 20)), s.rustle.map(r2), s.decoyBy, s.inNest[0], s.inNest[1], s.goldPlant]
+  pack(ctx, s) {
+    return [s.hidden.map((h) => (h >= 0 ? 1 : 0)), s.progress.map((p) => Math.round(p * 20)), s.rustle.map(r2), s.decoyBy, s.inNest[0], s.inNest[1], s.goldPlant, speeds(ctx)]
   },
 
-  unpack(_c, s, d) {
-    const a = d as [number[], number[], number[], number[], number, number, number]
+  unpack(ctx, s, d) {
+    const a = d as [number[], number[], number[], number[], number, number, number, number[]]
+    setSpeeds(ctx, a[7])
     s.hidden = a[0].map((h) => (h ? 1 : -1))
     s.progress = a[1].map((p) => p / 20)
     s.rustle = a[2]
@@ -611,10 +623,8 @@ export default defineLevel<EggState>({
 
   hud(ctx, s, me) {
     const t = ctx.time
-    const left = s.hidden.filter((h, i) => h >= 0 && s.progress[i] < 1).length
     const chips = [`${s.plants.length - s.progress.filter((p) => p >= 1).length} plants unsearched`]
     if (t < GOLD_AT && ctx.phase === 'play') chips.push(`Golden egg in ${Math.ceil(GOLD_AT - t)} s`)
-    void left
     let prompt: string | undefined
     let status: { text: string; color: string; pulse?: boolean } | undefined
     if (s.goldPlant >= 0 && s.progress[s.goldPlant] < 1) status = { text: 'GOLDEN EGG!', color: '#fde047', pulse: true }
@@ -669,7 +679,8 @@ function reveal(ctx: LevelCtx, s: EggState, pi: number, by: Toy) {
     return
   }
   const b = s.eggs[e]
-  b.userData = { by: s.decoyBy[pi] }
+  b.userData = { by: s.decoyBy[pi], who: s.decoyWho[pi] >= 0 ? s.decoyWho[pi] : undefined }
+  s.decoyWho[pi] = -1
   s.decoyBy[pi] = -1
   if (pi === s.goldPlant) s.goldPlant = -2
   unpark(b, p.x + (by.pos.x - p.x) * 0.4, p.h + 0.9, p.z + (by.pos.z - p.z) * 0.4, 3)

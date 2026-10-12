@@ -254,3 +254,15 @@ export function instanced(geo: THREE.BufferGeometry, material: THREE.Material, i
 
 /** "Fluff's", "Feathers'". */
 export const poss = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`)
+
+/**
+ * Run speeds set by the rules on the host (slow carriers, duvets, lint) go to clients too, so an online player's
+ * own predicted toy moves at the same speed the host expects.
+ */
+export const speeds = (ctx: LevelCtx) => ctx.toys.map((t) => Math.round(t.runSpeed * 10) / 10)
+export function setSpeeds(ctx: LevelCtx, v: unknown) {
+  if (!Array.isArray(v)) return
+  ctx.toys.forEach((t, i) => {
+    if (typeof v[i] === 'number') t.runSpeed = v[i]
+  })
+}
