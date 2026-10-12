@@ -224,9 +224,11 @@ export function buildJungle(ctx: LevelCtx): Decor {
   // Raised planter bed (you fall into it) with a terracotta rim, and the big pot in the middle.
   b.add(G.cyl24, '#5b3a1e', T(R.x, JUNGLE.bed.h / 2, R.z, 0, 0, 0, JUNGLE.bed.r * 2, JUNGLE.bed.h, JUNGLE.bed.r * 2))
   b.add(new THREE.TorusGeometry(JUNGLE.bed.r, 0.16, 6, 40), terracotta, T(R.x, JUNGLE.bed.h, R.z, PI / 2))
-  for (let i = 0; i < 26; i++) {
-    const a = (i / 26) * PI * 2
-    b.add(G.sphere, i % 2 ? '#4a2e17' : '#6b4423', T(R.x + Math.cos(a) * (2 + (i % 5) * 0.5), JUNGLE.bed.h, R.z + Math.sin(a) * (2 + (i % 5) * 0.5), 0, a, 0, 0.45, 0.06, 0.3))
+  // Moss and pebbles on the soil.
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * PI * 2 + 0.3
+    const r = 2 + (i % 4) * 0.6
+    b.add(G.ico, i % 3 ? '#65a30d' : '#a8a29e', T(R.x + Math.cos(a) * r, JUNGLE.bed.h, R.z + Math.sin(a) * r, 0, a, 0, i % 3 ? 0.5 : 0.22, i % 3 ? 0.08 : 0.14, i % 3 ? 0.4 : 0.2))
   }
   ctx.phys.cylinder({ x: R.x, y: JUNGLE.bed.h / 2, z: R.z }, JUNGLE.bed.h / 2, JUNGLE.bed.r)
   const P = JUNGLE.pot
@@ -254,7 +256,7 @@ export function buildJungle(ctx: LevelCtx): Decor {
     b.add(leaf, i % 2 ? '#2f7d3f' : '#3f9b4f', T(R.x + Math.cos(a) * 0.75, JUNGLE.bed.h + P.h * 0.8 + h, R.z + Math.sin(a) * 0.75, -0.35, PI / 2 - a, 0, len * 1.4, len * 1.4, len * 1.4))
   }
   // Potted plants round the edge: pots with leaf clusters (cones and leaves).
-  const spots: [number, number, number][] = [[16.2, -15.8, 0.9], [15.8, -6.6, 0.8], [9.3, -16.9, 0.7], [7.0, -11.2, 0.75], [16.6, -11.4, 0.7]]
+  const spots: [number, number, number][] = [[16.2, -15.4, 0.9], [15.8, -6.6, 0.8], [9.3, -16.9, 0.7], [6.9, -11.2, 0.75], [17.0, -11.6, 0.7]]
   for (const [x, z, s] of spots) {
     b.add(pot, i2c(x), T(x, 0, z, 0, 0, 0, s, s * 1.3, s))
     ctx.phys.cylinder({ x, y: s * 0.6, z }, s * 0.6, s * 0.85)
@@ -282,7 +284,7 @@ export function buildJungle(ctx: LevelCtx): Decor {
   b.add(G.cyl24, '#e7e5e4', T(Pd.x, 0.12, Pd.z, 0, 0, 0, Pd.r * 2.2, 0.24, Pd.r * 2.2))
   ctx.phys.cylinder({ x: Pd.x, y: 0.12, z: Pd.z }, 0.12, Pd.r * 1.1)
   // Sock tents with a little glow at the door.
-  const tents: [number, number, number, string, string][] = [[16.1, -13.6, PI / 2 + 0.2, '#f87171', '#fff7ed'], [15.6, -8.9, PI / 2 - 0.3, '#60a5fa', '#fde68a']]
+  const tents: [number, number, number, string, string][] = [[16.85, -17.3, -PI / 2, '#f87171', '#fff7ed'], [13.3, -17.3, -PI / 2 + 0.15, '#60a5fa', '#fde68a']]
   // A-frame tents: two sock panels leaning together, a rounded toe closing the back, a dark doorway.
   const lean = 1.0, side = 1.25
   for (const [x, z, ry, a, c] of tents) {

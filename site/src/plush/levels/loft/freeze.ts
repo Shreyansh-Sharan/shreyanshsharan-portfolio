@@ -105,7 +105,7 @@ export const freezeDance: LoftActivity<FreezeState> = {
         s.ph = 2
         s.t0 = t
         s.booped.clear()
-        ctx.fx.say('FREEZE!', '#f87171', 1)
+        for (const d of dancers) if (d.c.human) ctx.fx.say('FREEZE!', '#f87171', 1, d)
       }
       return
     }

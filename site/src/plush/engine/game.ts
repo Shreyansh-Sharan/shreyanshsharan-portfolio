@@ -1566,7 +1566,7 @@ export class Game {
     const x = t.pos.x - Math.sin(t.yaw) * 0.3 + (Math.random() - 0.5) * 0.3
     const z = t.pos.z - Math.cos(t.yaw) * 0.3 + (Math.random() - 0.5) * 0.3
     const y = t.pos.y - FOOT + (tr.kind === 'bubbles' ? 0.4 : 0.15) + Math.random() * 0.4
-    if (tr.kind === 'glitter') this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.6 + Math.random(), (Math.random() - 0.5) * 0.6, 0.7, 0.09, _col.setHSL(Math.random(), 0.9, 0.7))
+    if (tr.kind === 'glitter') this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.6 + Math.random(), (Math.random() - 0.5) * 0.6, 0.8, 0.15, _col.setHSL(Math.random(), 0.9, 0.72))
     else if (tr.kind === 'bubbles') this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.3, 0.9, (Math.random() - 0.5) * 0.3, 1.4, 0.2, tr.color, 0.45)
     else this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.8, 0.5, (Math.random() - 0.5) * 0.8, 0.8, 0.22, tr.color)
   }

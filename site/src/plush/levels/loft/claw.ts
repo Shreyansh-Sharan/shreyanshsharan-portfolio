@@ -251,7 +251,7 @@ export const buttonClaw: LoftActivity<ClawState> = {
   camera(_ctx, s, cam, me, dt) {
     if (s.player !== me.idx || s.ph === 0) return false
     cam.yaw = 0
-    cam.place(_v.set(K.x + s.x * 0.3, 3.6, K.z - K.size / 2 - 2.6), _look.set(K.x + s.x * 0.5, 2.1, K.z + s.z * 0.4), dt, 6)
+    cam.place(_v.set(K.x + s.x * 0.3, 4.3, K.z - K.size / 2 - 3.4), _look.set(K.x + s.x * 0.4, 2.5, K.z + s.z * 0.3), dt, 6)
     return true
   },
 }

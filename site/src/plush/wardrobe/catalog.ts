@@ -163,14 +163,20 @@ export function outfitKey(o: Outfit | undefined) {
   return WSLOTS.map((s) => o[s] ?? '').join('|')
 }
 
-/** A cheerful random outfit for a bot: mostly common and stitched pieces, a few empty slots. */
+/**
+ * A cheerful random outfit for a bot: usually a hat, maybe one more piece, often a pattern and a thread
+ * colour (those cost nothing to draw). Kept light so a 16-toy Show doesn't add many draw calls.
+ */
 export function randomOutfit(rand: () => number): Outfit {
   const o: Outfit = {}
-  for (const slot of WSLOTS) {
-    if (rand() < (slot === 'hat' ? 0.35 : slot === 'flair' ? 0.8 : 0.55)) continue
-    const pool = ITEMS.filter((i) => i.slot === slot && !i.emote && i.how !== 'free' && (i.rarity === 'common' || i.rarity === 'stitched' || rand() < 0.25))
+  const pick = (slot: WSlot) => {
+    const pool = ITEMS.filter((i) => i.slot === slot && !i.emote && i.how !== 'free' && (i.rarity !== 'golden' || rand() < 0.2))
     if (pool.length) o[slot] = pool[Math.floor(rand() * pool.length)].id
   }
+  if (rand() < 0.55) pick('hat')
+  if (rand() < 0.5) pick((['eyes', 'face', 'back', 'hand', 'mouth'] as const)[Math.floor(rand() * 5)])
+  if (rand() < 0.45) pick('fabric')
+  if (rand() < 0.5) pick('colour')
   return o
 }
 
