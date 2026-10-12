@@ -11,7 +11,7 @@ import { bubbleWrap } from '../engine/sabotage'
 import { FOOT } from '../engine/toy'
 import { defineLevel, type Toy } from '../engine/types'
 import {
-  Course, canvasTex, detachDecor, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
+  Course, bake, canvasTex, detachDecor, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
   raceSpeedHazard, raceTick, raceUnpack, rbox, solid, stripeTex, trampoline, type BotMem, type RaceState, type Wp,
 } from './race-kit'
 
@@ -439,7 +439,7 @@ export default defineLevel<SDState>({
       g.add(box, face, k)
       mover(ctx, {
         half: [2.5, 0.8, 1.5],
-        obj: g,
+        obj: bake(g),
         shove: 7.5,
         stun: 0.7,
         pose: (t, out) => {
@@ -465,7 +465,7 @@ export default defineLevel<SDState>({
       g.add(box, face, kn)
       mover(ctx, {
         half: [HW, 0.5, 2.2],
-        obj: g,
+        obj: bake(g),
         pose: (t, out) => {
           poseOf(out, side * THREE.MathUtils.lerp(HW * 2 + 0.6, 0, rowOpen(st, k, t)), -0.5, z)
           return true

@@ -19,6 +19,8 @@ plush/
     music-box.ts     survival: move while the music plays (synced phases, WebAudio, a key pickup)
     top-sumo.ts      survival: ride balls on a shrinking stool (ball mode, custom hazard, shrinking floor)
     robo-vac.example.ts  the worked example below (compiles, not registered)
+    race-kit.ts      shared parts of the race pack (courses, checkpoints, bots, movers), see "The race pack"
+    sock-drawer.ts bookshelf.ts train-set.ts duck-rapids.ts pinball.ts conveyor.ts hamster.ts  the race pack
   engine/
     types.ts         THE LEVEL API: LevelDef, LevelCtx, TrickDef, Contestant, FxApi, LevelHud
     game.ts          the engine: renderer, rounds, Show flow, online sync, HUD state, test hooks
@@ -311,6 +313,30 @@ export default defineLevel<VacState>({
 It is survival, so the engine ends the round once enough toys are sucked up, and everyone left standing goes
 through. Falling off the map uses the default for survival (`fail`). Quick Play turns each `fail` into a
 respawn with no extra code.
+
+## The race pack
+
+Seven `race` levels (the Show's first round draws from them): Sock Drawer Dash, Bookshelf Climb (side-on
+camera), Train Set Express, Rubber Duck Rapids, Pinball Panic (a tilting course), Conveyor Lunchbox and Hamster
+Wheel Heights. They share `levels/race-kit.ts`, which is plain level code on top of the API above (no engine
+changes), so a new race needs only its layout and gimmicks:
+
+- `new Course({ path, cps, finish, podium })`: the bot route (waypoints), checkpoints (box zones with a facing,
+  an optional dry `spot` to respawn on), the finish zone and a podium spot. `course.space` maps world positions
+  into course space for a course that moves (Pinball Panic's table).
+- In the level: `raceInit(ctx)` in `init`, `raceTick(ctx, rs, course)` in `tick`, `raceRespawn(...)` in `onFall`,
+  `raceRank(...)` for `rank`, `raceHud(...)` for `hud`, `racePack`/`raceUnpack` inside `pack`/`unpack`. That gives
+  checkpoints (+1 Sprinkle each), falls back to the last checkpoint (also when you land well below it), the finish
+  (top N only in a Show), the podium, a progress bar, and paws tied up for a trick's `busy` time (the price of
+  mischief in a race). `raceSpeedHazard` applies speed boosts and slows from the synced race state.
+- `follow(ctx, toy, path, { pace, dt, wait, toWorld })` steers a bot along waypoints: lateral lanes, jumps and
+  dives where told, gap jumps, hops, mid-air landing aim, `wait` ids the level answers (barriers, flippers,
+  stamps), stepping back down a route after a fall, and an unstick timer (stuck bots respawn at their checkpoint).
+- `mover(ctx, { half, pose, obj, shove, cyl, extra })` is a kinematic platform driven by a pose function of time
+  (and synced state): it carries toys standing on it (predicted on clients) and can shove toys it runs into.
+- Look helpers: `rbox` (rounded boxes), `canvasTex`/`stripeTex`/`checkerTex`, `solid`, `ramp`, `trampoline`,
+  `finishArch`, `pickupMesh`, `bake` (merges a multi-part prop into one vertex-coloured draw call) and `decor`
+  (site models from `public/world`, `public/golf` and `public/sports`, loaded on demand; purely cosmetic).
 
 ## Testing hooks
 

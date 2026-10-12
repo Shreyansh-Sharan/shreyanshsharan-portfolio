@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { hopObstacles } from '../engine/bots'
 import type { Hazard } from '../engine/hazards'
 import { textSprite } from '../engine/helpers'
@@ -65,6 +66,58 @@ export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext
   t.repeat.set(repeat[0], repeat[1])
   t.anisotropy = 4
   return t
+}
+
+const _bm = new THREE.Matrix4()
+const _bi = new THREE.Matrix4()
+
+/**
+ * Bake a multi-part prop into one draw call: every plain-coloured mesh under `obj` is merged into a single
+ * vertex-coloured mesh (transforms baked in). Textured or multi-material parts are kept as separate children.
+ * Returns a new group; `obj` itself is left untouched.
+ */
+export function bake(obj: THREE.Object3D, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) {
+  obj.updateMatrixWorld(true)
+  _bi.copy(obj.matrixWorld).invert()
+  const geos: THREE.BufferGeometry[] = []
+  const out = new THREE.Group()
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    _bm.multiplyMatrices(_bi, m.matrixWorld)
+    const mt = m.material as THREE.MeshStandardMaterial
+    if ((m as unknown as THREE.InstancedMesh).isInstancedMesh || Array.isArray(m.material) || mt.map || mt.transparent) {
+      const keep = m.clone(false)
+      _bm.decompose(keep.position, keep.quaternion, keep.scale)
+      keep.castShadow = m.castShadow
+      keep.receiveShadow = m.receiveShadow
+      out.add(keep)
+      return
+    }
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()
+    g.applyMatrix4(_bm)
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k)
+    const n = g.attributes.position.count
+    const col = new Float32Array(n * 3)
+    const c = mt.color ?? new THREE.Color('#ffffff')
+    const e = mt.emissive && mt.emissiveIntensity ? mt.emissive.clone().multiplyScalar(mt.emissiveIntensity) : null
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = Math.min(1, c.r + (e ? e.r : 0))
+      col[i * 3 + 1] = Math.min(1, c.g + (e ? e.g : 0))
+      col[i * 3 + 2] = Math.min(1, c.b + (e ? e.b : 0))
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    geos.push(g)
+  })
+  if (geos.length) {
+    const merged = mergeGeometries(geos)
+    for (const g of geos) g.dispose()
+    const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, ...extra }))
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    out.add(mesh)
+  }
+  return out
 }
 
 /** Black-and-white chequers (finish lines). */
@@ -483,6 +536,8 @@ export function raceTick(ctx: LevelCtx, rs: RaceState, course: Course) {
       break
     }
     if (inZone(course.finish, lp.x, feet, lp.z)) {
+      // Top N go through: a pack crossing on the same tick can't overfill the round.
+      if (ctx.mode === 'show' && ctx.qualifiedCount() >= ctx.target) continue
       const place = ctx.qualifiedCount() + 1
       ctx.qualify(toy, `#${place}`)
       toy.frozen = false

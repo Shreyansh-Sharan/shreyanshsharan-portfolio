@@ -11,7 +11,7 @@ import { bubbleWrap } from '../engine/sabotage'
 import { FOOT } from '../engine/toy'
 import { defineLevel } from '../engine/types'
 import {
-  Course, canvasTex, decor, detachDecor, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
+  Course, bake, canvasTex, decor, detachDecor, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
   raceSpeedHazard, raceTick, raceUnpack, rbox, solid, stripeTex, type BotMem, type Mover, type RaceState, type Wp,
 } from './race-kit'
 
@@ -172,7 +172,7 @@ function windowTex(color: string) {
 const wheelGeo = () => new THREE.CylinderGeometry(0.32, 0.32, 0.2, 10).rotateX(Math.PI / 2)
 
 /** A carriage (crossing trains: long along x; the express: flat wagons along z). */
-function carMesh(kind: 'loco' | 'coach' | 'flat', color: string, alongX: boolean) {
+function carMesh(kind: 'loco' | 'coach' | 'flat', color: string, yaw: number) {
   const g = new THREE.Group()
   const body = new THREE.Group()
   g.add(body)
@@ -213,9 +213,8 @@ function carMesh(kind: 'loco' | 'coach' | 'flat', color: string, alongX: boolean
       w.position.set(sx * 0.72, 0.32, sz * (L / 2 - 0.55))
       body.add(w)
     }
-  body.traverse((o) => ((o as THREE.Mesh).castShadow = true))
-  if (alongX) body.rotation.y = Math.PI / 2
-  return g
+  body.rotation.y = yaw
+  return bake(g)
 }
 
 function stonePortal(r = 1.4) {
@@ -455,8 +454,7 @@ export default defineLevel<TSState>({
     CROSS.forEach((c, ci) => {
       for (let i = 0; i < 3; i++) {
         const kind = i === 0 ? 'loco' : 'coach'
-        const obj = carMesh(kind, i === 0 ? '#b91c1c' : colors[(ci + i) % colors.length], true)
-        if (c.dir < 0) obj.children[0].rotation.y = -Math.PI / 2
+        const obj = carMesh(kind, i === 0 ? '#b91c1c' : colors[(ci + i) % colors.length], c.dir > 0 ? Math.PI / 2 : -Math.PI / 2)
         mover(ctx, {
           half: [CAR_L / 2 - 0.1, 0.8, 0.8],
           obj,
@@ -502,7 +500,7 @@ export default defineLevel<TSState>({
     for (let j = 0; j < 2; j++) {
       for (let i = 0; i < EXP_CARS; i++) {
         const loco = i === 0
-        const obj = carMesh(loco ? 'loco' : 'flat', loco ? '#1d4ed8' : ['#f59e0b', '#ef4444', '#22c55e', '#a855f7', '#06b6d4'][(i + j) % 5], false)
+        const obj = carMesh(loco ? 'loco' : 'flat', loco ? '#1d4ed8' : ['#f59e0b', '#ef4444', '#22c55e', '#a855f7', '#06b6d4'][(i + j) % 5], 0)
         const mv = mover(ctx, {
           half: loco ? [0.8, 0.9, CAR_L / 2 - 0.1] : [1.2, 0.45, CAR_L / 2 - 0.1],
           obj,

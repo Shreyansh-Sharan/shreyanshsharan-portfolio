@@ -10,7 +10,7 @@ import { buildAttic, textSprite } from '../engine/helpers'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
 import {
-  Course, airAim, canvasTex, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn, raceSpeedHazard,
+  Course, airAim, bake, canvasTex, finishArch, follow, hash01, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn, raceSpeedHazard,
   raceTick, raceUnpack, rbox, solid, type BotMem, type Mover, type RaceState, type Wp,
 } from './race-kit'
 
@@ -43,6 +43,11 @@ DUCK_ROWS.forEach((z, r) => LANES.forEach((x, l) => FLOATS.push({ kind: 0, x, z,
 SOAPS.forEach((z, i) => FLOATS.push({ kind: 1, x: SOAP_X, z, phase: i * 1.7, row: i, side: 0 }))
 SPONGES.forEach((z, i) => FLOATS.push({ kind: 2, x: SPONGE_X, z, phase: i * 1.3, row: i, side: 0 }))
 RAPID_ROWS.forEach((z, r) => [-1, 1].forEach((side) => FLOATS.push({ kind: 3, x: 0, z, phase: hash01(r, 9) * 6.28, row: r, side })))
+
+/** Which floats use which synced field (keeps the snapshot small). */
+const TIPPY = FLOATS.flatMap((f, i) => (f.kind === 0 || f.kind === 3 ? [i] : []))
+const SQUISHY = FLOATS.flatMap((f, i) => (f.kind === 2 ? [i] : []))
+const SOAPY = FLOATS.flatMap((f, i) => (f.kind === 1 ? [i] : []))
 
 interface DRState {
   race: RaceState
@@ -168,7 +173,8 @@ function duckFactory() {
   const yellow = mat('#facc15', { roughness: 0.35 })
   const orange = mat('#f97316', { roughness: 0.4 })
   const black = mat('#111827')
-  return (scale = 1) => {
+  // Build one duck, bake it into a single vertex-coloured mesh, and share that for every duck.
+  const proto = (() => {
     const g = new THREE.Group()
     const b = new THREE.Mesh(body, yellow)
     b.scale.set(DUCK_R * 1.02, 0.55, DUCK_R * 1.18)
@@ -183,9 +189,13 @@ function duckFactory() {
       g.add(e)
     }
     g.add(b, h, k)
-    g.scale.setScalar(scale)
-    g.traverse((o) => ((o as THREE.Mesh).castShadow = true))
-    return g
+    return bake(g, { roughness: 0.35 }).children[0] as THREE.Mesh
+  })()
+  return (scale = 1) => {
+    const m = new THREE.Mesh(proto.geometry, proto.material)
+    m.scale.setScalar(scale)
+    m.castShadow = m.receiveShadow = true
+    return m
   }
 }
 
@@ -610,16 +620,19 @@ export default defineLevel<DRState>({
 
   pack(_c, st) {
     const r2 = (x: number) => Math.round(x * 100) / 100
-    return [racePack(st.race), r2(st.surge), st.tilt.map(r2), st.sink.map(r2), st.grease.map((x) => Math.round(x * 10) / 10)]
+    return [racePack(st.race), r2(st.surge), TIPPY.flatMap((i) => [r2(st.tilt[i * 2]), r2(st.tilt[i * 2 + 1])]), SQUISHY.map((i) => r2(st.sink[i])), SOAPY.map((i) => Math.round(st.grease[i] * 10) / 10)]
   },
 
   unpack(_c, st, d) {
     const a = d as [unknown, number, number[], number[], number[]]
     raceUnpack(st.race, a[0])
     st.surge = a[1]
-    st.tilt = a[2]
-    st.sink = a[3]
-    st.grease = a[4]
+    TIPPY.forEach((i, k) => {
+      st.tilt[i * 2] = a[2][k * 2]
+      st.tilt[i * 2 + 1] = a[2][k * 2 + 1]
+    })
+    SQUISHY.forEach((i, k) => (st.sink[i] = a[3][k]))
+    SOAPY.forEach((i, k) => (st.grease[i] = a[4][k]))
   },
 
   visual(ctx, st) {

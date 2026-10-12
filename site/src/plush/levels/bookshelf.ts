@@ -9,7 +9,7 @@ import { buildAttic, textSprite } from '../engine/helpers'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type Toy } from '../engine/types'
 import {
-  Course, canvasTex, finishArch, follow, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpeedHazard, raceTick,
+  Course, bake, canvasTex, finishArch, follow, mat, mover, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpeedHazard, raceTick,
   raceUnpack, rbox, solid, type BotMem, type RaceState, type Wp,
 } from './race-kit'
 
@@ -188,7 +188,7 @@ function bookMesh(w: number, h: number, d: number, color: string) {
   cover.castShadow = true
   const pages = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, h * 0.9, d * 1.01), mat('#fef3c7', { roughness: 0.9 }))
   g.add(cover, pages)
-  return g
+  return bake(g)
 }
 
 function dictMesh() {

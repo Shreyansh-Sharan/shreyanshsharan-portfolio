@@ -415,7 +415,8 @@ export default defineLevel<PBState>({
     for (let i = 0; i < BALLS; i++) {
       const b = ctx.phys.dynamic({ x: i * 3, y: -40, z: 0 }, { damping: 0.45, ccd: true })
       ctx.phys.attach(b, ctx.RAPIER.ColliderDesc.ball(BALL_R).setDensity(5), { friction: 0.3, restitution: 0.5, groups: PROP_GROUPS })
-      b.setEnabled(false)
+      // Parked until launched (host only: on clients the ball is a kinematic puppet of the snapshots).
+      if (ctx.isHost) b.setEnabled(false)
       const mesh = new THREE.Mesh(ballGeo, chrome)
       mesh.castShadow = true
       ctx.root.add(mesh)

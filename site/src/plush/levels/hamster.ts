@@ -9,7 +9,7 @@ import { buildAttic, textSprite } from '../engine/helpers'
 import { bubbleWrap } from '../engine/sabotage'
 import { defineLevel, type Toy } from '../engine/types'
 import {
-  Course, canvasTex, finishArch, follow, hash01, mat, mover, pickupMesh, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
+  Course, bake, canvasTex, finishArch, follow, hash01, mat, mover, pickupMesh, poseOf, raceHud, raceInit, racePack, raceRank, raceRespawn, raceSpawn,
   raceSpeedHazard, raceTick, raceUnpack, rbox, solid, type BotMem, type Mover, type RaceState, type Wp,
 } from './race-kit'
 
@@ -208,7 +208,11 @@ function wheelMesh() {
   const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 1.9, 8), mat('#9ca3af'))
   stand.position.set(-1.25, -0.95, 0)
   g.add(stand)
-  return { g, spin }
+  // One draw call for the rims and spokes (the rungs stay instanced).
+  const baked = bake(spin, { roughness: 0.4 })
+  g.remove(spin)
+  g.add(baked)
+  return { g, spin: baked }
 }
 
 export default defineLevel<HWState>({
