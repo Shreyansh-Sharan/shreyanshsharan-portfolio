@@ -111,20 +111,25 @@ export function rewardedAd(name: string, hooks: { pause?: () => void; resume?: (
 }
 
 /**
- * Bridge for games in an iframe: the game posts {source, type: 'adbreak' | 'rewarded', name} at natural pauses and
- * gets back {type: 'adbreak-done'} or {type: 'reward-granted' | 'reward-skipped'}. Without ads configured the
- * game is answered at once, so it never waits.
+ * Bridge for games in an iframe: the game posts {source, type: 'adbreak' | 'rewarded', placement, id} at natural
+ * pauses and gets back {type: 'ad-started'} when an ad actually shows, then {type: 'adbreak-done'} or
+ * {type: 'reward-granted' | 'reward-skipped'}, each with the same id. Without ads configured the game is
+ * answered at once, so it never waits.
  */
 export function useGameAds(frame: RefObject<HTMLIFrameElement | null>, source: string) {
   useEffect(() => {
-    const reply = (type: string, name: string) => frame.current?.contentWindow?.postMessage({ source: 'site', type, name }, '*')
+    // Replies echo the request's id so the game can match them up (the cricket bridge needs it).
+    const reply = (type: string, name: string, id?: string) =>
+      frame.current?.contentWindow?.postMessage({ source: 'site', type, name, id }, '*')
     const onMessage = (ev: MessageEvent) => {
       if (ev.source !== frame.current?.contentWindow) return
-      const msg = ev.data as { source?: string; type?: string; name?: string }
+      const msg = ev.data as { source?: string; type?: string; name?: string; placement?: string; id?: string }
       if (!msg || msg.source !== source) return
-      const name = msg.name || source
-      if (msg.type === 'adbreak') adBreak(name, { done: () => reply('adbreak-done', name) })
-      if (msg.type === 'rewarded') rewardedAd(name, { granted: (ok) => reply(ok ? 'reward-granted' : 'reward-skipped', name) })
+      const name = msg.placement || msg.name || source
+      const started = () => reply('ad-started', name, msg.id)
+      if (msg.type === 'adbreak') adBreak(name, { pause: started, done: () => reply('adbreak-done', name, msg.id) })
+      if (msg.type === 'rewarded')
+        rewardedAd(name, { pause: started, granted: (ok) => reply(ok ? 'reward-granted' : 'reward-skipped', name, msg.id) })
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)

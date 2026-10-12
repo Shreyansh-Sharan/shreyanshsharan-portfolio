@@ -4,6 +4,9 @@ import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
+import { AdSlot } from './AdSlot'
+import { GearShelf } from './GearShelf'
+import { useGameAds } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'cricket')?.accent ?? (['#14532d', '#86efac'] as [string, string])
 const GAME_URL = 'games/cricket/index.html'
@@ -101,6 +104,8 @@ export function Cricket({ join, onAccent }: { join?: string; onAccent: (a: [stri
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
+  // The game asks for ad breaks between innings and matches, and for a rewarded ad (an extra review).
+  useGameAds(frame, 'cricket')
 
   useEffect(() => {
     let cancelled = false
@@ -397,6 +402,8 @@ export function Cricket({ join, onAccent }: { join?: string; onAccent: (a: [stri
               </p>
             </section>
           </div>
+          <AdSlot />
+          <GearShelf topic="cricket" />
         </Page>
       )}
 
