@@ -27,6 +27,8 @@ const _s = new THREE.Vector3()
 const _m = new THREE.Matrix4()
 const _inv = new THREE.Matrix4()
 const _e = new THREE.Euler()
+const _cl = new THREE.Vector3()
+const _cw = new THREE.Vector3()
 
 /* ================================ Look ================================ */
 
@@ -295,6 +297,8 @@ export class Course {
   /** For each checkpoint, the route index nearest it. */
   readonly cpWp: number[]
   readonly total: number
+  /** For a course that moves: map world positions into course space and back (default: the world itself). */
+  space: { toLocal(p: THREE.Vector3Like, out: THREE.Vector3): THREE.Vector3; toWorld(p: THREE.Vector3Like, out: THREE.Vector3): THREE.Vector3 } | null = null
 
   constructor(o: { path: Wp[]; cps: Checkpoint[]; finish: Zone; podium: Spawn }) {
     this.path = o.path
@@ -308,6 +312,18 @@ export class Course {
     }
     this.total = this.cum[this.cum.length - 1]
     this.cpWp = o.cps.map((c) => this.nearestWp(c.x, c.y, c.z))
+  }
+
+  /** A world position in course space (a shared scratch vector: use it straight away). */
+  local(p: THREE.Vector3): THREE.Vector3 {
+    return this.space ? this.space.toLocal(p, _cl) : p
+  }
+
+  /** A course-space spawn in the world. */
+  worldSpawn(s: Spawn): Spawn {
+    if (!this.space) return s
+    const w = this.space.toWorld(_cw.set(s.x, s.y, s.z), _cw)
+    return { x: w.x, y: w.y, z: w.z, yaw: s.yaw }
   }
 
   nearestWp(x: number, y: number, z: number, from = 0) {
@@ -420,7 +436,7 @@ export function raceRespawn(ctx: LevelCtx, rs: RaceState, course: Course, toy: T
   const cp = rs.cp[toy.idx] ?? -1
   rs.respawns[toy.idx] = (rs.respawns[toy.idx] ?? 0) + 1
   const n = rs.respawns[toy.idx] + toy.idx * 3
-  const at = cp >= 0 ? zoneSpot(course.cps[cp].spot ?? course.cps[cp], n, course.cps[cp].yaw) : toy.spawn
+  const at = cp >= 0 ? course.worldSpawn(zoneSpot(course.cps[cp].spot ?? course.cps[cp], n, course.cps[cp].yaw)) : toy.spawn
   ctx.respawn(toy, at, 0.5)
   rs.hold[toy.idx] = 0
   const d = toy.data as BotMem
@@ -432,10 +448,10 @@ export function raceRespawn(ctx: LevelCtx, rs: RaceState, course: Course, toy: T
 
 /**
  * The shared race rules (host, every tick): checkpoints (+1 Sprinkle each), the finish and the podium, paws tied
- * up while a trick is played or while held, and stuck bots sent back to their checkpoint. `toLocal` maps a world
- * position into course space for levels whose course moves (the tilting pinball table).
+ * up while a trick is played or while held, and stuck bots sent back to their checkpoint. Zones live in the
+ * course's space (see Course.space), so a course that moves (the tilting pinball table) still works.
  */
-export function raceTick(ctx: LevelCtx, rs: RaceState, course: Course, toLocal?: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3) {
+export function raceTick(ctx: LevelCtx, rs: RaceState, course: Course) {
   for (const toy of ctx.toys) {
     if (toy.status === 'qualified') {
       // A breather, then off to the podium out of everyone's way.
@@ -446,14 +462,14 @@ export function raceTick(ctx: LevelCtx, rs: RaceState, course: Course, toLocal?:
         const sx = Math.cos(z.yaw), sz = -Math.sin(z.yaw)
         const fx = Math.sin(z.yaw), fz = Math.cos(z.yaw)
         const col = (k % 6) - 2.5, row = Math.floor(k / 6)
-        ctx.respawn(toy, { x: z.x + sx * col * 1.25 - fx * row * 1.3, y: z.y, z: z.z + sz * col * 1.25 - fz * row * 1.3, yaw: z.yaw }, 0)
+        ctx.respawn(toy, course.worldSpawn({ x: z.x + sx * col * 1.25 - fx * row * 1.3, y: z.y, z: z.z + sz * col * 1.25 - fz * row * 1.3, yaw: z.yaw }), 0)
       }
       toy.frozen = !!toy.data.podium
       continue
     }
     if (toy.status !== 'play') continue
     toy.frozen = toy.busy > 0 || (rs.hold[toy.idx] ?? 0) > ctx.time
-    const lp = toLocal ? toLocal(toy.pos, _p) : toy.pos
+    const lp = course.local(toy.pos)
     const feet = lp.y - FOOT
     // Checkpoints: any later one counts (shortcuts skip ahead).
     for (let i = course.cps.length - 1; i > (rs.cp[toy.idx] ?? -1); i--) {
@@ -484,25 +500,25 @@ export function raceTick(ctx: LevelCtx, rs: RaceState, course: Course, toLocal?:
 }
 
 /** Ranking: furthest checkpoint, then furthest along the route; finished toys first in finishing order. */
-export function raceRank(ctx: LevelCtx, rs: RaceState, course: Course, toLocal?: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3) {
+export function raceRank(ctx: LevelCtx, rs: RaceState, course: Course) {
   const act = ctx.active()
   const score = new Map<Toy, number>()
   for (const t of act) {
-    const lp = toLocal ? toLocal(t.pos, _p) : t.pos
+    const lp = course.local(t.pos)
     score.set(t, course.progress(lp, rs.cp[t.idx] ?? -1))
   }
   return act.sort((a, b) => (score.get(b) ?? 0) - (score.get(a) ?? 0))
 }
 
 /** Progress 0..1 for a toy (HUD). */
-export function raceProgress(rs: RaceState, course: Course, toy: Toy, toLocal?: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3) {
+export function raceProgress(rs: RaceState, course: Course, toy: Toy) {
   if (toy.status === 'qualified') return 1
-  const lp = toLocal ? toLocal(toy.pos, _p) : toy.pos
+  const lp = course.local(toy.pos)
   return THREE.MathUtils.clamp(course.progress(lp, rs.cp[toy.idx] ?? -1) / course.total, 0, 1)
 }
 
 /** The shared HUD: progress bar, checkpoint and qualifying chips, and a prompt slot. */
-export function raceHud(ctx: LevelCtx, rs: RaceState, course: Course, me: Toy | null, accent: string, extra: Partial<LevelHud> = {}, toLocal?: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3): LevelHud {
+export function raceHud(ctx: LevelCtx, rs: RaceState, course: Course, me: Toy | null, accent: string, extra: Partial<LevelHud> = {}): LevelHud {
   const chips: string[] = []
   const q = ctx.qualifiedCount()
   if (ctx.mode !== 'show') chips.push(`${q} finished`)
@@ -511,7 +527,7 @@ export function raceHud(ctx: LevelCtx, rs: RaceState, course: Course, me: Toy | 
   let prompt = extra.prompt
   if (me?.status === 'qualified') prompt = ctx.mode === 'show' ? 'Through! Watch the rest from the podium.' : 'Finished!'
   else if (me && me.busy > 0 && !prompt) prompt = 'Paws busy with your trick…'
-  const bars = me ? [{ label: 'Course', value: raceProgress(rs, course, me, toLocal), color: accent }, ...(extra.bars ?? [])] : extra.bars
+  const bars = me ? [{ label: 'Course', value: raceProgress(rs, course, me), color: accent }, ...(extra.bars ?? [])] : extra.bars
   return { chips, prompt, bars, status: extra.status }
 }
 
@@ -720,7 +736,7 @@ export function mover(
     stun?: number
     friction?: number
     /** Extra colliders in the body's local space. */
-    extra?: { pos: [number, number, number]; half: [number, number, number] }[]
+    extra?: { pos: [number, number, number]; half: [number, number, number]; r?: number; restitution?: number }[]
     onKnock?: (toy: Toy) => void
     /** A round platform (radius = half[0]) instead of a box. */
     cyl?: boolean
@@ -730,7 +746,10 @@ export function mover(
   const body = ctx.phys.kinematic({ x: 0, y: -50, z: 0 })
   const shape = o.cyl ? RAPIER.ColliderDesc.cylinder(o.half[1], o.half[0]) : RAPIER.ColliderDesc.cuboid(o.half[0], o.half[1], o.half[2])
   ctx.phys.attach(body, shape, { friction: o.friction ?? 0.8 })
-  for (const e of o.extra ?? []) ctx.phys.attach(body, RAPIER.ColliderDesc.cuboid(...e.half).setTranslation(...e.pos), { friction: 0.6 })
+  for (const e of o.extra ?? []) {
+    const d = e.r ? RAPIER.ColliderDesc.cylinder(e.half[1], e.r) : RAPIER.ColliderDesc.cuboid(...e.half)
+    ctx.phys.attach(body, d.setTranslation(...e.pos), { friction: 0.6, restitution: e.restitution ?? 0.05 })
+  }
   let obj = o.obj
   if (!obj) {
     const m = new THREE.Mesh(rbox(o.half[0] * 2, o.half[1] * 2, o.half[2] * 2, o.round ?? 0.1), o.material ?? mat('#f59e0b'))

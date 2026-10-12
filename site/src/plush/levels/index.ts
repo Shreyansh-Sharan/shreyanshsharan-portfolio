@@ -9,8 +9,9 @@ import sockDrawer from './sock-drawer'
 import bookshelf from './bookshelf'
 import trainSet from './train-set'
 import duckRapids from './duck-rapids'
+import pinball from './pinball'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf, trainSet, duckRapids]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf, trainSet, duckRapids, pinball]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)
