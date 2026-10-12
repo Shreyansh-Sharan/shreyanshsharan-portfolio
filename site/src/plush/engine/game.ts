@@ -12,7 +12,7 @@ import { spawnGrid, spawnRing } from './helpers'
 import { LocalInput, type InputFrame } from './input'
 import { isPlushMsg, type Look, type NetSession, type PlushMsg, type RosterRow, type RoundSetup } from './net'
 import { loadPhysics, Phys, RAPIER, STEP, type RigidBody } from './physics'
-import { ANIMS, ToyRig, type AnimKey, type RigState } from './rig'
+import { ANIMS, EMOTES, ToyRig, type AnimKey, type EmoteKey, type RigState } from './rig'
 import { makeRng, type Rng } from './rng'
 import { Sabotage, THROW_INFO, trickPrice } from './sabotage'
 import { assignTeams, awardsFor, botName, planShow, roundTarget, TEAM_DEFAULTS, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
@@ -22,6 +22,8 @@ import {
   type TeamInfo, type ThrowKind, type TrickDef, type TrickIcon,
 } from './types'
 import { LEVELS, levelById } from '../levels'
+import { cleanOutfit, outfitKey, randomOutfit } from '../wardrobe/catalog'
+import { dressRig } from '../wardrobe/dress'
 
 export type StagePhase = 'loft' | 'intro' | 'countdown' | 'play' | 'end' | 'results'
 const PHASES: StagePhase[] = ['loft', 'intro', 'countdown', 'play', 'end', 'results']
@@ -141,6 +143,7 @@ const _w = new THREE.Vector3()
 const _ray = new THREE.Raycaster()
 const _plane = new THREE.Plane()
 const _ndc = new THREE.Vector2()
+const _col = new THREE.Color()
 
 function detectQuality(): 'low' | 'high' {
   try {
@@ -249,6 +252,9 @@ class Ctx implements LevelCtx {
   }
   get music() {
     return this.g.audio.music
+  }
+  get sound() {
+    return this.g.audio
   }
 
   qualify(toy: Toy, note = '') {
@@ -565,7 +571,7 @@ export class Game {
     this.role = opts.net ? opts.net.role : 'solo'
     this.quality = opts.quality ?? detectQuality()
     this.settings = { ...opts.profile.settings }
-    this.look = { name: opts.profile.name, kind: opts.profile.kind, tint: opts.profile.tint }
+    this.look = { name: opts.profile.name, kind: opts.profile.kind, tint: opts.profile.tint, outfit: opts.profile.outfit }
 
     const high = this.quality === 'high'
     this.renderer = new THREE.WebGLRenderer({ antialias: high, powerPreference: 'high-performance' })
@@ -723,7 +729,7 @@ export class Game {
   private contestant(idx: number, id: string, look: Look, human: boolean): Contestant {
     const kinds = this.opts.assets.kinds.length ? this.opts.assets.kinds : (TOY_KINDS as readonly ToyKind[])
     const kind = (kinds as readonly string[]).includes(look.kind) ? (look.kind as ToyKind) : kinds[0]
-    return { idx, id, name: look.name.slice(0, 16) || 'Stitchling', kind, tint: look.tint, human, out: false, outRound: -1, place: 0, stats: freshStats() }
+    return { idx, id, name: look.name.slice(0, 16) || 'Stitchling', kind, tint: look.tint, outfit: cleanOutfit(look.outfit), human, out: false, outRound: -1, place: 0, stats: freshStats() }
   }
 
   /** People first, then bots: `hub` keeps a few ambient bots in the Loft, `show` fills to the Show size. */
@@ -742,14 +748,14 @@ export class Game {
       const name = botName(i * 7 + rng.int(0, 20), taken)
       taken.add(name)
       const kinds = this.opts.assets.kinds.length ? this.opts.assets.kinds : ['sock']
-      roster.push(this.contestant(i, `bot-${i}`, { name, kind: rng.pick(kinds), tint: rng.pick(TINTS.slice(1)) }, false))
+      roster.push(this.contestant(i, `bot-${i}`, { name, kind: rng.pick(kinds), tint: rng.pick(TINTS.slice(1)), outfit: randomOutfit(() => rng.next()) }, false))
     }
     this.roster = roster
     this.meIdx = this.role === 'client' ? this.meIdx : 0
   }
 
   rosterRows(): RosterRow[] {
-    return this.roster.map((c) => ({ idx: c.idx, id: c.id, name: c.name, kind: c.kind, tint: c.tint, human: c.human, out: c.out, outRound: c.outRound }))
+    return this.roster.map((c) => ({ idx: c.idx, id: c.id, name: c.name, kind: c.kind, tint: c.tint, outfit: c.outfit, human: c.human, out: c.out, outRound: c.outRound }))
   }
 
   /** Back to the Loft (solo/host). */
@@ -963,6 +969,7 @@ export class Game {
       toy.sprinkles = level.sprinkles?.start ?? 0
       if (level.runSpeed) toy.runSpeed = level.runSpeed
       const rig = new ToyRig(this.opts.assets, toy.c.kind, toy.c.tint, this.shadowsOn)
+      dressRig(rig, toy.c.outfit, this.opts.assets)
       toy.rig = rig
       if (toy.team >= 0 && r.teams[toy.team]) rig.setTeam(r.teams[toy.team].color)
       r.rigs.push(rig)
@@ -1170,7 +1177,7 @@ export class Game {
     // Number keys: emotes in the Loft, throwables in the gallery, tricks while playing.
     if (f.slot >= 0) {
       if (this.phase === 'loft') {
-        const em = (['wave', 'dance', 'stomp'] as const)[f.slot]
+        const em = this.emoteKeys[f.slot]
         if (em) this.padFlags.emote = em
       } else if (this.gallery(r)) {
         const kind = r.sab.throwables()[f.slot]
@@ -1243,13 +1250,19 @@ export class Game {
     this.action(`throw:${kind}:${t}`)
   }
 
-  emote(kind: 'wave' | 'dance' | 'stomp') {
+  emote(kind: EmoteKey) {
     this.padFlags.emote = kind
   }
 
   /** Send a level action to the host (a level's own HUD panel: roll the die, pick a path, buy an item). */
   levelAction(text: string) {
     this.action(`lv:${text}`)
+  }
+
+  /** Emotes on the Loft's number keys, in order (the page adds unlocked ones after wave, dance and stomp). */
+  emoteKeys: EmoteKey[] = ['wave', 'dance', 'stomp']
+  setEmotes(list: EmoteKey[]) {
+    this.emoteKeys = list.filter((e) => (EMOTES as readonly string[]).includes(e)).slice(0, 9)
   }
 
   /** Pick a rival for tricks by roster position in this round (HUD). */
@@ -1421,7 +1434,7 @@ export class Game {
     else if (a === 'dive') p.dive = true
     else if (a === 'shove') p.shove = true
     else if (a === 'act') p.act = true
-    else if (a.startsWith('emote:')) p.emote = a.slice(6) as Pad['emote']
+    else if (a.startsWith('emote:') && (EMOTES as readonly string[]).includes(a.slice(6))) p.emote = a.slice(6) as Pad['emote']
   }
 
   private applyHostAct(r: Round, cIdx: number, a: string) {
@@ -1697,18 +1710,32 @@ export class Game {
   }
 
   private saveEarnings(res: ShowResults) {
+    const win = res.order[0] === this.meIdx && !res.quick
+    const awards = res.awards.filter((a) => a.who === this.meIdx).map((a) => a.id)
+    if (this.onReward) {
+      this.onReward({ buttons: res.buttons[this.meIdx] ?? 0, win, awards })
+      return
+    }
     const p = this.opts.profile
     p.buttons += res.buttons[this.meIdx] ?? 0
     p.shows++
-    if (res.order[0] === this.meIdx && !res.quick) p.wins++
+    if (win) p.wins++
+    p.awards ??= {}
+    for (const a of awards) p.awards[a] = (p.awards[a] ?? 0) + 1
     this.onEarn?.(p)
   }
   /** The page saves the profile when buttons are earned. */
   onEarn: ((p: Profile) => void) | null = null
+  /**
+   * Preferred over onEarn: the Show's reward for this screen's player, for the page to merge into its own
+   * (current) profile. When set, the engine leaves `opts.profile` alone.
+   */
+  onReward: ((r: { buttons: number; win: boolean; awards: string[] }) => void) | null = null
 
   private crown(t: Toy) {
     if (!t.rig || t.data.crowned) return
     t.data.crowned = true
+    t.rig.takeOff('hat')
     const src = this.opts.assets.props.crown
     let obj: THREE.Object3D
     if (src) {
@@ -1826,6 +1853,20 @@ export class Game {
     }
   }
 
+  /** Flair trails: a few particles behind a running toy (local to each screen). */
+  private trail(rig: ToyRig, t: Toy, speed: number, dt: number) {
+    const tr = rig.trail!
+    rig.trailT -= dt * Math.min(1.6, speed / 4) * (this.quality === 'low' ? 0.5 : 1)
+    if (rig.trailT > 0) return
+    rig.trailT = tr.kind === 'bubbles' ? 0.09 : 0.045
+    const x = t.pos.x - Math.sin(t.yaw) * 0.3 + (Math.random() - 0.5) * 0.3
+    const z = t.pos.z - Math.cos(t.yaw) * 0.3 + (Math.random() - 0.5) * 0.3
+    const y = t.pos.y - FOOT + (tr.kind === 'bubbles' ? 0.4 : 0.15) + Math.random() * 0.4
+    if (tr.kind === 'glitter') this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.6 + Math.random(), (Math.random() - 0.5) * 0.6, 0.8, 0.15, _col.setHSL(Math.random(), 0.9, 0.72))
+    else if (tr.kind === 'bubbles') this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.3, 0.9, (Math.random() - 0.5) * 0.3, 1.4, 0.2, tr.color, 0.45)
+    else this.puffs.emit(x, y, z, (Math.random() - 0.5) * 0.8, 0.5, (Math.random() - 0.5) * 0.8, 0.8, 0.22, tr.color)
+  }
+
   /** A little thing flying from a to b (tricks, gallery throws). */
   private fly(a: THREE.Vector3Like, b: THREE.Vector3Like, color: string, dur: number, kind = 'spark') {
     let mesh = this.flyPool.find((m) => !m.visible)
@@ -1891,6 +1932,7 @@ export class Game {
       st.stun = t.stun
       rig.lift = t.mode === 'ball' && t.popped > 0 ? -0.2 : 0
       rig.update(vdt, st)
+      if (rig.trail && st.speed > 2 && render) this.trail(rig, t, st.speed, dt)
     }
     for (const p of r.props) {
       const tr = p.body.translation(), q = p.body.rotation()
@@ -2113,7 +2155,7 @@ export class Game {
     }
   }
 
-  /** The page changed your look (name / toy / tint). Rebuilds the Loft so everyone sees it. */
+  /** The page changed your look (name / toy / tint / outfit). Re-dresses your toy here and on every screen. */
   setLook(look: Look) {
     this.look = look
     if (this.role === 'client') {
@@ -2121,12 +2163,49 @@ export class Game {
       return
     }
     const me = this.roster[this.meIdx]
-    if (me) {
-      me.name = look.name.slice(0, 16) || me.name
-      me.tint = look.tint
-      if ((this.opts.assets.kinds as string[]).includes(look.kind)) me.kind = look.kind as ToyKind
+    if (me) this.applyLook(me, look)
+  }
+
+  /** Host: a contestant's look changed. Re-dress their toy in place (the Loft keeps running) and tell clients. */
+  private applyLook(c: Contestant, look: Look) {
+    c.name = look.name.slice(0, 16) || c.name
+    c.tint = look.tint
+    if ((this.opts.assets.kinds as string[]).includes(look.kind)) c.kind = look.kind as ToyKind
+    c.outfit = cleanOutfit(look.outfit)
+    const r = this.round
+    const t = r?.toys.find((x) => x.c === c)
+    if (r && t) this.restyle(r, t)
+    if (this.role === 'host') this.send({ t: 'pp-roster', roster: this.rosterRows(), settings: this.settings })
+  }
+
+  /** Swap a toy's rig for one in its contestant's current look (kind, tint, outfit), keeping where it stands. */
+  private restyle(r: Round, t: Toy) {
+    const old = t.rig
+    const c = t.c
+    const same = old && old.kind === c.kind && old.color.getHex() === _col.set(c.tint).getHex() && old.root.userData.outfit === outfitKey(c.outfit)
+    if (!same) {
+      const rig = new ToyRig(this.opts.assets, c.kind, c.tint, this.shadowsOn)
+      dressRig(rig, c.outfit, this.opts.assets)
+      if (old) {
+        rig.root.position.copy(old.root.position)
+        rig.root.rotation.y = old.root.rotation.y
+        const i = r.rigs.indexOf(old)
+        if (i >= 0) r.rigs[i] = rig
+        else r.rigs.push(rig)
+        old.dispose()
+      } else r.rigs.push(rig)
+      r.root.add(rig.root, rig.ball)
+      t.rig = rig
+      if (t.data.crowned) {
+        t.data.crowned = false
+        this.crown(t)
+      }
     }
-    if (this.phase === 'loft') this.rebuildHubKeepingPlaces()
+    const tag = r.tags[t.idx]
+    if (tag) {
+      tag.name.textContent = t.isMe ? `${t.name} (you)` : t.name
+      tag.el.style.setProperty('--pp-tint', t.c.tint === '#ffffff' ? '#fde68a' : t.c.tint)
+    }
   }
 
   setSettings(s: ShowSettings) {
@@ -2140,19 +2219,6 @@ export class Game {
     if (me) me.bot = on || !me.c.human
   }
 
-  private rebuildHubKeepingPlaces() {
-    const r = this.round
-    const places = r ? r.toys.map((t) => ({ idx: t.c.idx, x: t.pos.x, y: t.pos.y, z: t.pos.z, yaw: t.yaw })) : []
-    const roster = this.roster
-    this.startHub()
-    this.roster = roster
-    const nr = this.round
-    if (!nr) return
-    for (const p of places) {
-      const t = nr.toys.find((x) => x.c.idx === p.idx)
-      if (t) t.teleport(p.x, p.y, p.z, p.yaw)
-    }
-  }
 
   /* ================= Online ================= */
 
@@ -2216,11 +2282,8 @@ export class Game {
       this.send({ t: 'pp-roster', roster: this.rosterRows(), settings: this.settings })
     } else if (m.t === 'pp-look') {
       const c = this.roster.find((x) => x.id === from)
-      if (!c) return
-      c.name = m.look.name.slice(0, 16) || c.name
-      c.tint = m.look.tint
-      if ((this.opts.assets.kinds as string[]).includes(m.look.kind)) c.kind = m.look.kind as ToyKind
-      if (this.phase === 'loft') this.rebuildHubKeepingPlaces()
+      if (!c || !m.look || typeof m.look.name !== 'string') return
+      this.applyLook(c, m.look)
     } else if (m.t === 'pp-in') {
       let rm = this.remote.get(from)
       if (!rm) {
@@ -2256,7 +2319,7 @@ export class Game {
     for (let i = roster.length; i < total; i++) {
       const name = botName(i * 7 + rng.int(0, 20), taken)
       taken.add(name)
-      roster.push(this.contestant(i, `bot-${i}`, { name, kind: rng.pick(this.opts.assets.kinds.length ? this.opts.assets.kinds : ['sock']), tint: rng.pick(TINTS.slice(1)) }, false))
+      roster.push(this.contestant(i, `bot-${i}`, { name, kind: rng.pick(this.opts.assets.kinds.length ? this.opts.assets.kinds : ['sock']), tint: rng.pick(TINTS.slice(1)), outfit: randomOutfit(() => rng.next()) }, false))
     }
     this.roster = roster
   }
@@ -2294,9 +2357,21 @@ export class Game {
 
   private applyRoster(rows: RosterRow[]) {
     const link = this.opts.net!.link
-    this.roster = rows.map((row) => ({ ...row, kind: row.kind as ToyKind, place: 0, stats: this.roster.find((c) => c.id === row.id)?.stats ?? freshStats() }))
+    this.roster = rows.map((row) => ({ ...row, kind: row.kind as ToyKind, outfit: cleanOutfit(row.outfit), place: 0, stats: this.roster.find((c) => c.id === row.id)?.stats ?? freshStats() }))
     const mine = this.roster.find((c) => c.id === link.selfId)
     this.meIdx = mine ? mine.idx : -1
+    // Looks changed in the round we're in (someone at the Sewing Table): re-dress those toys in place.
+    const r = this.round
+    if (!r) return
+    for (const t of r.toys) {
+      const c = this.roster.find((x) => x.id === t.c.id)
+      if (!c) continue
+      t.c.name = c.name
+      t.c.kind = c.kind
+      t.c.tint = c.tint
+      t.c.outfit = c.outfit
+      this.restyle(r, t)
+    }
   }
 
   /** Say hello to the host (client). */
@@ -2541,6 +2616,14 @@ export class Game {
     return r.sab.throw(c, kind, targetIdx)
   }
 
+  /** Tests: give any contestant a look (kind, tint, outfit) as if they'd changed it at the Sewing Table (host). */
+  debugLook(contestant: number, look: Partial<Look>) {
+    const c = this.roster[contestant]
+    if (!c || this.role === 'client') return false
+    this.applyLook(c, { name: c.name, kind: c.kind, tint: c.tint, outfit: c.outfit, ...look })
+    return true
+  }
+
   /** Tests: the toy object (for poking at physics). */
   debugToy(i: number) {
     return this.round?.toys[i] ?? null
@@ -2597,13 +2680,15 @@ function disposeTree(root: THREE.Object3D, assets: PlushAssets) {
     })
   for (const p of Object.values(assets.props)) if (p) collect(p)
   for (const t of Object.values(assets.toys)) if (t) collect(t.scene)
+  for (const c of Object.values(assets.cosmetics ?? {})) if (c) collect(c)
+  // Anything marked userData.keep (shared cosmetic pieces, cached level materials) survives too.
   root.traverse((x) => {
     const m = x as THREE.Mesh
     if (!m.isMesh && !(x as THREE.Sprite).isSprite && !(x as THREE.Points).isPoints) return
-    if (m.geometry && !keepGeo.has(m.geometry)) m.geometry.dispose()
+    if (m.geometry && !keepGeo.has(m.geometry) && !m.geometry.userData.keep) m.geometry.dispose()
     const mats = Array.isArray(m.material) ? m.material : [m.material]
     for (const mt of mats) {
-      if (!mt || keepMat.has(mt)) continue
+      if (!mt || keepMat.has(mt) || mt.userData.keep) continue
       const map = (mt as THREE.MeshStandardMaterial).map
       if (map && !keepTex.has(map) && !keepTex.has(map.source as unknown as THREE.Texture)) map.dispose()
       mt.dispose()

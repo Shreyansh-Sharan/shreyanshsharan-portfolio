@@ -2,7 +2,7 @@
 // shared moves — run, jump, dive, grab, shove — plus stuns, tumbles and the sabotage bookkeeping.
 import * as THREE from 'three'
 import { G, RAPIER, TOY_GROUPS, groups, type Collider, type Phys, type RigidBody } from './physics'
-import type { AnimKey, ToyRig } from './rig'
+import type { AnimKey, EmoteKey, ToyRig } from './rig'
 import type { Contestant } from './types'
 
 /** Capsule: segment half-height and radius. The body origin is the capsule centre, 0.5 m above the feet. */
@@ -51,7 +51,7 @@ export interface Pad {
   px: number
   pz: number
   down: boolean
-  emote: '' | 'wave' | 'dance' | 'stomp'
+  emote: '' | EmoteKey
 }
 
 export function emptyPad(): Pad {
@@ -119,8 +119,13 @@ export class Toy {
   escape = 0
   grabT = 0
   grabCd = 0
-  emote: '' | 'wave' | 'dance' | 'stomp' = ''
+  emote: '' | EmoteKey = ''
   emoteT = 0
+  /**
+   * A level can ask for a pose (e.g. 'hang' while swinging from a vine, 'push' while bowling). It wins over
+   * everything but being held. Set it on every screen (from visual()), since each screen picks its own toy's pose.
+   */
+  animHint: AnimKey | '' = ''
   /** Ball mode: ball popped (thumbtack) for this long; also scales control. */
   popped = 0
   /** Top running speed (the level can change it). */
@@ -399,7 +404,7 @@ export class Toy {
     if (msp > 0.15) this.emote = ''
     if (control && p.emote) {
       this.emote = p.emote
-      this.emoteT = p.emote === 'dance' ? 8 : p.emote === 'wave' ? 3.2 : 1.4
+      this.emoteT = p.emote === 'dance' || p.emote === 'boogie' ? 8 : p.emote === 'wave' ? 3.2 : p.emote === 'spin' ? 1.5 : p.emote === 'flip' ? 1.1 : 1.4
     }
 
     // Shove: a short-range push in front.
@@ -568,6 +573,7 @@ export class Toy {
     if (this.animOverride) return this.animOverride
     if (this.pose) return this.pose
     if (this.grabbedBy) return 'held'
+    if (this.animHint) return this.animHint
     if (this.stun > 0.25 || this.flop > 0) return this.dive > 0 || this.flop > 0 ? 'dive' : 'knock'
     if (this.dive > 0 && this.mode === 'walk') return 'dive'
     if (this.holding) return 'grab'

@@ -14,7 +14,11 @@ plush/
   Forms.tsx          your toy (name, kind, tint) and Show settings
   levels/
     index.ts         the registry (LEVELS)
-    loft.ts          the hub (type 'hub')
+    loft.ts          the hub (type 'hub'): runs the four hidden games and the corners below
+    loft/            the Loft's parts: zones.ts (four corners), atmos.ts (god-rays, motes, string lights,
+                     notice board, Sewing Table podium and mirror), ambience.ts (zone sound), station.ts
+                     (queues), freeze.ts vine.ts bowling.ts claw.ts (hidden games), records.ts (high scores),
+                     kit.ts (batching, cached canvas textures), layout.ts (where things stand), ui.ts
     cookie-cutter.ts logic: trace a biscuit (free pointer, seated toys, lots of tricks)
     music-box.ts     survival: move while the music plays (synced phases, WebAudio, a key pickup)
     top-sumo.ts      survival: ride balls on a shrinking stool (ball mode, custom hazard, shrinking floor)
@@ -44,6 +48,12 @@ plush/
     bots.ts          bot steering helpers
     camera.ts        chase / overhead / fixed camera rig with collision and shake
     input.ts audio.ts fx.ts rng.ts net.ts assets.ts
+  wardrobe/
+    catalog.ts       the Sewing Table's items: ten slots, rarities, prices, unlocks (pure data)
+    fit.ts           measures each toy kind's head, face, back, hands and feet from its skinned mesh
+    dress.ts         builds and attaches an outfit (model cosmetics + primitives), fabric patterns, trails
+    store.ts         what this browser owns and has earned
+    Wardrobe.tsx     the Sewing Table drawer (try on, buy, wear)
 ```
 
 ## Adding a level in five steps
@@ -391,7 +401,71 @@ off() // remove it again
 
 The slots are `head`, `face`, `back`, `chest`, `hips`, `handR`, `handL`, `footR` and `footL`, or you can pass any
 bone name. Sizes are in metres at toy scale: the rig's 0.01 armature scale is cancelled for you. The crown
-on the Show winner uses this. The Sewing Table will build on it.
+on the Show winner uses this, and so does the Sewing Table (below).
+
+The rig also offers, for cosmetics: `rig.settle()` (pose the idle's first frame; fit and attach in that pose),
+`rig.animators` (per-frame hooks: a spinning propeller, a turning key), `rig.cosmetics` / `rig.takeOff(slot)`
+(the crown takes a hat off), `rig.trail` (a flair trail the engine draws behind a running toy),
+`rig.setFabric(pattern, colour)` (a pattern over the knit: `FABRICS` in rig.ts) and `rig.model`.
+Geometries and materials marked `userData.keep = true` survive rig disposal and round teardown, so shared
+cosmetic pieces can be cached.
+
+## The Sewing Table (wardrobe)
+
+Ten trait slots: **fabric, colour, eyes, mouth, hat, face, back, hand, feet, flair**. `wardrobe/catalog.ts`
+lists every item with its slot, rarity (**Common, Stitched, Embroidered, Golden Thread**) and how you get it:
+free, bought with buttons, Button Claw only, or a challenge (a test over your saved stats and Loft records).
+An outfit is `{ [slot]: itemId }`; it is part of `Look`, `Contestant` and `RosterRow` (all optional, so older
+peers still talk to newer ones) and saved in the profile with `owned`. Bots get random outfits.
+
+`dress.ts` builds each piece. Four are real models (`public/plush/cosmetics/`: wizard hat, propeller beanie
+with its propeller split off so it spins, pipe-cleaner glasses turned from +x to face +z, paper wings turned
+to span x) plus the crown prop; the rest are primitives merged into one vertex-coloured mesh per piece, with
+small canvas textures. Placement never uses hand offsets: `fit.ts` measures each toy kind once from its
+skinned vertices in the idle pose (the head's dome ignoring ears, tufts and spikes, the face surface as a grid,
+the back profile, hand and foot centres), with a small per-kind table for where the stitched eyes and mouth
+are. To add an item: add it to `ITEMS`, then a `case` in the slot's builder in `dress.ts`.
+
+On screen: stepping on the tape-measure podium opens the drawer; the toy turns on the podium and the camera
+frames it (`loftUi.wardrobe`); trying something on changes your look for everyone until you close the drawer.
+Unlocked emotes (Twirl, Backflip, Disco Fever) join the Loft's number keys.
+
+## The Loft and its hidden games
+
+The Loft (`levels/loft.ts`) is one hub round. Its four corners each hide a game that runs inside that round
+rather than as a level, so the room keeps going around it: other players watch, and queue with R (Act).
+
+| Corner | Game | Rules |
+| --- | --- | --- |
+| Disco Closet | Freeze Dance (`loft/freeze.ts`) | Anyone on the light-up floor plays. Dance while the music plays, stop dead when it cuts; still moving after a short grace and you're booped off. Clean stops build a combo, the tempo creeps up, 20 in a row unlocks Disco Fever. Bots join in. |
+| Houseplant Jungle | Vine Swing (`loft/vine.ts`) | One player. A pendulum on each vine; Space lets go, Space again grabs the next fresh leaf. Leaves wilt after you leave them. Metres in 60 s; a miss drops you into the planter. |
+| Bathtub Beach | Bath Bomb Bowling (`loft/bowling.ts`) | One player. Slide to aim, Space at full power, steer the spin while it rolls. Ten frames, real scoring, Rapier pins; strikes and spares send bubbles floating across the Loft. |
+| Cardboard Arcade | Button Claw (`loft/claw.ts`) | One player. Steer for 15 s, drop, hope it holds to the chute. A capsule wins a random cosmetic once a day (decided on the winner's own screen); later goes are practice. |
+
+Each game implements `LoftActivity` (`loft/station.ts`): `build`, `init`, `tick` (host), `visual` (every
+screen), `pack`/`unpack`, `hud`, and optionally `camera`, `onEvent` and `bot`. The Loft packs all four into
+its snapshot. A finished game (or a new Freeze Dance combo) emits a `score` event: every screen records it
+on its local board (`loft/records.ts`, localStorage `pp-loft`), and the player's own screen signals the page
+(`loft-score:<game>:<score>:<fin>`, `loft-claw:<seed>`), which pays buttons and grants prizes and challenge
+unlocks. The notice board on the back wall shows your stats (shows, crowns, Biggest Menace awards) and the
+top scores this browser has seen.
+
+Zone ambience (`loft/ambience.ts`) is WebAudio mixed by camera distance: the disco groove (which is Freeze
+Dance's music and cuts out on the freeze), jungle birds and a trickle, bathwater waves and squeaks, arcade
+chiptune. Levels get the audio context through `ctx.sound`.
+
+### Engine changes for the Loft and the wardrobe (all backward compatible)
+
+- `ANIMS` gained `spin`, `flip`, `boogie` and `hang` at the end (snapshot indices of the old ones are
+  unchanged); `EMOTES` lists the emote keys; `Pad.emote` takes any of them.
+- `toy.animHint`: a level-chosen pose that wins over everything except being held (set it from `visual()`).
+- `ctx.sound` (WebAudio context and bus for level-made sound).
+- Looks change in place: `setLook` and `pp-look` re-dress the toy (`restyle`) and send `pp-roster`, instead
+  of rebuilding the whole Loft. Clients re-dress toys whose look changed when a roster arrives.
+- `game.setEmotes(list)` sets the Loft's number keys; `game.onReward` (preferred over `onEarn`) hands the page
+  a Show's reward so it can merge into its current profile (`ProfilePatch` can be a function).
+- `game.debugLook(contestant, look)` for tests.
+
 
 ## Worked example: Robo-Vac Sweep
 
