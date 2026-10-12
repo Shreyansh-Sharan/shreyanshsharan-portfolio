@@ -3,8 +3,8 @@
 // screens, and touch controls. Name tags and floating text are drawn by the engine directly (no React churn).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowLeftRight, ChevronLeft, ChevronRight, Cookie, Copy, Crown, Feather, Hand, Heart, HeartCrack, Key, LogOut, Magnet, Milk, PawPrint, Pin, Settings2,
-  Shield, Shirt, Skull, Sparkles, Star, Swords, Zap,
+  ArrowLeftRight, ChevronLeft, ChevronRight, CircleDot, Cookie, Copy, Crosshair, Crown, Droplet, Fan, Feather, Frame, Gamepad2, Hand, Heart, HeartCrack, Key,
+  LogOut, Magnet, Milk, PawPrint, Pin, Puzzle, Settings2, Shield, Shirt, Skull, Sparkles, Star, Swords, Weight, Wind, Zap,
 } from 'lucide-react'
 import type { Game, Hud } from './engine/game'
 import type { PlushAssets } from './engine/assets'
@@ -20,6 +20,7 @@ import { Wardrobe } from './wardrobe/Wardrobe'
 
 const ICONS: Record<TrickIcon, typeof Cookie> = {
   crumb: Cookie, slam: Hand, milk: Milk, paw: PawPrint, crack: Zap, swap: ArrowLeftRight, bubble: Shield, tickle: Feather, key: Key, tack: Pin, magnet: Magnet, zap: Zap, star: Star,
+  drop: Droplet, fan: Fan, puzzle: Puzzle, target: Crosshair, ball: CircleDot, wind: Wind, remote: Gamepad2, weight: Weight, frame: Frame,
 }
 
 const AWARD_ICONS = { crown: Crown, menace: Skull, betrayed: HeartCrack, revenge: Swords, saint: Heart }

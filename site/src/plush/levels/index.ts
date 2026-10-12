@@ -23,6 +23,13 @@ import duckRapids from './duck-rapids'
 import pinball from './pinball'
 import conveyor from './conveyor'
 import hamster from './hamster'
+import roboVac from './robo-vac'
+import hotGlue from './hot-glue'
+import jigsaw from './jigsaw'
+import pictureFrame from './picture-frame'
+import laserPointer from './laser-pointer'
+import ceilingFan from './ceiling-fan'
+import marbleRun from './marble-run'
 import toyBoxTrail from '../board/trail'
 
 export const LEVELS: AnyLevel[] = [
@@ -48,6 +55,13 @@ export const LEVELS: AnyLevel[] = [
   pinball,
   conveyor,
   hamster,
+  roboVac,
+  hotGlue,
+  jigsaw,
+  pictureFrame,
+  laserPointer,
+  ceilingFan,
+  marbleRun,
 ]
 
 /** Game modes that run as one long round of their own (not drawn by the Show or Quick Play). */

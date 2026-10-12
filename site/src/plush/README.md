@@ -34,7 +34,6 @@ plush/
     toy-pile.ts      final: climb a wobbling heap, hold the crown 10 s (a crown prop you can knock off)
     cushion-king.ts  final: last toy on a tipping, deflating sofa cushion over a pit of bricks
     merry-go-round.ts  final: ride a carousel, then huddle into rooms in groups of the number shown
-    robo-vac.example.ts  the worked example below (compiles, not registered)
     race-kit.ts      shared parts of the race pack (courses, checkpoints, bots, movers), see "The race pack"
     sock-drawer.ts bookshelf.ts train-set.ts duck-rapids.ts pinball.ts conveyor.ts hamster.ts  the race pack
   board/             Toy Box Trail, the board mode (see "Game modes and duels" below)
@@ -43,6 +42,14 @@ plush/
     items.ts         the bag of tricks and the surprise deck (pure data)
     view.ts          the visuals: canvas-painted cards, mirror pond, ladder, slide, cookie jar, foam dice
     TrailPanel.tsx   its HUD panel: turn, timer, dice, players, bag, choices, mini-map, turn log
+    robo-vac.ts      survival: the worked example below (vacuums, lint lures, grabbable bait)
+    hot-glue.ts      survival: spreading glue grid, melting islands, rolling pom-poms, rescue by grabbing
+    jigsaw.ts        survival: three stacked puzzles whose pieces drop (instanced pieces, layer fading)
+    picture-frame.ts survival: frames with holes sweep the hall (synced specs, kinematic colliders, own camera)
+    laser-pointer.ts survival: a dot, a cat paw and its shadow tell, curtains for cover (own camera)
+    ceiling-fan.ts   survival: ride a spinning, wobbling fan (carried toys, fling, cord bars to grab)
+    marble-run.ts    survival: a board that tilts with the crowd and pours marbles (synced dynamic props)
+    kit.ts           small shared helpers for those levels (materials, canvas textures, blob shadow, rings)
   engine/
     types.ts         THE LEVEL API: LevelDef, LevelCtx, TrickDef, Contestant, FxApi, LevelHud
     game.ts          the engine: renderer, rounds, Show flow, online sync, HUD state, test hooks
@@ -68,7 +75,8 @@ plush/
 
 ## Adding a level in five steps
 
-1. Copy `levels/robo-vac.example.ts` to `levels/<your-id>.ts` and rename it.
+1. Copy `levels/robo-vac.ts` to `levels/<your-id>.ts` and rename it (or start from the trimmed snippet in the
+   worked example below).
 2. Fill in `build` (colliders and visuals), `init` (state), `spawn`, `tick` (rules), `bot`, `pack`/`unpack`
    (what clients need) and `visual` (draw from state).
 3. Declare `tricks` (and maybe `throwables`, `canThrow`, `onThrow`).
@@ -235,7 +243,7 @@ streams a dynamic body to clients. `grabbable(body, mesh)` does the same, and to
 Effects: `fx` and `fxLocal`, each with `puff(pos, 'dust'|'stuff'|'spark'|'crumbs'|'milk', n)`, `confetti(pos)`,
 `shake(amount, toy?)`, `sfx(name, pos?, toy?)`, `say(text, color, secs, toy?)` (the big banner), `feed(text)`,
 `popup(toy, text, color)` and `hitStop(secs)`. Sound names: boop squeak pop crunch crack cheer whoosh thud
-ding coin buzz zap tick snip slam splash wind boing throw out go count fanfare squawk deflate. Pitched notes
+ding coin buzz zap tick snip slam splash wind boing throw out go count fanfare squawk deflate, plus suck sizzle meow rumble click (survival pack). Pitched notes
 are `note:<midi>` (a soft procedural piano), `note:<midi>:bell` or `note:<midi>:sour` (a wrong, detuned key):
 Piano Key Bridge plays a scale up the bridge with `ctx.fxLocal.sfx('note:64', pos)` from `onEvent`.
 
@@ -268,7 +276,8 @@ and `popped` toys lose grip.
 
 ```ts
 {
-  id: 'crumb', name: 'Crumb Flick', icon: 'crumb',
+  id: 'crumb', name: 'Crumb Flick', icon: 'crumb',   // icons: see TrickIcon in types.ts (crumb … star, drop, fan,
+                                                     // puzzle, target, ball, wind, remote, weight, frame)
   cost: 1, cooldown: 3, busy: 0.5,        // busy: seconds the user is tied up (Cookie Cutter: needle lifted)
   target: 'rival' | 'self' | 'none',
   range?: 6, minSpice?: 1, once?: true, blockable?: true,
@@ -518,8 +527,9 @@ chiptune. Levels get the audio context through `ctx.sound`.
 
 ## Worked example: Robo-Vac Sweep
 
-From the design catalogue: a robot vacuum hunts the rug, and getting sucked up puts you out. The full file is
-`levels/robo-vac.example.ts`, and it compiles and plays. These are the important parts:
+From the design catalogue: a robot vacuum hunts the rug, and getting sucked up puts you out. The finished level
+is `levels/robo-vac.ts` (registered and playable: three vacuums, turbo dashes, grabbable lint as bait, gallery
+crumbs as bait, a bumper hop reward). Below is its skeleton, trimmed down to the parts every level has:
 
 ```ts
 interface VacState {
@@ -600,6 +610,24 @@ changes), so a new race needs only its layout and gimmicks:
 - Look helpers: `rbox` (rounded boxes), `canvasTex`/`stripeTex`/`checkerTex`, `solid`, `ramp`, `trampoline`,
   `finishArch`, `pickupMesh`, `bake` (merges a multi-part prop into one vertex-coloured draw call) and `decor`
   (site models from `public/world`, `public/golf` and `public/sports`, loaded on demand; purely cosmetic).
+
+## Patterns from the survival pack
+
+- **Forces that must feel right online** (glue drag, a turning fan carrying toys, a tilting board, sticky tape):
+  put them in a custom hazard's `affect()` with `predict: true`, reading synced level state. The host runs it
+  for every toy and each client runs it for its own predicted toy, so nobody rubber-bands. Rules that eliminate
+  (the glue's set meter, a paw slam) stay in `tick()`.
+- **Moving a toy with the floor**: toys have frictionless capsules, so a moving platform doesn't carry them.
+  Displace them yourself in `affect()` (`toy.body.setTranslation(...)`), like the conveyor and Ceiling Fan.
+- **Geometry the camera should ignore** (puzzle layers above you, a frame sweeping past): give its colliders
+  `groups: PROP_GROUPS`. Toys still stand on it; the chase camera's collision ray passes through.
+- **Big synced lists** (300 puzzle pieces, a glue grid): pack them compactly (a hex bitmask or a digit string)
+  and only send what changes per tick in detail.
+- **Things that only exist on the host** (marbles, lint) are dynamic bodies registered with `syncProp` or
+  `grabbable`; park unused ones far below instead of creating bodies mid-round.
+- **A fixed view** (Picture Frame, Laser Pointer): `cameraUpdate` that sets `cam.yaw` (so the stick stays
+  camera-relative), places the camera and returns true; return false while spectating to keep the engine's
+  spectator camera.
 
 ## Testing hooks
 

@@ -81,6 +81,8 @@ export const THROW_KINDS: ThrowKind[] = ['crumb', 'paper', 'feather']
 /** Icons the HUD knows how to draw for tricks (lucide icons, mapped in the UI). */
 export type TrickIcon =
   | 'crumb' | 'slam' | 'milk' | 'paw' | 'crack' | 'swap' | 'bubble' | 'tickle' | 'key' | 'tack' | 'magnet' | 'zap' | 'star'
+  // Survival pack additions.
+  | 'drop' | 'fan' | 'puzzle' | 'target' | 'ball' | 'wind' | 'remote' | 'weight' | 'frame'
 
 /** One player in a Show, persistent across rounds (a Toy is their body in one round). */
 export interface Contestant {
@@ -225,8 +227,9 @@ export interface FxApi {
   shake(amount: number, toy?: Toy): void
   /**
    * Short procedural sound: 'boop', 'squeak', 'pop', 'crunch', 'cheer', 'whoosh', 'thud', 'ding', 'buzz', 'zap',
-   * 'tick', 'snip', 'slam', 'splash', 'crack', 'wind', 'boing', 'fanfare', 'squawk', 'deflate'. Pitched notes:
-   * 'note:<midi>' (a soft piano), 'note:<midi>:bell' or 'note:<midi>:sour' (a wrong, detuned key).
+   * 'tick', 'snip', 'slam', 'splash', 'crack', 'wind', 'boing', 'fanfare', 'squawk', 'deflate', 'suck', 'sizzle',
+   * 'meow', 'rumble', 'click'. Pitched notes: 'note:<midi>' (a soft piano), 'note:<midi>:bell' or 'note:<midi>:sour'
+   * (a wrong, detuned key).
    */
   sfx(name: string, pos?: THREE.Vector3Like, toy?: Toy): void
   /** Big centre banner; with `toy`, only on that toy's screen. */
