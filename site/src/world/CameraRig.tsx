@@ -70,9 +70,17 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       }
       const floor = heightAt(tmpPos.x, tmpPos.z) + 0.8
       if (tmpPos.y < floor) tmpPos.y = floor
-      const k = SNAP ? 1 : 1 - Math.exp(-dt * 10)
+      // Follow faster as flight speeds up so the camera keeps the player in frame (a slow follow fell
+      // so far behind at high speed that the player flew out of view and the screen went to fog/black).
+      const follow = 10 + player.fly * 16
+      const k = SNAP ? 1 : 1 - Math.exp(-dt * follow)
       s.target.lerp(tmpTarget, k)
       s.pos.lerp(tmpPos, k)
+      // Hard cap on how far the camera may lag its ideal spot, so it can never lose the player.
+      const maxLag = dist + 6
+      if (s.pos.distanceTo(tmpPos) > maxLag) {
+        s.pos.copy(tmpPos).add(s.pos.clone().sub(tmpPos).setLength(maxLag))
+      }
       camera.position.copy(s.pos)
       // Screen shake from hits and stomps (see combat.ts), decaying quickly.
       if (feel.shake > 0.001) {
