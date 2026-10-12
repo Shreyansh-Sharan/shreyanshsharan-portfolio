@@ -1,8 +1,13 @@
-# Cricket (Unity 6, WebGL)
+# Cricket (Unity 6, WebGL) — archived
 
-A realistic cricket game for the portfolio site, playable at `#/cricket`. The lobby page lives in
-`site/src/components/Cricket.tsx`, and the build goes to `site/public/games/cricket/`. See **REBUILD.md** to build it
-and **ASSETS.md** for the third-party assets and their licences.
+> **No longer used by the site.** The game at `#/cricket` is now an in-browser three.js rebuild in
+> `site/src/cricket/` (see `site/src/cricket/README.md`). Its simulation is a TypeScript port of this project's
+> `Assets/Cricket/Scripts/Sim` (same calibration, checked by `npm run test:cricket` in `site/`), and its character is
+> converted from this project's `Cricketer.glb`. This Unity project is kept for reference only; nothing here is built or
+> loaded by the site any more.
+
+A realistic cricket game for the portfolio site. The build used to go to `site/public/games/cricket/`. See
+**REBUILD.md** to build it and **ASSETS.md** for the third-party assets and their licences.
 
 ## Modes
 

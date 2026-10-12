@@ -535,7 +535,7 @@ export const tiles: Tile[] = [
     tab: 'extras',
     title: 'Dunes Arena',
     tagline: 'Multiplayer FPS',
-    org: 'Built in Unity 6 · Netcode for GameObjects',
+    org: 'three.js · Ball physics · Online 1v1',
     period: 'Play now',
     genre: 'Shooter',
     blurb:
@@ -551,11 +551,11 @@ export const tiles: Tile[] = [
     tab: 'extras',
     title: 'Cricket',
     tagline: 'Realistic Cricket',
-    org: 'Built in Unity 6 · Netcode for GameObjects',
+    org: 'three.js · Ball physics · Online 1v1',
     period: 'Play now',
     genre: 'Sports',
     blurb:
-      'T20, T10, ODI or a Super Over between fictional sides. Swing, seam and spin off green, flat or dusty pitches, timing-based batting with footwork, a landing marker and release meter for bowling, diving AI fielders, DRS ball-tracking and a broadcast scorebug. Play the CPU or a friend online.',
+      'T20, T10, a 5-over Blitz or a Super Over between fictional sides, from the classic broadcast view behind the bowler. Hold a direction and time your shot off the front or back foot; place a marker and hit the green on the run-up meter. Swing, seam and spin off green, flat or dusty pitches, diving fielders, run outs, DRS ball-tracking and replays. Play the CPU or a friend online.',
     icon: CircleDot,
     accent: ['#14532d', '#86efac'],
     action: { kind: 'route', to: '#/cricket', label: 'Play' },

@@ -13,7 +13,6 @@ import { Profile } from './components/Profile'
 import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
-import { Cricket } from './components/Cricket'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
 import { CanvasErrorBoundary } from './world/CanvasErrorBoundary'
@@ -23,6 +22,7 @@ import type { SceneMode } from './world/WorldCanvas'
 const WorldCanvas = lazy(() => import('./world/WorldCanvas'))
 const Racer = lazy(() => import('./racer/Racer').then((m) => ({ default: m.Racer })))
 const Golf = lazy(() => import('./golf/Golf').then((m) => ({ default: m.Golf })))
+const Cricket = lazy(() => import('./components/Cricket').then((m) => ({ default: m.Cricket })))
 const Sports = lazy(() => import('./sports/Sports').then((m) => ({ default: m.Sports })))
 const PlayHud = lazy(() => import('./world/PlayHud').then((m) => ({ default: m.PlayHud })))
 
@@ -145,7 +145,11 @@ export default function App() {
       screen = <Arena key={route.join ?? ''} join={route.join} onAccent={setAccent} />
       break
     case 'cricket':
-      screen = <Cricket key={route.join ?? ''} join={route.join} onAccent={setAccent} />
+      screen = (
+        <Suspense fallback={null}>
+          <Cricket key={(route.join ?? '') + (route.auto ? '-auto' : '')} join={route.join} auto={route.auto} onAccent={setAccent} />
+        </Suspense>
+      )
       break
     case 'racer':
       screen = (

@@ -230,6 +230,9 @@ export class Director {
   replayHook: ((kind: 'wicket' | 'six' | 'runout') => boolean) | null = null
   replayDone = false
   version = 0
+  /** Test hooks: the next CPU delivery and CPU shot (consumed when used). */
+  forceDelivery: { type: DeliveryType; off: number; len: number; error?: number } | null = null
+  forceShot: { type: ShotType; aim: number; loft?: boolean; feet?: Footwork; timing?: number } | null = null
 
   // Delivery internals
   plan: DeliveryPlan = { type: 'seam', style: 'fast', leftArm: false, around: false, target: new V3(), speedKmh: 0, releaseError: NaN, noBall: false }
@@ -301,7 +304,7 @@ export class Director {
   reviewWindowOpen = false
   private reviewDone = false
   reviewSide = 0
-  private reviewDeadline = 0
+  reviewDeadline = 0
   deliveryTrail: V3[] = []
   private projectedPath: V3[] = []
   /** A close run out goes to the third umpire. */
@@ -749,6 +752,12 @@ export class Director {
       this.aiReadyAt = this.ballId + 1
       if (!this.humanBowls) {
         const c = AI.chooseDelivery(this, this.rng)
+        const fd = this.forceDelivery
+        if (fd) {
+          c.type = fd.type
+          c.target = this.frame.local(fd.off, fd.len)
+          c.around = false
+        }
         this.selectedDelivery = c.type
         this.marker = c.target
         if (c.around !== this.around) {
@@ -827,6 +836,10 @@ export class Director {
     const bowler = this.fieldingTeam.players[inn.bowler]
     const spec = DELIVERIES[this.plan.type]
     if (Number.isNaN(this.plan.releaseError)) this.plan.releaseError = this.humanBowls ? 1.3 : AI.releaseError(this, bowler, this.rng)
+    if (this.forceDelivery) {
+      this.plan.releaseError = this.forceDelivery.error ?? 0
+      this.forceDelivery = null
+    }
     this.meterRunning = false
     this.hasLastMarker = true
     this.lastMarkerOff = this.frame.offsetOff(this.plan.target)
@@ -866,6 +879,12 @@ export class Director {
   contactPlaneFwd(feet: Footwork) {
     const fwd = feet === 'front' ? 0.62 : feet === 'charge' ? 1.9 + 0.6 : 0.05
     return Geo.CreaseDepth + fwd
+  }
+
+  /** Online guest: predict the delivery it was sent (for timing its own shots). */
+  mirrorPredict() {
+    this.released = true
+    this.predictForBatter()
   }
 
   private predictForBatter() {
@@ -1669,10 +1688,13 @@ export class Director {
 
   /** Earliest point on the predicted path this fielder can reach in time (a catch before the first bounce, or a stop). */
   private intercept(a: Actor, reaction: number, firstBounce: number): { index: number; catchable: boolean; dive: boolean } | null {
+    let diveAt: { index: number; catchable: boolean; dive: boolean } | null = null
     for (let i = 1; i < this.path.length; i++) {
       const p = this.path[i]
-      if (beyondRope(p, 0.8) > 0) return null
+      if (beyondRope(p, 0.8) > 0) return diveAt
       const t = i * PATH_STEP
+      // A dive is the last resort: if he can get there on his feet a little later, he runs instead.
+      if (diveAt && t > diveAt.index * PATH_STEP + 0.5) return diveAt
       const air = i < firstBounce
       const h = p.y
       const catchHeight = air && h > 0.15 && h < 2.6
@@ -1684,9 +1706,11 @@ export class Director {
       let tRun = reaction + a.timeTo(flat.add(a.pos.sub(flat).flat().norm().mul(reach)))
       if (dist < reach) tRun = reaction * 0.5
       if (tRun <= t) return { index: i, catchable: catchHeight, dive: false }
-      if (dist > reach && tRun - 1.8 / a.maxSpeed - 0.15 <= t && t < 1.6 && (catchHeight || h < 0.6)) return { index: i, catchable: catchHeight, dive: true }
+      // A full-length dive buys a couple of metres, but only for a ball that's close and still quick.
+      const speed = this.path[i].dist(this.path[i - 1]) / PATH_STEP
+      if (!diveAt && speed > 7 && dist > reach && dist < 6 && tRun - 1.5 / a.maxSpeed - 0.12 <= t && t < 1.3 && (catchHeight || h < 0.6)) diveAt = { index: i, catchable: catchHeight, dive: true }
     }
-    return null
+    return diveAt
   }
 
   private updateLive(dt: number) {
@@ -1823,6 +1847,12 @@ export class Director {
       }
       if (this.liveTime < p.reaction) {
         a.face(this.ball.pos, dt)
+        continue
+      }
+      // Let a throw or a pick-up finish before running on.
+      if ((a.pose === 'throw' && a.poseTime < 0.55) || (a.pose === 'catch' && a.poseTime < 0.4 && !a.hasBall)) {
+        a.vel = moveTowardsV(a.vel, new V3(), 14 * dt)
+        a.pos.addScaledIn(a.vel, dt)
         continue
       }
       switch (p.job) {

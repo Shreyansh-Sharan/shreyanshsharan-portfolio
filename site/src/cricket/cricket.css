@@ -1,0 +1,839 @@
+/* Cricket: broadcast HUD, panels, scorecard. Loaded with the game chunk. */
+
+.ck-stage {
+  background: #0b1220;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.ck-stage .cricket-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ck-loading {
+  color: #86efac;
+}
+
+/* Scorebug (bottom left, broadcast style) */
+.ck-bug {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  min-width: 360px;
+  max-width: min(560px, calc(100vw - 36px));
+  color: #f8fafc;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+  background: rgba(8, 12, 24, 0.86);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-bug-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px;
+  background: linear-gradient(90deg, var(--ck-team, #1d4ed8), rgba(8, 12, 24, 0.2) 70%);
+}
+
+.ck-bug-team {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 18px;
+}
+
+.ck-bug-score {
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.ck-bug-overs {
+  font-size: 18px;
+  opacity: 0.9;
+}
+
+.ck-bug-overs small {
+  opacity: 0.6;
+  font-size: 12px;
+}
+
+.ck-bug-rr {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.ck-bug-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ck-bug-row small {
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.ck-bug-bat {
+  opacity: 0.75;
+}
+
+.ck-bug-bat.is-on {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.ck-bug-bowl {
+  margin-left: auto;
+  padding-left: 10px;
+  border-left: 3px solid var(--ck-team, #b91c1c);
+}
+
+.ck-bug-sub {
+  font-size: 12px;
+  gap: 10px;
+}
+
+.ck-over {
+  display: flex;
+  gap: 4px;
+}
+
+.ck-ball {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ck-ball-dot {
+  opacity: 0.6;
+}
+
+.ck-ball-four {
+  background: #ca8a04;
+}
+
+.ck-ball-six {
+  background: #a21caf;
+}
+
+.ck-ball-w {
+  background: #dc2626;
+}
+
+.ck-need {
+  color: #fde68a;
+  font-weight: 600;
+}
+
+.ck-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.ck-chip-hot {
+  background: #dc2626;
+}
+
+/* Top bar */
+.ck-topbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 70vw;
+}
+
+.ck-quality {
+  display: flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 12, 24, 0.6);
+}
+
+.ck-qbtn {
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ck-qbtn.is-on {
+  background: rgba(134, 239, 172, 0.25);
+  color: #fff;
+}
+
+/* Commentary ticker */
+.ck-comm {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  max-width: min(560px, 55vw);
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.ck-comm p {
+  margin: 0 0 4px;
+}
+
+.ck-comm-now {
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 600;
+  background: rgba(8, 12, 24, 0.55);
+  padding: 6px 10px;
+  border-left: 3px solid #86efac;
+  border-radius: 4px;
+}
+
+.ck-comm-old {
+  color: rgba(248, 250, 252, 0.6);
+  font-size: 12px;
+  padding-left: 13px;
+}
+
+/* Banners and pop-ups */
+.ck-banner {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(36px, 8vw, 96px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: ck-pop-in 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+  white-space: nowrap;
+}
+
+.ck-banner-four {
+  color: #fde047;
+}
+
+.ck-banner-six {
+  color: #f0abfc;
+}
+
+.ck-banner-out {
+  color: #f87171;
+}
+
+.ck-banner-info {
+  font-size: clamp(20px, 3.4vw, 40px);
+}
+
+.ck-pop {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(8, 12, 24, 0.6);
+  pointer-events: none;
+  animation: ck-rise 1.6s ease-out forwards;
+}
+
+.ck-pop-bathit {
+  color: #86efac;
+}
+
+.ck-pop-edge,
+.ck-pop-beaten {
+  color: #fca5a5;
+}
+
+.ck-pop-appeal {
+  color: #fde047;
+  font-size: 30px;
+}
+
+@keyframes ck-pop-in {
+  from {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ck-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+}
+
+/* Batting HUD */
+.ck-bat,
+.ck-bowl {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.ck-compass {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(8, 12, 24, 0.72);
+}
+
+.ck-cell {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ck-cell-mid {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ck-cell.is-on {
+  background: #86efac;
+  box-shadow: 0 0 10px #86efac;
+}
+
+.ck-compass-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.ck-bat-info {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(8, 12, 24, 0.72);
+  min-width: 170px;
+}
+
+.ck-confidence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ck-meter-bar {
+  display: inline-block;
+  position: relative;
+  width: 110px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.ck-meter-bar > * {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #22c55e);
+}
+
+.ck-timing {
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.ck-timing-perfect {
+  color: #4ade80;
+}
+
+.ck-timing-early,
+.ck-timing-late {
+  color: #fde047;
+}
+
+.ck-timing-very {
+  color: #f87171;
+}
+
+.ck-keys {
+  display: flex;
+  gap: 6px;
+}
+
+.ck-keys button,
+.ck-dl {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 12, 24, 0.72);
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ck-keys button:hover,
+.ck-dl:hover {
+  border-color: #86efac;
+}
+
+/* Bowling HUD */
+.ck-bowl {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ck-deliveries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 560px;
+}
+
+.ck-dl.is-on {
+  background: #166534;
+  border-color: #86efac;
+}
+
+.ck-bowl-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ck-stamina {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.ck-power {
+  position: relative;
+  width: 360px;
+  height: 18px;
+  border-radius: 9px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2));
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+
+.ck-power-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(34, 197, 94, 0.75);
+}
+
+.ck-power-over {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: rgba(220, 38, 38, 0.6);
+}
+
+.ck-power-needle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 4px;
+  margin-left: -2px;
+  background: #fff;
+  box-shadow: 0 0 6px #fff;
+}
+
+.ck-hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.ck-stage kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Panels */
+.ck-panel {
+  position: absolute;
+  color: #f8fafc;
+  background: rgba(8, 12, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.8);
+}
+
+.ck-center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  text-align: center;
+}
+
+.ck-panel h3 {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+
+.ck-big {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+.ck-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+
+.ck-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.ck-list button {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.ck-list button:hover {
+  border-color: #86efac;
+}
+
+.ck-right {
+  margin-left: auto;
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+.ck-review-prompt {
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.ck-replay-tag {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  background: #b91c1c;
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+.ck-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 6, 14, 0.55);
+}
+
+.ck-overlay .ck-panel {
+  position: relative;
+  transform: none;
+  left: auto;
+  top: auto;
+}
+
+/* DRS */
+.ck-drs {
+  position: absolute;
+  right: 18px;
+  top: 70px;
+  width: 280px;
+  color: #f8fafc;
+  background: rgba(8, 12, 24, 0.88);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ck-drs-head {
+  padding: 8px 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ck-drs-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.4;
+  transition: opacity 0.3s;
+}
+
+.ck-drs-row.is-on {
+  opacity: 1;
+}
+
+.ck-zone-inline,
+.ck-zone-missing {
+  color: #4ade80;
+}
+
+.ck-zone-hitting,
+.ck-zone-outside,
+.ck-zone-outsideleg {
+  color: #f87171;
+}
+
+.ck-zone-umpirescall,
+.ck-zone-outsideoff {
+  color: #fbbf24;
+}
+
+.ck-verdict {
+  padding: 10px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.ck-verdict.is-out {
+  background: #b91c1c;
+}
+
+.ck-verdict.is-notout {
+  background: #15803d;
+}
+
+.ck-edge {
+  padding: 8px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+/* Scorecard */
+.ck-card {
+  width: min(760px, calc(100vw - 32px));
+  color: #f8fafc;
+  background: rgba(8, 12, 24, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+  margin: 12px auto;
+}
+
+.ck-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ck-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ck-tab {
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ck-tab.is-on {
+  background: #166534;
+  color: #fff;
+}
+
+.ck-card-body {
+  padding: 10px 14px 14px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.ck-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-table th,
+.ck-table td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ck-table th:first-child,
+.ck-table td:first-child,
+.ck-table td:nth-child(2) {
+  text-align: left;
+}
+
+.ck-table .is-in td:first-child {
+  color: #86efac;
+}
+
+.ck-total td {
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ck-fow {
+  font-size: 12px;
+  margin: 4px 0 12px;
+}
+
+.ck-wagon {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ck-legend {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.ck-break .ck-card {
+  margin: 12px 0;
+}
+
+.ck-help {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  font-size: 13px;
+  max-width: 640px;
+}
+
+.ck-help h4 {
+  margin: 8px 0 2px;
+}
+
+.ck-help p {
+  margin: 0;
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .ck-bug {
+    min-width: 0;
+    left: 8px;
+    bottom: 8px;
+  }
+  .ck-bat,
+  .ck-bowl {
+    right: 8px;
+    bottom: 150px;
+  }
+  .ck-comm {
+    display: none;
+  }
+  .ck-power {
+    width: 240px;
+  }
+}

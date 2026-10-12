@@ -102,6 +102,16 @@ function findGap(d: Director, min: number, max: number, loft: boolean, preferred
 
 /** Decides the CPU batter's shot as the ball is released and queues it for the right moment. */
 export function decideShot(d: Director, rng: Rng) {
+  const fs = d.forceShot
+  if (fs) {
+    d.forceShot = null
+    const input: ShotInput = { type: fs.type, feet: fs.feet ?? 'auto', aim: fs.aim, loft: !!fs.loft, played: true, timingError: fs.timing ?? 0, power: 0 }
+    const lead = shotSpec(input.type === 'leave' ? 'defend' : input.type).lead
+    let tc = d.crossTime(input.feet)
+    if (tc < 0) tc = d.crossTime('auto')
+    d.queueAiShot(input, Math.max(0.05, tc - lead + input.timingError))
+    return
+  }
   const inn = d.state.current
   const batter = d.battingTeam.players[inn.striker]
   const skill = bat01(batter)
@@ -146,7 +156,7 @@ export function decideShot(d: Director, rng: Rng) {
   }
   if (input.feet !== 'charge' && rng.chance(0.08 * (1.2 - skill))) input.feet = input.feet === 'front' ? 'back' : 'front'
 
-  let sigma = (diff === 0 ? 0.055 : diff === 2 ? 0.03 : 0.042) * (1.35 - 0.55 * skill)
+  let sigma = (diff === 0 ? 0.062 : diff === 2 ? 0.038 : 0.05) * (1.35 - 0.55 * skill)
   const pace = d.plan.speedKmh / 3.6
   sigma *= Math.sqrt(Math.max(0.6, pace / 30))
   input.timingError = input.type === 'leave' ? 0 : rng.gauss() * sigma

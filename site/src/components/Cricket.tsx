@@ -1,55 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CircleDot, Copy, Expand, LogOut, Users } from 'lucide-react'
+// Cricket lobby: quick match against the CPU, host or join an online 1v1, the team builder, and the match itself
+// (an in-site three.js game, loaded on demand).
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, CircleDot, Copy, Globe, LogIn, Users, Wrench } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
 import { AdSlot } from './AdSlot'
 import { GearShelf } from './GearShelf'
-import { useGameAds } from '../lib/ads'
+import { FORMATS, type MatchFormat, type MatchSetup } from '../cricket/sim/match'
+import { allTeams, cloneTeam, findTeam, type Team } from '../cricket/sim/teams'
+import type { PitchType, TimeOfDay } from '../cricket/sim/conditions'
+import { savedQuality, saveQuality, detectQuality, type QualityTier } from '../cricket/quality'
+import { TeamBuilder } from '../cricket/ui/TeamBuilder'
+import type { CricketNet } from '../cricket/net'
+
+const CricketStage = lazy(() => import('../cricket/ui/CricketStage'))
 
 const accent = tiles.find((t) => t.id === 'cricket')?.accent ?? (['#14532d', '#86efac'] as [string, string])
-const GAME_URL = 'games/cricket/index.html'
 
 type Mode = 'quick' | 'host' | 'join'
+type Stage = 'menu' | 'builder' | 'lobby' | 'play'
 
-const FORMATS = [
-  { id: 't20', label: 'T20', blurb: '20 overs a side, powerplay for the first 6. The default.' },
-  { id: 't10', label: 'T10', blurb: 'A quick 10-over thrash.' },
-  { id: 'odi', label: 'ODI', blurb: '50 overs a side: the long game, ball age and reverse swing.' },
-  { id: 'super', label: 'Super Over', blurb: 'One over each, two wickets: the tie-breaker on its own.' },
-] as const
-
-// Fictional sides that ship with the game ('mine' uses the team saved in the in-game team builder).
-const TEAMS = [
-  { id: 'mine', label: 'My team (team builder)' },
-  { id: 'northland', label: 'Northland' },
-  { id: 'southern-isles', label: 'Southern Isles' },
-  { id: 'eastvale', label: 'Eastvale' },
-  { id: 'westmark', label: 'Westmark' },
-  { id: 'coral-coast', label: 'Coral Coast' },
-  { id: 'red-mesa', label: 'Red Mesa' },
-  { id: 'highland-union', label: 'Highland Union' },
-  { id: 'sunfield', label: 'Sunfield' },
-] as const
-
-const PITCHES = [
+const PITCHES: { id: PitchType; label: string }[] = [
   { id: 'green', label: 'Green seamer' },
   { id: 'flat', label: 'Flat road' },
   { id: 'dusty', label: 'Dry turner' },
-] as const
-
-const TIMES = [
+]
+const TIMES: { id: TimeOfDay; label: string }[] = [
   { id: 'day', label: 'Day' },
   { id: 'dusk', label: 'Dusk' },
   { id: 'night', label: 'Night' },
-] as const
-
-interface CricketMessage {
-  source: 'cricket'
-  type: 'ready' | 'loaded' | 'progress' | 'started' | 'code' | 'error' | 'left' | 'result' | 'adbreak' | 'rewarded'
-  payload?: string
-}
+]
 
 function stored(key: string, fallback: string) {
   try {
@@ -63,152 +45,141 @@ function store(key: string, value: string) {
   try {
     localStorage.setItem(key, value)
   } catch {
-    // Private mode: not remembered, that's fine.
+    // Private mode: not remembered.
   }
 }
 
-/** Preloading costs bandwidth: skip it on data-saver connections and small touch screens. */
-function shouldPreload() {
-  try {
-    const nav = navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
-    if (nav.connection?.saveData) return false
-    if (nav.connection?.effectiveType && /(^|-)2g$/.test(nav.connection.effectiveType)) return false
-    return !window.matchMedia('(pointer: coarse) and (max-width: 820px)').matches
-  } catch {
-    return true
-  }
+interface Play {
+  setup: MatchSetup
+  sideHuman: [boolean, boolean]
+  localSide: number
+  net: CricketNet | null
+  key: number
 }
 
-/**
- * Lobby for the Unity WebGL cricket game. The build preloads in a hidden iframe as soon as the page opens (with a
- * real progress bar from the Unity loader), so pressing Play just reveals it and posts the match settings in.
- */
-export function Cricket({ join, onAccent }: { join?: string; onAccent: (a: [string, string], emblem: string) => void }) {
+export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolean; onAccent: (a: [string, string], emblem: string) => void }) {
   useEffect(() => onAccent(accent, 'cricket'), [onAccent])
-
+  const q = new URLSearchParams(window.location.search)
+  const [stage, setStage] = useState<Stage>('menu')
   const [mode, setMode] = useState<Mode>(join ? 'join' : 'quick')
-  const [format, setFormat] = useState(() => stored('cricket-format', 't20'))
+  const [format, setFormat] = useState<MatchFormat>(() => (q.get('format') as MatchFormat) || (stored('cricket-format', 't20') as MatchFormat))
+  const [teams, setTeams] = useState<Team[]>(allTeams)
   const [team, setTeam] = useState(() => stored('cricket-team', 'northland'))
   const [opp, setOpp] = useState(() => stored('cricket-opp', 'eastvale'))
-  const [skill, setSkill] = useState(1)
-  const [pitch, setPitch] = useState('flat')
-  const [time, setTime] = useState('night')
-  const [manualField, setManualField] = useState(false)
+  const [skill, setSkill] = useState(() => Number(stored('cricket-diff', '1')))
+  const [pitch, setPitch] = useState<PitchType>(() => (q.get('pitch') as PitchType) || (stored('cricket-pitch', 'flat') as PitchType))
+  const [time, setTime] = useState<TimeOfDay>(() => (q.get('time') as TimeOfDay) || (stored('cricket-time', 'night') as TimeOfDay))
+  const [quality, setQuality] = useState<QualityTier | 'auto'>(savedQuality)
   const [code, setCode] = useState((join ?? '').toUpperCase())
-  const [available, setAvailable] = useState<boolean | null>(null)
-  const [frameSrc, setFrameSrc] = useState<string | null>(null)
-  const [progress, setProgress] = useState(0)
-  const [ready, setReady] = useState(false)
-  const [playing, setPlaying] = useState(false)
-  const [invite, setInvite] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [net, setNet] = useState<CricketNet | null>(null)
+  const [guestTeam, setGuestTeam] = useState<Team | null>(null)
   const [copied, setCopied] = useState(false)
-  const frame = useRef<HTMLIFrameElement>(null)
-  // The game asks for ad breaks between innings and matches, and for a rewarded ad (an extra review).
-  useGameAds(frame, 'cricket')
+  const [playing, setPlaying] = useState<Play | null>(null)
+  const netRef = useRef<CricketNet | null>(null)
+  netRef.current = net
 
-  useEffect(() => {
-    let cancelled = false
-    // Dev servers answer unknown .html paths with the site itself, so look for the Unity loader, not just a 200.
-    fetch(GAME_URL, { cache: 'no-store' })
-      .then(async (r) => {
-        const ok = r.ok && (await r.text()).includes('createUnityInstance')
-        if (cancelled) return
-        setAvailable(ok)
-        if (ok && shouldPreload()) setFrameSrc(`${GAME_URL}?mode=lobby`)
-      })
-      .catch(() => !cancelled && setAvailable(false))
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const teamOf = (id: string) => findTeam(id) ?? cloneTeam(teams[0])
 
-  const stop = useCallback(() => {
-    setPlaying(false)
-    setInvite(null)
-    // Reload the game into a fresh lobby so the next match starts clean (and online sessions are closed).
-    setReady(false)
-    setProgress(0)
-    setFrameSrc(available ? `${GAME_URL}?mode=lobby&t=${Date.now()}` : null)
-  }, [available])
+  const makeSetup = (a: Team, b: Team): MatchSetup => ({
+    format,
+    difficulty: skill as 0 | 1 | 2,
+    pitch,
+    time,
+    superOverOnTie: true,
+    seed: Number(q.get('seed')) || Math.floor(Math.random() * 1e9),
+    teams: [a, b],
+    online: false,
+  })
 
-  useEffect(() => {
-    const onMessage = (ev: MessageEvent) => {
-      if (!frame.current || ev.source !== frame.current.contentWindow) return
-      const msg = ev.data as CricketMessage
-      if (!msg || msg.source !== 'cricket') return
-      switch (msg.type) {
-        case 'progress':
-          setProgress(Math.max(0, Math.min(1, Number(msg.payload) || 0)))
-          break
-        case 'ready':
-          setProgress(1)
-          break
-        case 'loaded':
-          setReady(true)
-          break
-        case 'code':
-          setInvite(msg.payload ?? null)
-          break
-        case 'error':
-          setError(msg.payload || 'Something went wrong.')
-          break
-        case 'started':
-          setError(null)
-          break
-        case 'left':
-          stop()
-          break
-      }
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [stop])
-
-  // Pause the site's 3D scene while the game is on screen so the GPU is all the game's.
-  useEffect(() => {
-    if (!playing) return
-    window.dispatchEvent(new CustomEvent('arena-running', { detail: true }))
-    return () => {
-      window.dispatchEvent(new CustomEvent('arena-running', { detail: false }))
-    }
-  }, [playing])
-
-  const canStart = available === true && (mode !== 'join' || code.trim().length >= 4)
-
-  const query = () => {
-    const params = new URLSearchParams({
-      mode,
-      format,
-      team: team === 'mine' ? '' : team,
-      opp,
-      diff: String(skill),
-      pitch,
-      time,
-      field: manualField ? 'manual' : 'auto',
-    })
-    if (mode === 'join') params.set('code', code.trim().toUpperCase())
-    return params.toString()
-  }
-
-  const start = () => {
-    if (!canStart) return
+  const remember = () => {
     store('cricket-format', format)
     store('cricket-team', team)
     store('cricket-opp', opp)
-    play('select')
-    setError(null)
-    const q = query()
-    if (!frameSrc) setFrameSrc(`${GAME_URL}?${q}`)
-    else frame.current?.contentWindow?.postMessage({ type: 'start', query: q }, '*')
-    setPlaying(true)
-    window.setTimeout(() => frame.current?.focus(), 50)
+    store('cricket-diff', String(skill))
+    store('cricket-pitch', pitch)
+    store('cricket-time', time)
   }
 
-  const inviteLink = useMemo(() => {
-    if (!invite) return ''
-    return `${window.location.origin}${window.location.pathname}#/cricket?join=${encodeURIComponent(invite)}`
-  }, [invite])
+  const startQuick = () => {
+    remember()
+    play('select')
+    const a = teamOf(team)
+    let b = teamOf(opp)
+    if (b.id === a.id) b = cloneTeam(teams.find((t) => t.id !== a.id) ?? teams[1])
+    setPlaying({ setup: makeSetup(a, b), sideHuman: [true, false], localSide: 0, net: null, key: Date.now() })
+    setStage('play')
+  }
+
+  // `#/cricket?auto` starts a quick match straight away (tests and links).
+  useEffect(() => {
+    if (auto) startQuick()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto])
+
+  // Close the room when leaving the page.
+  useEffect(() => () => netRef.current?.link.close(), [])
+
+  async function openRoom() {
+    setError(null)
+    setBusy(true)
+    remember()
+    try {
+      const mod = await import('../cricket/net')
+      if (mode === 'host') {
+        const link = await mod.hostRoom()
+        const n: CricketNet = { link, role: 'host' }
+        setNet(n)
+        link.onMessage((m) => {
+          if (!mod.isCricketMsg(m)) return
+          if (m.t === 'c-hello') setGuestTeam(m.team)
+        })
+        link.onPeer((ev) => ev === 'leave' && setGuestTeam(null))
+      } else {
+        const link = await mod.joinRoom(code)
+        const n: CricketNet = { link, role: 'client' }
+        setNet(n)
+        link.onMessage((m) => {
+          if (!mod.isCricketMsg(m)) return
+          if (m.t === 'c-start') {
+            setPlaying({ setup: m.setup, sideHuman: [true, true], localSide: 1, net: n, key: Date.now() })
+            setStage('play')
+          }
+        })
+        link.onPeer((ev, id) => {
+          if (ev === 'leave' && id === 'host') {
+            setError('The host closed the room.')
+            setStage('menu')
+            setNet(null)
+          }
+        })
+        link.send({ t: 'c-hello', team: teamOf(team) })
+      }
+      setStage('lobby')
+    } catch (e) {
+      setError((e as Error).message || 'Could not connect.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startOnline = () => {
+    if (!net || !guestTeam) return
+    const setup = { ...makeSetup(teamOf(team), guestTeam), online: true }
+    net.link.send({ t: 'c-start', setup })
+    setPlaying({ setup, sideHuman: [true, true], localSide: 0, net, key: Date.now() })
+    setStage('play')
+  }
+
+  const leaveRoom = () => {
+    net?.link.close()
+    setNet(null)
+    setGuestTeam(null)
+    setStage('menu')
+  }
+
+  const inviteLink = useMemo(() => (net?.role === 'host' ? `${window.location.origin}${window.location.pathname}#/cricket?join=${encodeURIComponent(net.link.code)}` : ''), [net])
 
   const copy = async () => {
     try {
@@ -220,228 +191,267 @@ export function Cricket({ join, onAccent }: { join?: string; onAccent: (a: [stri
     }
   }
 
-  const loadingText = !frameSrc ? null : ready ? 'Game ready' : progress < 1 ? `Preloading the game… ${Math.round(progress * 100)}%` : 'Building the stadium…'
+  if (stage === 'play' && playing)
+    return (
+      <Suspense fallback={<div className="racer-stage ck-stage"><div className="vr-loading">Loading the game…</div></div>}>
+        <CricketStage
+          key={playing.key}
+          setup={playing.setup}
+          sideHuman={playing.sideHuman}
+          localSide={playing.localSide}
+          net={playing.net}
+          onExit={() => {
+            if (playing.net) leaveRoom()
+            setPlaying(null)
+            setStage('menu')
+          }}
+          onRematch={playing.net ? undefined : () => setPlaying({ ...playing, setup: { ...playing.setup, seed: Math.floor(Math.random() * 1e9) }, key: Date.now() })}
+        />
+      </Suspense>
+    )
 
   return (
-    <>
-      {!playing && (
-        <Page onBack={() => navigate('#/home/cricket')} className="arena-page">
-          <header className="page-header">
-            <p className="eyebrow">Games · Unity 6</p>
-            <h1 className="page-title">Cricket</h1>
-            <p className="page-lead">
-              A realistic cricket game in the browser: real ball physics (swing, seam, spin and bounce off green, flat or
-              dusty pitches), timing-based batting with footwork, bowling with a landing marker and release meter, AI
-              fielders who dive and throw, DRS ball-tracking, and a broadcast-style presentation. Play the CPU or a friend
-              online.
-            </p>
-          </header>
+    <Page onBack={() => navigate('#/home/cricket')} className="arena-page">
+      <header className="page-header">
+        <p className="eyebrow">Games · three.js</p>
+        <h1 className="page-title">Cricket</h1>
+        <p className="page-lead">
+          Broadcast-style cricket in the browser. Hold a direction and time your shot off the front or back foot, set a field, place your marker and hit the
+          green on the run-up meter. Real ball physics (swing, seam, spin and bounce off green, flat or dusty pitches), diving fielders, run outs, DRS
+          ball-tracking and replays of every wicket and six. Play the CPU or a friend online.
+        </p>
+      </header>
 
-          <div className="arena-grid">
-            <section className="arena-panel">
-              <div className="seg" role="tablist" aria-label="Mode">
-                {(
-                  [
-                    ['quick', 'Quick match vs CPU'],
-                    ['host', 'Host online'],
-                    ['join', 'Join with code'],
-                  ] as [Mode, string][]
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={mode === id}
-                    className={`seg-btn ${mode === id ? 'is-active' : ''}`}
-                    onClick={() => setMode(id)}
-                  >
-                    {label}
+      {stage === 'builder' ? (
+        <TeamBuilder
+          onDone={(id) => {
+            setTeams(allTeams())
+            if (id) setTeam(id)
+            setStage('menu')
+          }}
+        />
+      ) : stage === 'lobby' && net ? (
+        <div className="arena-grid">
+          <section className="arena-panel">
+            {net.role === 'host' ? (
+              <>
+                <h2 className="section-title">
+                  <Users size={16} /> Your room
+                </h2>
+                <div className="invite">
+                  <span className="muted">Invite code</span>
+                  <strong className="ck-code">{net.link.code}</strong>
+                  <button className="pill" onClick={copy}>
+                    {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy link'}
                   </button>
-                ))}
-              </div>
+                </div>
+                <p>
+                  {teamOf(team).name} (you) v {guestTeam ? `${guestTeam.name} (friend)` : '… waiting for your friend to join'}
+                </p>
+                <p className="muted small">
+                  {FORMATS[format].label} · {PITCHES.find((x) => x.id === pitch)?.label} · {TIMES.find((x) => x.id === time)?.label}
+                </p>
+                <button className="btn btn-primary arena-start" disabled={!guestTeam} onClick={startOnline}>
+                  <CircleDot size={18} /> Start the match
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="section-title">Joined room {net.link.code}</h2>
+                <p className="muted">Waiting for the host to start the match…</p>
+              </>
+            )}
+            <button className="btn" onClick={leaveRoom}>
+              Leave
+            </button>
+            {error && <p className="notice">{error}</p>}
+          </section>
+          <Controls />
+        </div>
+      ) : (
+        <div className="arena-grid">
+          <section className="arena-panel">
+            <div className="seg" role="tablist" aria-label="Mode">
+              {(
+                [
+                  ['quick', 'Play vs CPU', <CircleDot key="q" size={16} />],
+                  ['host', 'Host online', <Globe key="h" size={16} />],
+                  ['join', 'Join with code', <LogIn key="j" size={16} />],
+                ] as const
+              ).map(([id, label, icon]) => (
+                <button key={id} role="tab" aria-selected={mode === id} className={`seg-btn ${mode === id ? 'is-active' : ''}`} onClick={() => setMode(id)}>
+                  {icon} {label}
+                </button>
+              ))}
+            </div>
 
-              {mode !== 'join' && (
+            {mode !== 'join' && (
+              <div className="field">
+                <span>Format</span>
+                <div className="seg seg-sm">
+                  {(Object.keys(FORMATS) as MatchFormat[]).map((id) => (
+                    <button key={id} className={`seg-btn ${format === id ? 'is-active' : ''}`} onClick={() => setFormat(id)}>
+                      {FORMATS[id].label}
+                    </button>
+                  ))}
+                </div>
+                <span className="muted small">{FORMATS[format].blurb}</span>
+              </div>
+            )}
+
+            <label className="field">
+              <span>Your team</span>
+              <select className="cricket-select" value={team} onChange={(e) => setTeam(e.target.value)}>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.custom ? ' (yours)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {mode === 'quick' && (
+              <>
+                <label className="field">
+                  <span>Opponent</span>
+                  <select className="cricket-select" value={opp} onChange={(e) => setOpp(e.target.value)}>
+                    {teams
+                      .filter((t) => t.id !== team)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
                 <div className="field">
-                  <span>Format</span>
+                  <span>Difficulty</span>
                   <div className="seg seg-sm">
-                    {FORMATS.map(({ id, label }) => (
-                      <button key={id} className={`seg-btn ${format === id ? 'is-active' : ''}`} onClick={() => setFormat(id)}>
+                    {['Easy', 'Normal', 'Hard'].map((label, i) => (
+                      <button key={label} className={`seg-btn ${skill === i ? 'is-active' : ''}`} onClick={() => setSkill(i)}>
                         {label}
                       </button>
                     ))}
                   </div>
-                  <span className="muted small">{FORMATS.find((f) => f.id === format)?.blurb}</span>
                 </div>
-              )}
-
-              <label className="field">
-                <span>Your team</span>
-                <select className="cricket-select" value={team} onChange={(e) => setTeam(e.target.value)}>
-                  {TEAMS.map(({ id, label }) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {mode === 'quick' && (
-                <>
-                  <label className="field">
-                    <span>Opponent</span>
-                    <select className="cricket-select" value={opp} onChange={(e) => setOpp(e.target.value)}>
-                      {TEAMS.filter((t) => t.id !== 'mine' && t.id !== team).map(({ id, label }) => (
-                        <option key={id} value={id}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="field">
-                    <span>Difficulty</span>
-                    <div className="seg seg-sm">
-                      {['Easy', 'Normal', 'Hard'].map((label, i) => (
-                        <button key={label} className={`seg-btn ${skill === i ? 'is-active' : ''}`} onClick={() => setSkill(i)}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {mode !== 'join' && (
-                <>
-                  <div className="field">
-                    <span>Pitch</span>
-                    <div className="seg seg-sm">
-                      {PITCHES.map(({ id, label }) => (
-                        <button key={id} className={`seg-btn ${pitch === id ? 'is-active' : ''}`} onClick={() => setPitch(id)}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="field">
-                    <span>Time of day</span>
-                    <div className="seg seg-sm">
-                      {TIMES.map(({ id, label }) => (
-                        <button key={id} className={`seg-btn ${time === id ? 'is-active' : ''}`} onClick={() => setTime(id)}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {mode === 'quick' && (
-                <label className="field cricket-check">
-                  <input type="checkbox" checked={manualField} onChange={(e) => setManualField(e.target.checked)} />
-                  <span>Manual fielding (catch prompts and aimed throws)</span>
-                </label>
-              )}
-
-              {mode === 'join' && (
-                <label className="field">
-                  <span>Invite code</span>
-                  <input
-                    className="code-input"
-                    value={code}
-                    maxLength={12}
-                    placeholder="ABC123"
-                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  />
-                </label>
-              )}
-
-              <button className="btn btn-primary arena-start" disabled={!canStart} onClick={start}>
-                <CircleDot size={18} /> {mode === 'quick' ? 'Play' : mode === 'host' ? 'Create match' : 'Join match'}
-              </button>
-              {loadingText && (
-                <div className="cricket-progress" aria-live="polite">
-                  <div className="cricket-progress-bar">
-                    <div style={{ width: `${Math.round((ready ? 1 : progress) * 100)}%` }} />
-                  </div>
-                  <span className="muted small">{loadingText}</span>
-                </div>
-              )}
-              {mode === 'host' && (
-                <p className="muted small">
-                  You'll get a code and an invite link once the match is up. Online play needs the game linked to a Unity Cloud
-                  project; if it isn't, the game shows the exact error.
-                </p>
-              )}
-              {available === false && (
-                <p className="notice">
-                  The game build isn't published yet. Open <code>unity/CricketGame</code> in Unity 6 and run{' '}
-                  <strong>Cricket → 2. Build WebGL into Portfolio Site</strong>, then redeploy.
-                </p>
-              )}
-              <p className="muted small mobile-only">Best on a desktop with a mouse and keyboard (gamepads work too).</p>
-            </section>
-
-            <section className="arena-panel arena-info">
-              <h2 className="section-title">Batting</h2>
-              <ul className="keys">
-                <li><kbd>Mouse</kbd> aim the shot · <kbd>Click</kbd> play it (stroke picked from aim, feet and ball)</li>
-                <li><kbd>Shift</kbd> loft · <kbd>Right click</kbd> defend · <kbd>Space</kbd> leave</li>
-                <li><kbd>W</kbd>/<kbd>S</kbd> front / back foot · <kbd>1</kbd>–<kbd>5</kbd> drive, cut, pull, sweep, flick</li>
-                <li><kbd>R</kbd> run · <kbd>F</kbd> send back · <kbd>Space</kbd> slide the bat in</li>
-              </ul>
-              <h2 className="section-title">Bowling</h2>
-              <ul className="keys">
-                <li><kbd>Mouse</kbd> place the landing marker · <kbd>Q</kbd>/<kbd>E</kbd> delivery</li>
-                <li><kbd>Click</kbd> run in, then again in the green to release</li>
-                <li><kbd>F</kbd> set the field · <kbd>V</kbd> over / round the wicket</li>
-              </ul>
-              <h2 className="section-title">Everything else</h2>
-              <p className="muted small">
-                <kbd>R</kbd> review a decision (DRS) · <kbd>C</kbd> camera · <kbd>Tab</kbd> scorecard, wagon wheel and pitch map ·
-                <kbd>H</kbd> all controls · <kbd>Esc</kbd> pause. Gamepad: left stick aims, A/Y/X/B play shots, RB runs. Build
-                your own XI (names, kit colours, roles and ratings) in the game's Team builder.
-              </p>
-            </section>
-          </div>
-          <AdSlot />
-          <GearShelf topic="cricket" />
-        </Page>
-      )}
-
-      <div className={playing ? 'arena-player' : 'cricket-preload'} aria-hidden={!playing}>
-        {playing ? (
-          <div className="arena-bar">
-            <button className="pill" onClick={stop}>
-              <LogOut size={16} /> Exit
-            </button>
-            {invite && (
-              <div className="invite">
-                <Users size={16} />
-                <span className="muted">Invite code</span>
-                <strong>{invite}</strong>
-                <button className="pill" onClick={copy}>
-                  {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy link'}
-                </button>
-              </div>
+              </>
             )}
-            {!ready && progress < 1 && <span className="muted small">Loading… {Math.round(progress * 100)}%</span>}
-            {error && <span className="arena-error">{error}</span>}
-            <button className="icon-btn" aria-label="Full screen" onClick={() => frame.current?.requestFullscreen?.()}>
-              <Expand size={16} />
+
+            {mode !== 'join' && (
+              <>
+                <div className="field">
+                  <span>Pitch</span>
+                  <div className="seg seg-sm">
+                    {PITCHES.map(({ id, label }) => (
+                      <button key={id} className={`seg-btn ${pitch === id ? 'is-active' : ''}`} onClick={() => setPitch(id)}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="field">
+                  <span>Time of day</span>
+                  <div className="seg seg-sm">
+                    {TIMES.map(({ id, label }) => (
+                      <button key={id} className={`seg-btn ${time === id ? 'is-active' : ''}`} onClick={() => setTime(id)}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="field">
+              <span>Graphics</span>
+              <div className="seg seg-sm">
+                {(['auto', 'low', 'medium', 'high'] as const).map((id) => (
+                  <button
+                    key={id}
+                    className={`seg-btn ${quality === id ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setQuality(id)
+                      saveQuality(id)
+                    }}
+                  >
+                    {id === 'auto' ? `Auto (${detectQuality()})` : id[0].toUpperCase() + id.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <span className="muted small">Low: no shadows, small crowd, 1x resolution. High: soft shadows, a full house and sharper rendering.</span>
+            </div>
+
+            {mode === 'join' && (
+              <label className="field">
+                <span>Invite code</span>
+                <input className="code-input" value={code} maxLength={8} placeholder="ABC123" onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              </label>
+            )}
+
+            <button
+              className="btn btn-primary arena-start"
+              disabled={busy || (mode === 'join' && code.trim().length < 4)}
+              onClick={() => (mode === 'quick' ? startQuick() : void openRoom())}
+            >
+              <CircleDot size={18} /> {mode === 'quick' ? 'Play' : mode === 'host' ? (busy ? 'Creating…' : 'Create match') : busy ? 'Joining…' : 'Join match'}
             </button>
-          </div>
-        ) : null}
-        {frameSrc && (
-          <iframe
-            ref={frame}
-            className="arena-frame"
-            src={frameSrc}
-            title="Cricket"
-            tabIndex={playing ? 0 : -1}
-            allow="fullscreen; autoplay; clipboard-write; gamepad"
-            allowFullScreen
-          />
-        )}
-      </div>
-    </>
+            <button className="btn" onClick={() => setStage('builder')}>
+              <Wrench size={16} /> Team builder
+            </button>
+            {mode !== 'quick' && (
+              <p className="muted small">Online play is peer-to-peer: the host's browser runs the match and your friend joins with the code. Some strict networks block it.</p>
+            )}
+            {error && <p className="notice">{error}</p>}
+            <p className="muted small mobile-only">Best on a desktop with a keyboard.</p>
+          </section>
+          <Controls />
+        </div>
+      )}
+      <AdSlot />
+      <GearShelf topic="cricket" />
+    </Page>
+  )
+}
+
+function Controls() {
+  return (
+    <section className="arena-panel arena-info">
+      <h2 className="section-title">Batting</h2>
+      <ul className="keys">
+        <li>
+          Hold a direction: <kbd>W</kbd>
+          <kbd>A</kbd>
+          <kbd>S</kbd>
+          <kbd>D</kbd> or arrows (8 ways, none = natural shot)
+        </li>
+        <li>
+          Time the shot: <kbd>J</kbd> defend · <kbd>K</kbd> along the ground · <kbd>L</kbd> lofted
+        </li>
+        <li>
+          Hold <kbd>Shift</kbd> front foot · <kbd>Space</kbd> back foot · <kbd>T</kbd> charge the spinner
+        </li>
+        <li>
+          <kbd>R</kbd> run · <kbd>F</kbd> stay / back to the crease
+        </li>
+      </ul>
+      <h2 className="section-title">Bowling</h2>
+      <ul className="keys">
+        <li>
+          <kbd>1</kbd>–<kbd>6</kbd> delivery: seam, swing, bouncer, yorker, slower ball; off-break, leg-break, googly, arm ball, top-spinner
+        </li>
+        <li>
+          <kbd>WASD</kbd> place the pitch marker · <kbd>Space</kbd> run in, <kbd>Space</kbd> again in the green
+        </li>
+        <li>
+          <kbd>F</kbd> field: attacking, normal, defensive, death · <kbd>V</kbd> over/round the wicket
+        </li>
+      </ul>
+      <h2 className="section-title">Everything else</h2>
+      <p className="muted small">
+        <kbd>Y</kbd> review (DRS) · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause. Build your own XI
+        (names, kit colours, roles and ratings) in the team builder.
+      </p>
+    </section>
   )
 }
