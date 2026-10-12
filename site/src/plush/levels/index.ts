@@ -10,8 +10,9 @@ import pianoBridge from './piano-bridge'
 import crayonMatch from './crayon-match'
 import toyPile from './toy-pile'
 import cushionKing from './cushion-king'
+import merryGoRound from './merry-go-round'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, blockMemory, pianoBridge, crayonMatch, toyPile, cushionKing]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, blockMemory, pianoBridge, crayonMatch, toyPile, cushionKing, merryGoRound]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)
