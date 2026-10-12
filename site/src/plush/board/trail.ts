@@ -1317,8 +1317,9 @@ export default defineLevel<State>({
     const d = s.d
     const v = s.v
     if (v.overview) {
-      _v.set(0, 17, -13.5)
-      _w.set(0, 0, 1.2)
+      // Below the attic's tie beams, pulled back past the near wall (it is only drawn from inside).
+      _v.set(0, 12.5, -15)
+      _w.set(0, 0, -1.5)
       cam.place(_v, _w, dt, 3)
       cam.focus.copy(_w)
       return true

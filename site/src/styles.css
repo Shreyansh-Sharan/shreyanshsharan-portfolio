@@ -6220,6 +6220,8 @@ p {
 
 .tb-tags {
   grid-area: tags;
+  white-space: nowrap;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -6545,6 +6547,17 @@ p {
   .tb-top {
     top: 54px;
     max-width: calc(100vw - 24px);
+  }
+
+  .tb-dice {
+    top: auto;
+    bottom: 132px;
+  }
+
+  .tb-dice span {
+    width: 38px;
+    height: 38px;
+    font-size: 22px;
   }
 
   .tb-items .pp-trick,
