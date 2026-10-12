@@ -764,7 +764,7 @@ export function mover(
       const sp = vel.length()
       if (sp < 1.2) return
       const l = local(toy, cur)
-      if (Math.abs(l.x) > half.x + 0.45 || Math.abs(l.z) > half.z + 0.45 || l.y > half.y + 0.2 || l.y < -half.y - 1.1) return
+      if (Math.abs(l.x) > half.x + 0.45 || Math.abs(l.z) > half.z + 0.45 || l.y > half.y - 0.15 || l.y < -half.y - 1.1) return
       if ((hitT.get(toy) ?? -9) > c.time - 0.6) return
       hitT.set(toy, c.time)
       _w.copy(vel).setY(0).normalize()

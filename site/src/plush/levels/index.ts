@@ -7,8 +7,9 @@ import musicBox from './music-box'
 import topSumo from './top-sumo'
 import sockDrawer from './sock-drawer'
 import bookshelf from './bookshelf'
+import trainSet from './train-set'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf, trainSet]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)
