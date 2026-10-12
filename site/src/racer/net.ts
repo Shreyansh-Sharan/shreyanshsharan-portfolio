@@ -166,14 +166,24 @@ export async function joinRoom(code: string): Promise<Link> {
   const em = new Emitter()
   const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' })
   await new Promise<void>((resolve, reject) => {
-    const t = window.setTimeout(() => reject(new Error('No room with that code answered.')), 15000)
+    // Slow timeout: the room exists but the peer-to-peer link never opened — usually a strict
+    // network with no TURN relay configured.
+    const t = window.setTimeout(
+      () => reject(new Error('Found the room but couldn’t connect — your network may be blocking peer-to-peer play.')),
+      15000,
+    )
     conn.on('open', () => {
       window.clearTimeout(t)
       resolve()
     })
     peer.on('error', (e) => {
       window.clearTimeout(t)
-      reject((e as { type?: string }).type === 'peer-unavailable' ? new Error('No room with that code.') : e)
+      // Instant "unavailable": no host registered that code (wrong code, or the host left / hasn’t created it yet).
+      reject(
+        (e as { type?: string }).type === 'peer-unavailable'
+          ? new Error('No open room with that code — double-check it, and make sure the host’s tab is still open.')
+          : e,
+      )
     })
   })
   conn.on('data', (d) => em.emitMsg(d, 'host'))

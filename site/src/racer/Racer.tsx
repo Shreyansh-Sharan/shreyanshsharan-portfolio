@@ -713,7 +713,17 @@ function Menu(p: {
           {p.playMode === 'join' && (
             <label className="field">
               <span>Room code</span>
-              <input className="code-input" value={p.code} maxLength={8} placeholder="ABC123" onChange={(e) => p.setCode(e.target.value.toUpperCase())} />
+              <input
+                className="code-input"
+                value={p.code}
+                maxLength={8}
+                placeholder="ABC123"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                // Strip spaces and keep only the code alphabet so a pasted/typed code can't be mistyped.
+                onChange={(e) => p.setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              />
             </label>
           )}
 
