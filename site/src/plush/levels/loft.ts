@@ -18,6 +18,7 @@ export const LOFT_ZONES = {
   arcade: { name: 'Cardboard Arcade', x: -12.5, z: 12.5, r: 5 },
   sewing: { name: 'Sewing Table', x: 8, z: 3, r: 3 },
   chest: { name: 'Toy Chest', x: 0, z: 0, r: 4.5 },
+  trail: { name: 'Toy Box Trail', x: -3.7, z: 1.8, r: 1.9 },
 } as const
 export type LoftZone = keyof typeof LOFT_ZONES
 
@@ -26,6 +27,42 @@ const _col = new THREE.Color()
 const HD = 18
 // The toy chest: footprint and wall height of its box (the lid stands open behind it).
 const CHEST = { x: 0, z: 0, hw: 1.7, hd: 1.25, wall: 1.45 }
+// The Toy Box Trail board-game box beside it: hop on top to start the board mode.
+const BOARD_BOX = { x: LOFT_ZONES.trail.x, z: LOFT_ZONES.trail.z, hw: 1.15, hd: 0.8, h: 0.5 }
+
+/** A board-game box with a painted lid (Toy Box Trail). */
+function boardBox(ctx: LevelCtx) {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 180
+  const g = c.getContext('2d')!
+  g.fillStyle = '#b45309'
+  g.fillRect(0, 0, 256, 180)
+  g.fillStyle = '#fffaf0'
+  g.fillRect(10, 10, 236, 160)
+  const cols = ['#3b82f6', '#ef4444', '#a855f7', '#22c55e', '#f97316', '#3b82f6', '#eab308']
+  for (let i = 0; i < 7; i++) {
+    g.fillStyle = cols[i]
+    g.fillRect(24 + i * 30, 118 + Math.sin(i * 1.3) * 12, 22, 30)
+  }
+  g.fillStyle = '#7c2d12'
+  g.font = '900 34px ui-rounded, system-ui, sans-serif'
+  g.textAlign = 'center'
+  g.fillText('TOY BOX', 128, 52)
+  g.fillText('TRAIL', 128, 92)
+  const map = new THREE.CanvasTexture(c)
+  map.colorSpace = THREE.SRGBColorSpace
+  const side = mat('#b45309')
+  const box = new THREE.Mesh(new THREE.BoxGeometry(BOARD_BOX.hw * 2, BOARD_BOX.h, BOARD_BOX.hd * 2), [side, side, new THREE.MeshStandardMaterial({ map, roughness: 0.7 }), side, side, side])
+  box.position.set(BOARD_BOX.x, BOARD_BOX.h / 2, BOARD_BOX.z)
+  box.rotation.y = 0.25
+  box.castShadow = box.receiveShadow = true
+  ctx.root.add(box)
+  ctx.phys.box({ x: BOARD_BOX.x, y: BOARD_BOX.h / 2, z: BOARD_BOX.z }, { x: BOARD_BOX.hw, y: BOARD_BOX.h / 2, z: BOARD_BOX.hd }, { rotY: 0.25 })
+  const s = textSprite('Board game!', { bg: '#b45309', size: 0.5 })
+  s.position.set(BOARD_BOX.x, 1.6, BOARD_BOX.z)
+  ctx.root.add(s)
+}
 
 interface LoftState {
   /** Animated bits (all screens). */
@@ -248,6 +285,7 @@ export default defineLevel<LoftState>({
       letter.position.set(CHEST.x + x, h + 0.35, CHEST.z + z)
       ctx.root.add(letter)
     })
+    boardBox(ctx)
     const chestSign = textSprite('Jump in to play!', { bg: '#1d4ed8', size: 0.7 })
     chestSign.position.set(CHEST.x, 4.4, CHEST.z)
     ctx.root.add(chestSign)
@@ -338,6 +376,16 @@ export default defineLevel<LoftState>({
         ctx.knock(toy, { x: 0, y: 9, z: 4 }, 0.3)
         if (toy.c.human) ctx.fx.popup(toy, 'Ready! The host starts the Show', '#93c5fd')
       }
+    }
+    // Standing on the board-game box starts Toy Box Trail (for the host or solo player).
+    const me = ctx.me
+    if (me) {
+      const on = me.grounded && me.feet > BOARD_BOX.h - 0.15 && Math.hypot(me.pos.x - BOARD_BOX.x, me.pos.z - BOARD_BOX.z) < BOARD_BOX.hd + 0.2
+      if (on && !me.data.onBoardBox) {
+        ctx.fx.confetti(me.pos)
+        ctx.signal('board', me)
+      }
+      me.data.onBoardBox = on
     }
   },
 

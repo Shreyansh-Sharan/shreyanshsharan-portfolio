@@ -10,11 +10,15 @@ import pillowFort from './pillow-fort'
 import tidyUp from './tidy-up'
 import sockHoops from './sock-hoops'
 import eggHunt from './egg-hunt'
+import toyBoxTrail from '../board/trail'
 
 export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, yarnTug, pillowFort, tidyUp, sockHoops, eggHunt]
 
+/** Game modes that run as one long round of their own (not drawn by the Show or Quick Play). */
+export const MODES: AnyLevel[] = [toyBoxTrail]
+
 export function levelById(id: string): AnyLevel | undefined {
-  return LEVELS.find((l) => l.id === id)
+  return LEVELS.find((l) => l.id === id) ?? MODES.find((l) => l.id === id)
 }
 
 /** Levels you can pick in Quick Play (everything except the hub and hidden Loft games). */

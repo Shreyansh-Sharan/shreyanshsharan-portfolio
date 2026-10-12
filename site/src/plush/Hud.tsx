@@ -12,6 +12,7 @@ import type { Profile } from './engine/show'
 import type { TrickIcon } from './engine/types'
 import { quickPlayLevels } from './levels'
 import { Customise, SettingsForm } from './Forms'
+import { TrailIntro, TrailPanel } from './board/TrailPanel'
 
 const ICONS: Record<TrickIcon, typeof Cookie> = {
   crumb: Cookie, slam: Hand, milk: Milk, paw: PawPrint, crack: Zap, swap: ArrowLeftRight, bubble: Shield, tickle: Feather, key: Key, tack: Pin, magnet: Magnet, zap: Zap, star: Star,
@@ -32,10 +33,10 @@ export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: Pl
         <button className="btn pp-leave" onClick={p.onQuit}>
           <LogOut size={16} /> Leave
         </button>
-        {hud.phase !== 'loft' && hud.level && (
+        {hud.phase !== 'loft' && hud.level && hud.mode !== 'board' && (
           <div className="pp-roundinfo" style={{ ['--pp-accent' as string]: hud.level.accent }}>
             <span className="pp-roundname">
-              {hud.mode === 'quick' ? 'Quick Play' : hud.round.final ? 'Final' : `Round ${hud.round.index + 1} of ${hud.round.total}`} · {hud.level.name}
+              {hud.duel ? (hud.duel.party ? 'Table mini-game' : 'Duel') : hud.mode === 'quick' ? 'Quick Play' : hud.round.final ? 'Final' : `Round ${hud.round.index + 1} of ${hud.round.total}`} · {hud.level.name}
             </span>
             <strong className={`pp-timer ${playing && hud.timeLeft < 15 ? 'is-low' : ''}`}>{fmt(hud.timeLeft)}</strong>
             {hud.mode === 'show' && !hud.teams && (
@@ -64,12 +65,13 @@ export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: Pl
         </div>
       )}
 
-      {hud.phase === 'intro' && hud.level && <IntroCard hud={hud} />}
+      {hud.phase === 'intro' && hud.level && (hud.mode === 'board' ? <TrailIntro /> : <IntroCard hud={hud} />)}
       {hud.phase === 'end' && hud.roundEnd && <RoundEnd hud={hud} />}
       {hud.phase === 'results' && hud.results && <Results hud={hud} game={game} onQuit={p.onQuit} />}
       {hud.phase === 'loft' && <LoftPanel hud={hud} game={game} profile={p.profile} assets={p.assets} onProfile={p.onProfile} />}
 
-      {(playing || hud.phase === 'countdown') && <PlayHud hud={hud} game={game} />}
+      {(playing || hud.phase === 'countdown') && hud.mode !== 'board' && <PlayHud hud={hud} game={game} />}
+      {hud.mode === 'board' && hud.phase !== 'results' && hud.phase !== 'intro' && <TrailPanel hud={hud} game={game} />}
       {hud.touch && hud.phase !== 'results' && <TouchControls hud={hud} game={game} />}
       {!hud.touch && hud.pointer === 'look' && !hud.locked && (playing || hud.phase === 'loft') && <div className="pp-lockhint">Click to look around with the mouse</div>}
     </div>
@@ -101,7 +103,16 @@ function IntroCard({ hud }: { hud: Hud }) {
   return (
     <div className="pp-card pp-intro" style={{ ['--pp-accent' as string]: l.accent }}>
       <p className="pp-kicker">
-        {hud.mode === 'quick' ? 'Quick Play' : hud.round.final ? 'The Final' : `Round ${hud.round.index + 1} of ${hud.round.total}`} · {TYPE_NAMES[l.type] ?? l.type}
+        {hud.duel
+          ? hud.duel.party
+            ? `Table mini-game · ${hud.duel.seconds} s · bonus buttons by placing`
+            : `Duel · ${hud.duel.names.join(' vs ')} · ${hud.duel.seconds} s`
+          : hud.mode === 'quick'
+            ? 'Quick Play'
+            : hud.round.final
+              ? 'The Final'
+              : `Round ${hud.round.index + 1} of ${hud.round.total}`}{' '}
+        · {TYPE_NAMES[l.type] ?? l.type}
       </p>
       <h2>{l.name}</h2>
       <p className="pp-blurb">{l.blurb}</p>
@@ -172,7 +183,7 @@ function Results({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () => vo
   const lvl = quickPlayLevels().find((l) => l.name === res.levelName)
   return (
     <div className="pp-card pp-results" data-testid="pp-results">
-      <p className="pp-kicker">{res.quick ? `Quick Play · ${res.levelName}` : 'Show results'}</p>
+      <p className="pp-kicker">{res.title ?? (res.quick ? `Quick Play · ${res.levelName}` : 'Show results')}</p>
       <h2>
         <Crown size={26} color="#facc15" /> {winner ? (me && winner.idx === me.idx ? 'You win!' : `${winner.name} wins!`) : 'Show over'}
       </h2>
@@ -217,7 +228,12 @@ function Results({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () => vo
                 Play again
               </button>
             )}
-            <button className={`btn ${res.quick ? '' : 'btn-primary'}`} onClick={() => game.toLoft()}>
+            {res.title && (
+              <button className="btn btn-primary" onClick={() => game.startBoard()} data-testid="tb-again">
+                Play again
+              </button>
+            )}
+            <button className={`btn ${res.quick || res.title ? '' : 'btn-primary'}`} onClick={() => game.toLoft()}>
               Back to the Loft
             </button>
           </>
@@ -276,6 +292,11 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
               <Zap size={16} /> Quick Play
             </button>
           )}
+          {host && (
+            <button className="btn" onClick={() => game.startBoard()} data-testid="pp-board">
+              <Cookie size={16} /> Toy Box Trail
+            </button>
+          )}
           <button className="btn" onClick={() => setOpen(open === 'custom' ? null : 'custom')}>
             <Shirt size={16} /> Customise
           </button>
@@ -328,7 +349,7 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
       <div className="pp-prompt is-loft">
         {hud.zone === 'chest'
           ? host
-            ? 'Climb the blocks and jump into the toy chest to start the Show!'
+            ? 'Climb the blocks and jump into the toy chest to start the Show! Hop on the board-game box beside it for Toy Box Trail.'
             : 'Jump in the toy chest to show you are ready.'
           : hud.zone === 'sewing'
             ? 'The Sewing Table: change your toy, tint and name.'

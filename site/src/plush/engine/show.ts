@@ -11,9 +11,11 @@ export interface ShowSettings {
   spice: Spice
   /** Rounds including the final (3 to 5). */
   rounds: number
+  /** Toy Box Trail: toys at the table (2 to 6, people first). */
+  boardSize?: number
 }
 
-export const DEFAULT_SETTINGS: ShowSettings = { size: 8, difficulty: 1, spice: 1, rounds: 3 }
+export const DEFAULT_SETTINGS: ShowSettings = { size: 8, difficulty: 1, spice: 1, rounds: 3, boardSize: 4 }
 export const MAX_SHOW = 16
 /** People per online room (peer-to-peer holds about this many comfortably). */
 export const MAX_PEOPLE = 8
@@ -106,6 +108,8 @@ export interface ShowResults {
   rows: { idx: number; name: string; tint: string; kind: string; human: boolean; place: number; outRound: number; stats: Contestant['stats'] }[]
   quick: boolean
   levelName: string
+  /** Kicker on the results card for game modes (e.g. 'Toy Box Trail'). */
+  title?: string
 }
 
 /** End-of-Show awards and buttons (soft currency). */

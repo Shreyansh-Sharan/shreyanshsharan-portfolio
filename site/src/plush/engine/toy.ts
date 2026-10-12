@@ -157,6 +157,8 @@ export class Toy {
   data: Record<string, unknown> = {}
   /** Animation code chosen by the simulation (and sent to clients). */
   anim: AnimKey = 'idle'
+  /** A level can force an animation (a board hops seated toys tile to tile). null: picked from movement. */
+  pose: AnimKey | null = null
 
   constructor(phys: Phys, idx: number, c: Contestant, pos: THREE.Vector3Like, yaw: number, kinematic: boolean) {
     this.idx = idx
@@ -564,6 +566,7 @@ export class Toy {
   /** What the rig should play (computed where the simulation runs, sent to clients for other toys). */
   pickAnim(): AnimKey {
     if (this.animOverride) return this.animOverride
+    if (this.pose) return this.pose
     if (this.grabbedBy) return 'held'
     if (this.stun > 0.25 || this.flop > 0) return this.dive > 0 || this.flop > 0 ? 'dive' : 'knock'
     if (this.dive > 0 && this.mode === 'walk') return 'dive'

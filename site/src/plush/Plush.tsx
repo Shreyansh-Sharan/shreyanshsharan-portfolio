@@ -2,7 +2,7 @@
 // where the engine runs the Loft, the rounds and the results. The engine is a separate chunk loaded on demand;
 // physics loads with it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Crown, Globe, LogIn, Sparkles, Users } from 'lucide-react'
+import { Cookie, Crown, Globe, LogIn, Sparkles, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { setInputSuspended } from '../lib/input'
@@ -19,14 +19,24 @@ import { PlushHud } from './Hud'
 const accent = tiles.find((t) => t.id === 'plush-panic')?.accent ?? (['#7c2d12', '#fbbf24'] as [string, string])
 const KEYART = `${import.meta.env.BASE_URL}plush/keyart.webp`
 
-type Launch = { kind: 'loft' } | { kind: 'quick'; level: string } | { kind: 'host' } | { kind: 'join'; code: string }
+type Launch = { kind: 'loft' } | { kind: 'quick'; level: string } | { kind: 'host' } | { kind: 'join'; code: string } | { kind: 'board' }
 
 export function Plush({ auto, level, join, onAccent }: { auto?: string; level?: string; join?: string; onAccent: (a: [string, string], focus: string) => void }) {
   useEffect(() => onAccent(accent, 'plush-panic'), [onAccent])
   const [profile, setProfile] = useState<Profile>(loadProfile)
   const [assets, setAssets] = useState<PlushAssets | null>(null)
   const [pct, setPct] = useState(0)
-  const initial: Launch | null = join ? { kind: 'join', code: join } : auto === 'quick' && level ? { kind: 'quick', level } : auto === 'host' ? { kind: 'host' } : auto ? { kind: 'loft' } : null
+  const initial: Launch | null = join
+    ? { kind: 'join', code: join }
+    : auto === 'quick' && level
+      ? { kind: 'quick', level }
+      : auto === 'host'
+        ? { kind: 'host' }
+        : auto === 'board'
+          ? { kind: 'board' }
+          : auto
+            ? { kind: 'loft' }
+            : null
   const [launch, setLaunch] = useState<Launch | null>(initial)
   const [run, setRun] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -123,6 +133,25 @@ function Menu(p: { profile: Profile; assets: PlushAssets | null; pct: number; er
                 <span className="muted small">{l.blurb}</span>
               </button>
             ))}
+          </div>
+          <h3 className="pp-sub">Toy Box Trail</h3>
+          <div className="pp-boardcard">
+            <p className="muted small">
+              A board game across the attic floor: roll the foam die, hop the playing cards, buy dirty tricks, win duels and race to the cookie jar.
+            </p>
+            <label className="pp-boardsize">
+              Toys at the table
+              <select value={profile.settings.boardSize ?? 4} onChange={(e) => p.onProfile({ settings: { ...profile.settings, boardSize: Number(e.target.value) } })}>
+                {[2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn" disabled={!p.assets} onClick={() => p.onLaunch({ kind: 'board' })} data-testid="pp-board-start">
+              <Cookie size={16} /> Play Toy Box Trail
+            </button>
           </div>
           <h3 className="pp-sub">Online</h3>
           <div className="pp-online">
@@ -222,6 +251,7 @@ function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; pro
         if (cancelled) return
         if (net?.role === 'client') game.hello()
         if (p.launch.kind === 'quick') game.startQuick(p.launch.level)
+        if (p.launch.kind === 'board') game.startBoard()
         setStatus('')
         if (q.has('snap')) game.simulate(0)
         else game.start()
