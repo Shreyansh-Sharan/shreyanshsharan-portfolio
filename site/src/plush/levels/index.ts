@@ -5,8 +5,10 @@ import loft from './loft'
 import cookieCutter from './cookie-cutter'
 import musicBox from './music-box'
 import topSumo from './top-sumo'
+import sockDrawer from './sock-drawer'
+import bookshelf from './bookshelf'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo]
+export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, sockDrawer, bookshelf]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)
