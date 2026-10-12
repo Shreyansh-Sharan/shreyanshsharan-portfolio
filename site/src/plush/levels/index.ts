@@ -5,8 +5,19 @@ import loft from './loft'
 import cookieCutter from './cookie-cutter'
 import musicBox from './music-box'
 import topSumo from './top-sumo'
+import roboVac from './robo-vac'
+import hotGlue from './hot-glue'
+import jigsaw from './jigsaw'
+import pictureFrame from './picture-frame'
+import laserPointer from './laser-pointer'
+import ceilingFan from './ceiling-fan'
+import marbleRun from './marble-run'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo]
+export const LEVELS: AnyLevel[] = [
+  loft, musicBox, cookieCutter, topSumo,
+  // Survival pack.
+  roboVac, hotGlue, jigsaw, pictureFrame, laserPointer, ceilingFan, marbleRun,
+]
 
 export function levelById(id: string): AnyLevel | undefined {
   return LEVELS.find((l) => l.id === id)

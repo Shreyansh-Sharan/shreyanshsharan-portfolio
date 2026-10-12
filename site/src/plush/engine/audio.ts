@@ -301,6 +301,26 @@ export class PlushAudio {
       case 'count':
         this.tone('square', 440, 440, 0.12, 0.08 * v)
         break
+      // Survival pack.
+      case 'suck':
+        this.noise(0.45, 0.3 * v, 300, 0.9, 'bandpass', 0, 2800)
+        this.tone('sawtooth', 90, 260, 0.4, 0.08 * v)
+        break
+      case 'sizzle':
+        for (let i = 0; i < 4; i++) this.noise(0.08, 0.12 * v, 5000 + Math.random() * 2000, 3, 'highpass', i * 0.06)
+        break
+      case 'meow':
+        this.tone('triangle', 520 * r, 820 * r, 0.16, 0.16 * v)
+        this.tone('triangle', 820 * r, 430 * r, 0.32, 0.14 * v, 0.15)
+        break
+      case 'rumble':
+        this.tone('sine', 70 * r, 50, 0.5, 0.3 * v)
+        this.noise(0.5, 0.15 * v, 220, 1, 'lowpass')
+        break
+      case 'click':
+        this.tone('square', 2600, 2400, 0.02, 0.08 * v)
+        this.tone('square', 1300, 1200, 0.03, 0.06 * v, 0.05)
+        break
       default:
         this.tone('sine', 600, 300, 0.1, 0.15 * v)
     }
