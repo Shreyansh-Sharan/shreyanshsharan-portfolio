@@ -210,6 +210,8 @@ export interface Hud {
   respawn: number
   lockOn: boolean
   markers: { id: number; x: number; y: number; color: string; dist: number; me: boolean; edge: boolean; angle: number }[]
+  /** Where the hole is on screen (or an edge arrow to it) and how far your ball is from it. */
+  holePin: { x: number; y: number; dist: number; edge: boolean; angle: number }
   feed: { id: number; text: string; mine: boolean }[]
   popups: { id: number; text: string; color: string; x: number; y: number; age: number }[]
   banner: { text: string; color: string } | null
@@ -858,6 +860,7 @@ export class Game {
     if (pressed.has('KeyF')) acts.push('drop')
     if (pressed.has('KeyE')) acts.push('enter')
     if (pressed.has('KeyH')) acts.push('horn')
+    if (pressed.has('KeyX')) acts.push('cancel')
     if (pressed.has('Space')) acts.push('jump')
     if (pressed.has('ShiftLeft') || pressed.has('ShiftRight') || pressed.has('ControlLeft')) acts.push('dive')
     if (this.rightPressed) acts.push('item')
@@ -890,11 +893,15 @@ export class Game {
       else if (a === 'drop') this.drop(g)
       else if (a === 'enter') this.toggleCart(g)
       else if (a === 'horn') this.honk(g)
-      else if (a === 'item' && g.canAct && g.charging <= 0) this.useItem(g)
-      else if (a === 'press' && g.canAct && g.cooldown <= 0 && !g.cart) {
+      // Right-click: use an item normally, but while lining up a shot it cancels the swing instead,
+      // so a wrong aim/power doesn't force you to take the shot.
+      else if (a === 'item') {
+        if (g.charging > 0) this.cancelSwing(g)
+        else if (g.canAct) this.useItem(g)
+      } else if (a === 'press' && g.canAct && g.cooldown <= 0 && !g.cart) {
         if (this.canSwing(g)) this.startCharge(g, pad.yaw)
         else this.melee(g)
-      }
+      } else if (a === 'cancel' && g.charging > 0) this.cancelSwing(g)
     }
     if (g.charging > 0) this.faceShot(g, pad.yaw)
     if (pad.acts.includes('release') && g.charging > 0) this.release(g, pad.yaw, g.loft)
@@ -932,6 +939,14 @@ export class Game {
     if (!this.canSwing(g) || g.cooldown > 0) return
     this.faceShot(g, dir)
     g.charging = 0.0001
+  }
+
+  /** Back out of a shot you've started lining up, without firing the ball. */
+  cancelSwing(g: Golfer) {
+    if (g.charging <= 0) return
+    g.charging = 0
+    g.swing = 0
+    if (g === this.me) this.say('Shot cancelled', '#cbd5e1', 0.9, g)
   }
 
   power(g: Golfer) {
@@ -3075,6 +3090,16 @@ export class Game {
         markers.push({ id: o.id, x: toward.x, y: toward.y, color: o.color, dist, me, edge: true, angle: toward.angle })
       }
     }
+    // Always show where the hole is: on-screen above the flag, or an edge arrow pointing to it.
+    const cupPos = this.course.cup.clone().setY(this.ground.y(this.course.cup.x, this.course.cup.z) + 3.2)
+    const cs = this.project(cupPos)
+    const cw = this.container.clientWidth, ch = this.container.clientHeight
+    const cupDist = Math.round(g.ball.pos.distanceTo(this.course.cup))
+    const cupOnScreen = cs && cs.x >= 0 && cs.x <= cw && cs.y >= 0 && cs.y <= ch
+    const holePin: Hud['holePin'] = cupOnScreen
+      ? { x: cs.x, y: cs.y, dist: cupDist, edge: false, angle: 0 }
+      : { ...this.edgePointer(cupPos), dist: cupDist, edge: true }
+
     const popups: Hud['popups'] = []
     for (const p of this.popups) {
       const s = this.project(p.pos)
@@ -3115,6 +3140,7 @@ export class Game {
       respawn: g.respawn,
       lockOn: !!this.rocketOn(g),
       markers,
+      holePin,
       feed: this.feedList.map(({ id, text, mine }) => ({ id, text, mine })),
       popups,
       banner: this.banner ? { text: this.banner.text, color: this.banner.color } : null,

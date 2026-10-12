@@ -4979,3 +4979,43 @@ p {
     animation: none;
   }
 }
+
+/* ---------- BOGEY BRAWL: hole/target indicator ---------- */
+.bb-hole {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 20px;
+  color: #fde047;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.bb-hole em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.bb-hole.is-edge {
+  color: #fde047;
+}
+
+.bb-hole.is-edge .bb-edge-arrow {
+  border-left-color: #fde047;
+}
+
+.bb-hole.is-edge em {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  margin-left: -34px;
+  width: 68px;
+  text-align: center;
+  color: #fde047;
+}

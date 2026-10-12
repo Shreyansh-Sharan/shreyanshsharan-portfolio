@@ -458,6 +458,7 @@ export function Golf({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string
           <ul className="keys">
             <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> run · mouse to look</li>
             <li><kbd>LMB</kbd> hold to charge, release to swing (near a rival: club them)</li>
+            <li><kbd>RMB</kbd> or <kbd>X</kbd> while charging: cancel the shot</li>
             <li><kbd>Wheel</kbd> loft · <kbd>RMB</kbd> use item</li>
             <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> / <kbd>Q</kbd> pick slot · <kbd>F</kbd> drop</li>
             <li><kbd>Space</kbd> jump · <kbd>Shift</kbd> dive · <kbd>C</kbd> creep</li>
@@ -671,6 +672,22 @@ function GolfHud({ hud }: { hud: Hud }) {
           </div>
         ),
       )}
+
+      {/* The hole: a flag chip when on screen, an edge arrow pointing to it when off screen. */}
+      {hud.holePin &&
+        (hud.holePin.edge ? (
+          <div
+            className="bb-hole is-edge"
+            style={{ left: hud.holePin.x, top: hud.holePin.y, transform: `translate(-50%, -50%) rotate(${hud.holePin.angle}rad)` }}
+          >
+            <span className="bb-edge-arrow" />
+            <em style={{ transform: `rotate(${-hud.holePin.angle}rad)` }}>⛳ {hud.holePin.dist} m</em>
+          </div>
+        ) : (
+          <div className="bb-hole" style={{ left: hud.holePin.x, top: hud.holePin.y }}>
+            ⛳ <em>{hud.holePin.dist} m</em>
+          </div>
+        ))}
 
       <div className="vr-popups bb-popups">
         {hud.popups.map((pp) => (
