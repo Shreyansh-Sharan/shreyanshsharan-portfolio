@@ -2,6 +2,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   CarFront,
+  CircleDot,
   Flag,
   Award,
   Crosshair,
@@ -542,6 +543,22 @@ export const tiles: Tile[] = [
     icon: Crosshair,
     accent: ['#9a3412', '#fdba74'],
     action: { kind: 'route', to: '#/arena', label: 'Play' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'cricket',
+    tab: 'extras',
+    title: 'Cricket',
+    tagline: 'Realistic Cricket',
+    org: 'Built in Unity 6 · Netcode for GameObjects',
+    period: 'Play now',
+    genre: 'Sports',
+    blurb:
+      'T20, T10, ODI or a Super Over between fictional sides. Swing, seam and spin off green, flat or dusty pitches, timing-based batting with footwork, a landing marker and release meter for bowling, diving AI fielders, DRS ball-tracking and a broadcast scorebug. Play the CPU or a friend online.',
+    icon: CircleDot,
+    accent: ['#14532d', '#86efac'],
+    action: { kind: 'route', to: '#/cricket', label: 'Play' },
     stats: [],
     activities: [],
   },

@@ -42,6 +42,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Weapons', detail: 'Pistol, SMG, assault rifle, bolt-action sniper and shotgun. Keys 1–5 or the wheel; hold right click to aim, scope in twice.' },
         { title: 'Maps', detail: 'Sandstorm (long doors, catwalk), Villa (curved lane, church square), Bazaar (sniper window, market), plus Dunes, Harbor Night and Frost Outpost.' },
       ]
+    case 'cricket':
+      return [
+        { title: 'Formats', detail: 'T20 (default), T10, ODI and Super Over, with a toss, powerplays, DRS reviews and a full scorecard.' },
+        { title: 'Batting', detail: 'Aim with the mouse, pick front or back foot and time the shot: drives, cuts, pulls, sweeps and flicks, lofted or along the ground.' },
+        { title: 'Bowling', detail: 'Pace, swing or spin: place the landing marker, choose the delivery and release in the green. Set your own field.' },
+        { title: 'Physics', detail: 'Drag, swing, seam and Magnus spin, bounce and grip that change with the pitch, wind and ball age.' },
+      ]
     case 'volt-riot':
       return [
         { title: 'Power-ups', detail: 'Shunt, Barge, Bolt, Mine, Shock, Nitro, Shield, Repair, Railgun, Flak, Oil Slick and Ram, each with a forward and backward mode.' },

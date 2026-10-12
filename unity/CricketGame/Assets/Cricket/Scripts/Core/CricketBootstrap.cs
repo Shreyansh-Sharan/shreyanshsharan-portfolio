@@ -75,7 +75,21 @@ namespace Cricket.Core
             // Build the stadium in the background (time-sliced) while the menu shows.
             if (Stadium != null) yield return Stadium.Build(opts.Pitch, opts.Time);
             WebBridge.Post("loaded");
-            Sfx.Ambience(true, 0.18f);
+            // Preloaded behind the page's lobby: idle quietly at a low frame rate until the page says "start".
+            if (opts.Mode == LaunchMode.Lobby && pending == null) SetIdle(true);
+            else Sfx.Ambience(true, 0.18f);
+        }
+
+        bool idle;
+
+        /// <summary>While the game sits hidden behind the site's lobby it barely uses the CPU, GPU or speakers.</summary>
+        void SetIdle(bool on)
+        {
+            if (idle == on) return;
+            idle = on;
+            Application.targetFrameRate = on ? 6 : 60;
+            AudioListener.pause = on;
+            if (!on) Sfx.Ambience(true, 0.18f);
         }
 
         void Update()
@@ -93,6 +107,7 @@ namespace Cricket.Core
                     var o = LaunchOptions.FromQuery(msg.query);
                     LaunchOptions.Current = o;
                     pending = o.Mode == LaunchMode.Menu || o.Mode == LaunchMode.Lobby ? null : o;
+                    SetIdle(false);
                     if (pending == null) Hud.Open(true);
                 }
                 else if (msg.type == "mute") AudioListener.volume = 0f;

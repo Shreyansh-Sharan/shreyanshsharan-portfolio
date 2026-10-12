@@ -2061,6 +2061,71 @@ p {
   }
 }
 
+/* ---------- Cricket ---------- */
+
+.cricket-select {
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.cricket-select option {
+  background: #0a0b14;
+}
+
+.cricket-select:focus-visible {
+  outline: 2px solid #86efac;
+  outline-offset: 1px;
+}
+
+.field.cricket-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.cricket-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #22c55e;
+}
+
+.cricket-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cricket-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.cricket-progress-bar > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #86efac);
+  transition: width 0.3s var(--ease);
+}
+
+/* The build loads here, invisible, while the visitor picks their settings. Not display:none, so it keeps running. */
+.cricket-preload {
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  display: flex;
+}
+
 /* ---------- VOLT RIOT ---------- */
 
 .vr-title {
