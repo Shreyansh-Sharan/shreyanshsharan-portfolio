@@ -636,8 +636,9 @@ export function follow(
   if (holding) {
     // Stand on the spot (nudge back onto it if pushed off).
     const hd = Math.hypot(tx - toy.pos.x, tz - toy.pos.z)
-    toy.pad.mx = hd > 0.5 ? ((tx - toy.pos.x) / hd) * 0.5 : 0
-    toy.pad.mz = hd > 0.5 ? ((tz - toy.pos.z) / hd) * 0.5 : 0
+    const hk = hd > 0.25 ? Math.min(1, hd * 1.6) / hd : 0
+    toy.pad.mx = (tx - toy.pos.x) * hk
+    toy.pad.mz = (tz - toy.pos.z) * hk
     d.stuck = 0
     d.bestD = Infinity
     return
