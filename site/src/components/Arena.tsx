@@ -67,6 +67,19 @@ function saveName(name: string) {
   }
 }
 
+/** Turn the game's raw connection error into something a player can act on. */
+function describeError(raw: string) {
+  const text = (raw || '').toLowerCase()
+  if (text.includes('project') && (text.includes('cloud') || text.includes('id')))
+    return 'Online play isn’t set up yet: the game needs to be linked to a Unity Cloud project. Solo mode still works.'
+  if (text.includes('not found') || text.includes('404') || text.includes('code'))
+    return 'No match with that code. Check it, or ask your friend to host again.'
+  if (text.includes('full')) return 'That match is full.'
+  if (text.includes('network') || text.includes('websocket') || text.includes('timeout'))
+    return 'Couldn’t reach the game servers. Check your connection and try again.'
+  return raw ? `Couldn’t connect: ${raw}` : 'Couldn’t connect. Check the code, or try solo mode.'
+}
+
 /** Lobby for the Unity WebGL shooter, plus the full-screen player that embeds it. */
 export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string, string], emblem: string) => void }) {
   useEffect(() => onAccent(accent, 'arena'), [onAccent])
@@ -281,7 +294,7 @@ function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void })
       const msg = ev.data as ArenaMessage
       if (!msg || msg.source !== 'arena') return
       if (msg.type === 'code') setCode(msg.payload)
-      if (msg.type === 'error') setError('Couldn’t connect. Check the code, or try solo mode.')
+      if (msg.type === 'error') setError(describeError(msg.payload))
       if (msg.type === 'started') setError(null)
       if (msg.type === 'left') onExit()
     }

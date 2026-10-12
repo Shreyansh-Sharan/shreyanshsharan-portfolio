@@ -31,6 +31,15 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+        env:
+          # Ads and affiliate IDs come from repository variables (Settings → Secrets and variables → Actions →
+          # Variables). Empty variables leave ads switched off.
+          VITE_ADSENSE_CLIENT: ${{ vars.VITE_ADSENSE_CLIENT }}
+          VITE_ADSENSE_SLOT_LOBBY: ${{ vars.VITE_ADSENSE_SLOT_LOBBY }}
+          VITE_ADSENSE_SLOT_SIDE: ${{ vars.VITE_ADSENSE_SLOT_SIDE }}
+          VITE_H5_GAME_ADS: ${{ vars.VITE_H5_GAME_ADS }}
+          VITE_AMAZON_TAG: ${{ vars.VITE_AMAZON_TAG }}
+          VITE_AMAZON_DOMAIN: ${{ vars.VITE_AMAZON_DOMAIN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist

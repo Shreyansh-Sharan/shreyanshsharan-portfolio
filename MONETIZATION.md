@@ -24,7 +24,7 @@ Ads never cover live gameplay. That's an AdSense policy, and it also keeps the g
    - Turn on **Privacy & messaging → European regulations** so Google shows the consent banner for EU/UK visitors.
 3. **H5 games ads (optional, for full-screen ads between rounds).** Apply for the AdSense H5 Games Ads program. Until it's approved, leave `VITE_H5_GAME_ADS=off`; the banners still work.
 4. **Amazon Associates.** Join the program for your store (affiliate-program.amazon.in for India, affiliate-program.amazon.com for the US) and copy your tracking ID, such as `yourname-21`. Amazon closes accounts that make no qualifying sales within 180 days.
-5. **Add the IDs.** Copy `site/.env.example` to `site/.env.local` for local builds, or add the same variables in Vercel → Project → Settings → Environment Variables, then redeploy.
+5. **Add the IDs.** Copy `site/.env.example` to `site/.env.local` for local builds. For the live site, add the same variables wherever the site is deployed: in GitHub (Settings → Secrets and variables → Actions → **Variables**) for the GitHub Pages workflow, and/or in Vercel (Project → Settings → Environment Variables). Then redeploy.
 
 ```
 VITE_ADSENSE_CLIENT=ca-pub-XXXXXXXXXXXXXXXX
