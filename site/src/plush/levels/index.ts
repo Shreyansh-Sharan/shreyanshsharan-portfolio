@@ -16,6 +16,13 @@ import crayonMatch from './crayon-match'
 import toyPile from './toy-pile'
 import cushionKing from './cushion-king'
 import merryGoRound from './merry-go-round'
+import sockDrawer from './sock-drawer'
+import bookshelf from './bookshelf'
+import trainSet from './train-set'
+import duckRapids from './duck-rapids'
+import pinball from './pinball'
+import conveyor from './conveyor'
+import hamster from './hamster'
 import toyBoxTrail from '../board/trail'
 
 export const LEVELS: AnyLevel[] = [
@@ -34,6 +41,13 @@ export const LEVELS: AnyLevel[] = [
   toyPile,
   cushionKing,
   merryGoRound,
+  sockDrawer,
+  bookshelf,
+  trainSet,
+  duckRapids,
+  pinball,
+  conveyor,
+  hamster,
 ]
 
 /** Game modes that run as one long round of their own (not drawn by the Show or Quick Play). */
