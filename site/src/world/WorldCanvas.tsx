@@ -162,12 +162,15 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <AdaptiveDpr pixelated={false} />
       {/* Below ~45 fps for a few seconds: drop to the light path (no AO or MSAA, 1x pixel ratio). */}
       <PerformanceMonitor bounds={() => [45, 120]} flipflops={1} onDecline={() => setDegraded(true)} />
-      <EffectComposer multisampling={rich ? 4 : 0} enableNormalPass={false}>
-        {/* Full-res AO: the half-res buffer could tile parts of the frame black on some drivers. */}
-        {rich ? <N8AO aoRadius={2.2} intensity={1.6} distanceFalloff={1.2} quality="medium" /> : <></>}
-        <Bloom mipmapBlur luminanceThreshold={0.92} luminanceSmoothing={0.12} intensity={0.7} />
-        <Vignette offset={0.3} darkness={0.45} />
-      </EffectComposer>
+      {/* Post-processing only on a capable, unstrained GPU. A mis-sized composer buffer is a common
+          cause of a partly-black frame on some drivers, so the light path renders the scene plainly. */}
+      {heavy && (
+        <EffectComposer multisampling={rich ? 4 : 0} enableNormalPass={false}>
+          {rich ? <N8AO aoRadius={2.2} intensity={1.6} distanceFalloff={1.2} quality="medium" /> : <></>}
+          <Bloom mipmapBlur luminanceThreshold={0.92} luminanceSmoothing={0.12} intensity={0.7} />
+          <Vignette offset={0.3} darkness={0.45} />
+        </EffectComposer>
+      )}
     </Canvas>
   )
 }

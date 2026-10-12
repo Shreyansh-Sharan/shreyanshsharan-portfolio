@@ -229,6 +229,7 @@ export class Game {
   private fxLog: unknown[] = []
   private uiOut = new Map<string, UiEvent[]>()
   private snapTimer = 0
+  private physAccum = 0 // leftover time carried between frames so physics steps at a fixed rate
   private inputTimer = 0
   private lastSent = ''
   private launched = new Set<Car>()
@@ -1135,11 +1136,17 @@ export class Game {
       }
     }
     if (racing) {
-      // Two physics substeps keep collisions stable at high speed.
-      const sub = dt / 2
-      for (let k = 0; k < 2; k++) {
-        for (const c of this.cars) c.step(sub, this.track)
+      // Fixed-timestep physics: step at a constant 1/120 s regardless of frame rate, so handling
+      // (especially grip and steering) feels identical on a 30 fps laptop and a 120 fps desktop.
+      // Without this, large variable dt on a laggy Windows machine over-damps lateral slip = understeer.
+      const FIXED = 1 / 120
+      this.physAccum = Math.min(this.physAccum + dt, 0.1) // cap so a stall doesn't spiral
+      let steps = 0
+      while (this.physAccum >= FIXED && steps < 16) {
+        for (const c of this.cars) c.step(FIXED, this.track)
         this.collideCars()
+        this.physAccum -= FIXED
+        steps++
       }
       for (const c of this.cars) this.afterStep(c, dt)
       this.updatePickups(dt)

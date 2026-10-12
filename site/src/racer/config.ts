@@ -70,10 +70,10 @@ export const CONFIG = {
   drift_grip_mult: 0.4, // x
   drift_exit_boost: 0.5, // s
   launch_boost: 1.0, // s
-  classD_topspeed: 160, // km/h
-  classC_topspeed: 200, // km/h
-  classB_topspeed: 240, // km/h
-  classA_topspeed: 280, // km/h
+  classD_topspeed: 130, // km/h
+  classC_topspeed: 165, // km/h
+  classB_topspeed: 200, // km/h
+  classA_topspeed: 235, // km/h
   ai_rubberband_gap: 8, // s
   ai_rubberband_mult: 0.07, // x
   race_laps: 3,
