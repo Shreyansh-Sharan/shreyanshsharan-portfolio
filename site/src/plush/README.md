@@ -234,7 +234,8 @@ The host's browser runs every round. About 20 times a second it sends a snapshot
 second, plus one-shot actions (`trick:<id>:<target>`, `throw:<kind>:<target>`, `jump`, …). Clients predict
 their own toy with a local physics world built by the same `build()`. Other toys are kinematic puppets. The
 host trusts a client's reported position unless that toy is being pushed around. If a player leaves, a bot
-takes over. Your level only has to keep `pack()` small (numbers and short arrays) and make `visual()` draw
+takes over. If a player goes silent for 3 s mid-round (hidden tab, dropped link), your `bot()` hook drives
+their toy until their input comes back. Your level only has to keep `pack()` small (numbers and short arrays) and make `visual()` draw
 purely from state.
 
 ## Cosmetics: the attachment API

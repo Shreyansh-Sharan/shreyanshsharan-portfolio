@@ -116,6 +116,8 @@ interface RemoteIn {
   pad: Pad
   pos: [number, number, number, number] | null
   acts: string[]
+  /** performance.now() of the last input: a silent player (hidden tab, dropped link) is driven by a bot. */
+  last: number
 }
 
 const _v = new THREE.Vector3()
@@ -1129,7 +1131,7 @@ export class Game {
         p.shove = this.padFlags.shove
         p.act = this.padFlags.act
         p.emote = this.padFlags.emote
-      } else if (t.c.human && !t.isMe && !t.bot) {
+      } else if (t.c.human && !t.isMe && !t.bot && !this.afk(t)) {
         const rm = this.remote.get(t.c.id)
         if (rm) {
           Object.assign(t.pad, rm.pad)
@@ -1174,7 +1176,7 @@ export class Game {
     for (const t of r.toys) {
       t.postStep(dt, r.phys, ev)
       // Online: a player moves their own toy; trust it while nothing here is pushing them around.
-      if (t.c.human && !t.isMe && !t.bot && t.status === 'play' && t.mode !== 'seated') {
+      if (t.c.human && !t.isMe && !t.bot && !this.afk(t) && t.status === 'play' && t.mode !== 'seated') {
         const rp = this.remote.get(t.c.id)?.pos
         if (rp && t.forced <= 0 && !t.grabbedBy && t.stun <= 0 && Math.hypot(rp[0] - t.pos.x, rp[2] - t.pos.z) < 2.5 && Math.abs(rp[1] - t.pos.y) < 2.5) {
           t.body.setTranslation({ x: rp[0], y: rp[1], z: rp[2] }, true)
@@ -1211,6 +1213,16 @@ export class Game {
         this.outEvents = []
       }
     }
+  }
+
+  /**
+   * A remote player who has gone quiet for 3 s mid-round (hidden tab, dropped link) has a bot drive their toy
+   * until their input comes back. In the Loft they just stand still.
+   */
+  afk(t: Toy) {
+    if (this.phase === 'loft' || !t.c.human || t.isMe) return false
+    const rm = this.remote.get(t.c.id)
+    return !rm || performance.now() - rm.last > 3000
   }
 
   private applyAct(p: Pad, a: string) {
@@ -1893,7 +1905,7 @@ export class Game {
       for (let n = 2; taken.has(c.name); n++) c.name = `${m.look.name.slice(0, 13) || 'Stitchling'} ${n}`
       this.roster = [...humans, c].map((x, i) => ({ ...x, idx: i }))
       this.meIdx = 0
-      this.remote.set(from, { pad: emptyPad(), pos: null, acts: [] })
+      this.remote.set(from, { pad: emptyPad(), pos: null, acts: [], last: performance.now() })
       this.buildRosterKeepHumans()
       this.startHub()
       this.send({ t: 'pp-roster', roster: this.rosterRows(), settings: this.settings })
@@ -1907,7 +1919,7 @@ export class Game {
     } else if (m.t === 'pp-in') {
       let rm = this.remote.get(from)
       if (!rm) {
-        rm = { pad: emptyPad(), pos: null, acts: [] }
+        rm = { pad: emptyPad(), pos: null, acts: [], last: performance.now() }
         this.remote.set(from, rm)
       }
       const p = m.p
@@ -1920,6 +1932,7 @@ export class Game {
       rm.pad.pz = p[5]
       rm.pos = p.length >= 10 ? [p[6], p[7], p[8], p[9]] : null
       rm.acts.push(...m.a.slice(0, 12))
+      rm.last = performance.now()
     }
   }
 
@@ -2175,7 +2188,7 @@ export class Game {
       meIdx: this.meIdx,
       toys: r
         ? r.toys.map((t) => ({
-            idx: t.idx, c: t.c.idx, name: t.name, human: t.c.human, status: t.status, x: r2(t.pos.x), y: r2(t.pos.y), z: r2(t.pos.z), sprinkles: t.sprinkles, mode: t.mode,
+            idx: t.idx, c: t.c.idx, name: t.name, human: t.c.human, afk: this.afk(t), status: t.status, x: r2(t.pos.x), y: r2(t.pos.y), z: r2(t.pos.z), sprinkles: t.sprinkles, mode: t.mode,
             grudge: t.grudge ? t.grudge.idx : -1, bubble: t.bubble, busy: r2(t.busy), stun: r2(t.stun), note: t.doneNote,
           }))
         : [],
