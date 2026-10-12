@@ -201,10 +201,10 @@ export interface LevelCtx {
    */
   readonly music: { start(tempo: number): void; windDown(seconds: number): void; stop(): void; readonly playing: boolean }
   /**
-   * This screen's WebAudio, for levels that make their own sound (the Loft's zone ambience). `ensure()` returns
-   * the context once the player has interacted (null before); connect to `bus`, which follows the site's mute.
+   * This screen's WebAudio, for levels that make their own sound (the Loft's zone ambience). `ctx` is null
+   * until the player first interacts (the engine creates it then); connect to `bus`, which follows the mute.
    */
-  readonly sound: { ensure(): AudioContext | null; readonly bus: GainNode | null; play(name: string, pos?: THREE.Vector3Like, vol?: number): void }
+  readonly sound: { readonly ctx: AudioContext | null; readonly bus: GainNode | null; play(name: string, pos?: THREE.Vector3Like, vol?: number): void }
 
   /* ----- Results (host) ----- */
   /** This toy is through (race finish, shape cut out). */

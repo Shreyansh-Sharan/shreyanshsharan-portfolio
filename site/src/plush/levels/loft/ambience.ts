@@ -46,7 +46,8 @@ export class LoftAmbience {
   }
 
   private start() {
-    const ac = this.ctx.sound.ensure()
+    // Wait for the engine's context (made on the player's first key or tap) rather than creating one.
+    const ac = this.ctx.sound.ctx
     const bus = this.ctx.sound.bus
     if (!ac || !bus || ac.state !== 'running') return false
     this.ac = ac
