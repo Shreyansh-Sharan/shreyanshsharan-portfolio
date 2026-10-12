@@ -19,23 +19,33 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 const STUN: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
 
+/** Metered's global relay endpoints (ports 80/443, UDP+TCP+TLS) for static username/password creds. */
+const METERED_TURN_URLS = [
+  'turn:global.relay.metered.ca:80',
+  'turn:global.relay.metered.ca:80?transport=tcp',
+  'turn:global.relay.metered.ca:443',
+  'turns:global.relay.metered.ca:443?transport=tcp',
+]
+
 /**
  * ICE servers for WebRTC. Players on different networks need a TURN relay to connect. Configure one of:
- *  - VITE_METERED_SUBDOMAIN + VITE_METERED_API_KEY — fetches fresh TURN creds from Metered's API
- *    (free account at metered.ca). Recommended: returns servers nearest each player.
- *  - VITE_TURN_URL (+ VITE_TURN_USERNAME, VITE_TURN_CREDENTIAL) — a static TURN server you run.
+ *  - VITE_TURN_USERNAME + VITE_TURN_CREDENTIAL — Metered static credentials (free account at
+ *    metered.ca). Simplest: the relay URLs default to Metered's global endpoints.
+ *  - VITE_TURN_URL as well — point the same username/credential at a different/self-hosted TURN.
+ *  - VITE_METERED_SUBDOMAIN + VITE_METERED_API_KEY — fetch fresh creds from Metered's API instead.
  * Set these in Vercel's env settings. With none set, play works only on friendly/same networks.
  */
 async function iceServers(): Promise<RTCIceServer[]> {
-  // 1) Static TURN via env.
-  const url = import.meta.env.VITE_TURN_URL as string | undefined
+  // 1) Static TURN via env: username + credential, with URLs defaulting to Metered's global relay.
   const username = import.meta.env.VITE_TURN_USERNAME as string | undefined
   const credential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined
-  if (url && username && credential) {
-    return [...STUN, { urls: url.split(',').map((u) => u.trim()), username, credential }]
+  if (username && credential) {
+    const url = import.meta.env.VITE_TURN_URL as string | undefined
+    const urls = url ? url.split(',').map((u) => u.trim()) : METERED_TURN_URLS
+    return [...STUN, { urls, username, credential }]
   }
 
-  // 2) Metered dynamic credentials (preferred).
+  // 2) Metered dynamic credentials (fetched per user).
   const sub = import.meta.env.VITE_METERED_SUBDOMAIN as string | undefined
   const key = import.meta.env.VITE_METERED_API_KEY as string | undefined
   if (sub && key) {
