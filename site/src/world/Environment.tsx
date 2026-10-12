@@ -41,7 +41,7 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
         color="#ffe2b8"
         intensity={2.5}
         castShadow={shadows}
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[1536, 1536]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.04}
         shadow-camera-left={-80}
@@ -168,7 +168,7 @@ export function SkyClouds({ count = 9 }: { count?: number }) {
   return (
     <Clouds texture={tex} limit={400} material={THREE.MeshLambertMaterial}>
       {clouds.map((c) => (
-        <Cloud key={c.seed} seed={c.seed} position={c.pos} bounds={[34, 6, 18]} segments={24} volume={26} growth={6} speed={0.08} opacity={0.85} color="#ffffff" />
+        <Cloud key={c.seed} seed={c.seed} position={c.pos} bounds={[34, 6, 18]} segments={16} volume={26} growth={6} speed={0.08} opacity={0.85} color="#ffffff" />
       ))}
     </Clouds>
   )

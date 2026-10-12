@@ -20,6 +20,8 @@ export const controls = {
   down: false,
   /** Gamepad left stick and run trigger, refreshed by pollPad(). */
   pad: { x: 0, y: 0, run: false, up: false, down: false },
+  /** The mouse is captured by the world (pointer lock): moving it looks around, Esc frees it. */
+  locked: false,
 }
 
 let attached = false
@@ -52,14 +54,27 @@ export function attachControls() {
   const up = (e: KeyboardEvent) => controls.keys.delete(e.code)
   const blur = () => controls.keys.clear()
 
+  // Mouse: the first click over the world captures the pointer (like a desktop game); from then on moving the
+  // mouse looks around with no feedback from the character, left click attacks and right click casts. Esc
+  // releases it. Touch and pen keep drag-to-look.
   let dragging = false
   let last = { x: 0, y: 0 }
   let start = { x: 0, y: 0 }
   let moved = 0
+  const overWorld = (t: HTMLElement | null) => !!t && !!t.closest('canvas') && !t.closest('button, a, .play-hud .prompt, .play-hud .objective')
   const pd = (e: PointerEvent) => {
-    const t = e.target as HTMLElement
-    // Ignore presses on HUD buttons/links so attacks only happen over the world.
-    if (!t.closest('canvas') || t.closest('button, a, .play-hud .prompt, .play-hud .objective')) return
+    const t = e.target as HTMLElement | null
+    if (!overWorld(t)) return
+    if (e.pointerType === 'mouse') {
+      if (controls.locked) {
+        if (e.button === 2) controls.cast = true
+        else if (e.button === 0) controls.attack = true
+      } else {
+        const canvas = t!.closest('canvas') as HTMLCanvasElement
+        canvas.requestPointerLock?.()
+      }
+      return
+    }
     dragging = true
     last = { x: e.clientX, y: e.clientY }
     start = { x: e.clientX, y: e.clientY }
@@ -74,13 +89,20 @@ export function attachControls() {
   const pu = (e: PointerEvent) => {
     if (dragging) {
       moved = Math.hypot(e.clientX - start.x, e.clientY - start.y)
-      // A near-stationary click (not a drag-to-look) attacks; right click casts.
-      if (moved < 6) {
-        if (e.button === 2) controls.cast = true
-        else controls.attack = true
-      }
+      // A near-stationary tap (not a drag-to-look) attacks.
+      if (moved < 6) controls.attack = true
     }
     dragging = false
+  }
+  const mm = (e: MouseEvent) => {
+    if (!controls.locked) return
+    // Captured mouse: relative movement, scaled down a little against the drag sensitivity.
+    controls.look.x += e.movementX * 0.65
+    controls.look.y += e.movementY * 0.65
+  }
+  const lockChange = () => {
+    controls.locked = !!document.pointerLockElement
+    controls.look.x = controls.look.y = 0
   }
   const menu = (e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('canvas')) e.preventDefault()
@@ -92,16 +114,22 @@ export function attachControls() {
   window.addEventListener('pointerdown', pd)
   window.addEventListener('pointermove', pm)
   window.addEventListener('pointerup', pu)
+  window.addEventListener('mousemove', mm)
+  document.addEventListener('pointerlockchange', lockChange)
   window.addEventListener('contextmenu', menu)
   return () => {
     attached = false
     controls.keys.clear()
+    controls.locked = false
+    if (document.pointerLockElement) document.exitPointerLock()
     window.removeEventListener('keydown', down)
     window.removeEventListener('keyup', up)
     window.removeEventListener('blur', blur)
     window.removeEventListener('pointerdown', pd)
     window.removeEventListener('pointermove', pm)
     window.removeEventListener('pointerup', pu)
+    window.removeEventListener('mousemove', mm)
+    document.removeEventListener('pointerlockchange', lockChange)
     window.removeEventListener('contextmenu', menu)
   }
 }

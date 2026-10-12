@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { ISLAND_RADIUS, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { lookTarget } from './Environment'
-import { controls } from './controls'
+import { controls, moveAxes } from './controls'
 import { player } from './Characters'
 import { world } from './store'
 import { feel } from './combat'
@@ -35,19 +35,22 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       player.camPitch = THREE.MathUtils.clamp(player.camPitch + controls.look.y * 0.004, 0.05, 1.1)
       controls.look.x = controls.look.y = 0
 
-      // When the player isn't actively dragging to look, ease the camera back behind the player's
-      // heading so it auto-follows. Kicks in shortly after the last drag; stronger while moving.
+      // Auto-follow: with the mouse captured the camera is entirely the player's, like a desktop game. Without
+      // it (touch, or before the first click), ease back behind the heading only while moving straight ahead.
+      // Movement is camera-relative, so recentering while strafing fed the turn back into the input and sent
+      // the character spiralling; a sideways or diagonal input now leaves the camera where it is.
       if (dragged) s.lookIdle = 0
       else s.lookIdle += dt
-      if (s.lookIdle > 0.35 && player.speed > 0.05) {
+      const move = moveAxes()
+      const straight = move.y > 0.5 && Math.abs(move.x) < 0.2
+      if (!controls.locked && s.lookIdle > 0.6 && player.speed > 0.05 && straight) {
         // Behind the player: camYaw such that the camera sits opposite the facing direction.
         const desired = player.yaw + Math.PI
         let d = desired - player.camYaw
         d = Math.atan2(Math.sin(d), Math.cos(d))
-        // Faster recenter so it clearly follows; scales a little with how long the player has been idle.
-        const rate = THREE.MathUtils.clamp(dt * (3.2 + s.lookIdle), 0, 1)
+        const rate = THREE.MathUtils.clamp(dt * 1.6, 0, 1)
         player.camYaw += d * rate
-        player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 2))
+        player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 1.2))
       }
       // Pull back a little (and widen the lens) as flight speeds up.
       const dist = 7.5 + player.fly * 3.5

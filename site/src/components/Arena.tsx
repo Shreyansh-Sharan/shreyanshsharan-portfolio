@@ -80,6 +80,39 @@ function describeError(raw: string) {
   return raw ? `Couldn’t connect: ${raw}` : 'Couldn’t connect. Check the code, or try solo mode.'
 }
 
+const BUILD_FILES = ['games/arena/Build/arena.loader.js', 'games/arena/Build/arena.framework.js.unityweb', 'games/arena/Build/arena.data.unityweb', 'games/arena/Build/arena.wasm.unityweb']
+
+/** Skip the warm-up on data saver, slow connections and phones (the game needs a mouse and keyboard anyway). */
+function shouldPrefetch() {
+  const c = (navigator as unknown as { connection?: { saveData?: boolean; effectiveType?: string } }).connection
+  if (c?.saveData || /2g/.test(c?.effectiveType ?? '')) return false
+  return !(matchMedia('(pointer: coarse)').matches && window.innerWidth < 900)
+}
+
+/**
+ * Pull the game's files (about 15 MB) into the browser cache while the visitor reads the lobby, so pressing
+ * Deploy starts the match from cache instead of a cold download. Reports bytes so the lobby can show progress.
+ */
+async function warmBuild(onProgress: (done: number, total: number) => void, signal: AbortSignal) {
+  const heads = await Promise.all(BUILD_FILES.map((u) => fetch(u, { method: 'HEAD', signal }).catch(() => null)))
+  const sizes = heads.map((h) => Number(h?.headers.get('content-length') ?? 0))
+  const total = sizes.reduce((a, b) => a + b, 0)
+  let done = 0
+  onProgress(0, total)
+  for (const url of BUILD_FILES) {
+    const res = await fetch(url, { signal, priority: 'low' } as RequestInit)
+    if (!res.ok || !res.body) continue
+    const reader = res.body.getReader()
+    for (;;) {
+      const { value, done: end } = await reader.read()
+      if (end) break
+      done += value?.byteLength ?? 0
+      onProgress(done, total)
+    }
+  }
+  onProgress(total || done, total || done)
+}
+
 /** Lobby for the Unity WebGL shooter, plus the full-screen player that embeds it. */
 export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string, string], emblem: string) => void }) {
   useEffect(() => onAccent(accent, 'arena'), [onAccent])
@@ -104,6 +137,17 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
       cancelled = true
     }
   }, [])
+
+  // Warm the browser cache with the build as soon as the lobby opens.
+  const [warm, setWarm] = useState<{ done: number; total: number } | null>(null)
+  useEffect(() => {
+    if (available !== true || !shouldPrefetch()) return
+    const ctrl = new AbortController()
+    warmBuild((done, total) => setWarm({ done, total }), ctrl.signal).catch(() => {})
+    return () => ctrl.abort()
+  }, [available])
+  const warmPct = warm && warm.total ? Math.min(100, Math.round((warm.done / warm.total) * 100)) : null
+  const warmDone = warm !== null && warm.total > 0 && warm.done >= warm.total
 
   const canStart = available !== false && (mode !== 'join' || code.trim().length >= 4)
 
@@ -216,6 +260,14 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
           <button className="btn btn-primary arena-start" disabled={!canStart} onClick={start}>
             <Crosshair size={18} /> {mode === 'solo' ? 'Deploy' : mode === 'host' ? 'Create match' : 'Join match'}
           </button>
+          {warmPct !== null && (
+            <div className="cricket-progress" aria-live="polite">
+              <div className="cricket-progress-bar">
+                <div style={{ width: `${warmPct}%` }} />
+              </div>
+              <span className="muted small">{warmDone ? 'Game files ready: the match will start straight away.' : `Preparing the game in the background… ${warmPct}%`}</span>
+            </div>
+          )}
           {mode === 'host' && (
             <p className="muted small">You'll get a code and an invite link to share once the match is up. Bots fill the empty slots.</p>
           )}

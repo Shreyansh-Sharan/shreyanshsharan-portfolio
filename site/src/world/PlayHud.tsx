@@ -226,6 +226,13 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
   const open = useWorld((s) => s.open)
   const done = useWorld((s) => s.done)
   const touch = useMemo(() => matchMedia('(pointer: coarse)').matches, [])
+  // With a mouse, the first click over the world captures the pointer for looking around.
+  const [locked, setLocked] = useState(() => !!document.pointerLockElement)
+  useEffect(() => {
+    const on = () => setLocked(!!document.pointerLockElement)
+    document.addEventListener('pointerlockchange', on)
+    return () => document.removeEventListener('pointerlockchange', on)
+  }, [])
   const fightState = useWorld((s) => s.fight)
   const flying = player.flying
 
@@ -359,6 +366,8 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </div>
       )}
       {!fightState && !nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
+
+      {!touch && !locked && !open && <div className="look-hint">Click the world to look around with the mouse · Esc frees it</div>}
 
       <div className="map-wrap">
         <Minimap target={nextMission} />

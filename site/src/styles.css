@@ -3650,16 +3650,15 @@ p {
   object-fit: cover;
   object-position: 50% 70%;
   opacity: 0;
-  /* The painted scene is the far horizon now; the 3D set in front carries the detail. */
-  filter: blur(2px) saturate(1.1);
-  transform: scale(var(--zoom));
+  /* The painted scene is the far horizon (its blur is baked into the image: a live CSS blur over a
+     full-screen image re-rasterised on every scroll frame and made the whole page stutter). */
   transform-origin: 50% 65%;
   transition: opacity 0.9s var(--ease), transform 0.25s linear;
-  will-change: opacity, transform;
 }
 
 .stroll-bg img.is-on {
   opacity: 1;
+  transform: scale(var(--zoom));
 }
 
 /* Darkens the half the text sits on, so the copy stays readable over busy scenes. */
@@ -3735,11 +3734,10 @@ p {
   width: min(560px, 50vw);
   padding: 28px 30px;
   border-radius: 20px;
-  background: rgba(8, 10, 22, 0.88);
+  /* Solid rather than frosted: a backdrop blur over the live 3D stage would be re-blurred every frame. */
+  background: rgba(8, 10, 22, 0.93);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
   color: #f6f7fb;
   font-size: 16px;
   line-height: 1.6;
@@ -4064,9 +4062,7 @@ p {
   padding: 0 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(8, 10, 22, 0.8);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(8, 10, 22, 0.88);
   color: #fff;
   font: inherit;
   font-size: 14px;
@@ -6694,6 +6690,8 @@ p {
     width: 78px;
   }
 
+}
+
 /* ---------- Ads and affiliate gear ---------- */
 .ad-slot {
   display: grid;
@@ -6751,4 +6749,19 @@ p {
   top: 14px;
   right: 12px;
   color: var(--muted);
+}
+
+/* Explore mode: how to look around with a mouse (hidden once the pointer is captured). */
+.look-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(5, 6, 15, 0.6);
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
 }
