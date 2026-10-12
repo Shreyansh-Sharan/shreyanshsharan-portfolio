@@ -17,6 +17,48 @@ export interface Link {
 const PREFIX = 'voltriot-'
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
+const STUN: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
+
+/**
+ * ICE servers for WebRTC. Players on different networks need a TURN relay to connect. Configure one of:
+ *  - VITE_METERED_SUBDOMAIN + VITE_METERED_API_KEY — fetches fresh TURN creds from Metered's API
+ *    (free account at metered.ca). Recommended: returns servers nearest each player.
+ *  - VITE_TURN_URL (+ VITE_TURN_USERNAME, VITE_TURN_CREDENTIAL) — a static TURN server you run.
+ * Set these in Vercel's env settings. With none set, play works only on friendly/same networks.
+ */
+async function iceServers(): Promise<RTCIceServer[]> {
+  // 1) Static TURN via env.
+  const url = import.meta.env.VITE_TURN_URL as string | undefined
+  const username = import.meta.env.VITE_TURN_USERNAME as string | undefined
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined
+  if (url && username && credential) {
+    return [...STUN, { urls: url.split(',').map((u) => u.trim()), username, credential }]
+  }
+
+  // 2) Metered dynamic credentials (preferred).
+  const sub = import.meta.env.VITE_METERED_SUBDOMAIN as string | undefined
+  const key = import.meta.env.VITE_METERED_API_KEY as string | undefined
+  if (sub && key) {
+    try {
+      const res = await fetch(`https://${sub}.metered.live/api/v1/turn/credentials?apiKey=${key}`)
+      if (res.ok) {
+        const list = (await res.json()) as RTCIceServer[]
+        if (Array.isArray(list) && list.length) return list
+      }
+    } catch {
+      // Fall through to STUN-only if the credentials service is unreachable.
+    }
+  }
+
+  // 3) No TURN configured: STUN only (works on friendly/same networks, may fail across strict NATs).
+  return STUN
+}
+
+/** Options passed to every PeerJS peer so the TURN config is applied consistently. */
+async function peerOptions() {
+  return { debug: 0, config: { iceServers: await iceServers() } }
+}
+
 export function newCode() {
   let s = ''
   for (let i = 0; i < 6; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
@@ -72,7 +114,7 @@ export async function hostRoom(): Promise<Link> {
   const Peer = await loadPeer()
   for (let attempt = 0; attempt < 4; attempt++) {
     const code = newCode()
-    const peer = new Peer(PREFIX + code, { debug: 0 })
+    const peer = new Peer(PREFIX + code, await peerOptions())
     try {
       await waitOpen(peer)
     } catch (e) {
@@ -119,7 +161,7 @@ export async function joinRoom(code: string): Promise<Link> {
   code = code.trim().toUpperCase()
   if (localTransport()) return localJoin(code)
   const Peer = await loadPeer()
-  const peer = new Peer({ debug: 0 })
+  const peer = new Peer(await peerOptions())
   const selfId = await waitOpen(peer)
   const em = new Emitter()
   const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' })
