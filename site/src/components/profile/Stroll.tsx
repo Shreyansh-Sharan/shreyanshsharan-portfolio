@@ -567,7 +567,7 @@ function Lights() {
 export default function Stroll() {
   return (
     <div className="stroll-stage" aria-hidden="true">
-      <Canvas shadows dpr={[1, 1.5]} camera={{ position: [0, 1.4, 5.6], fov: 35 }} gl={{ antialias: true, alpha: true }}>
+      <Canvas shadows dpr={[1, 1.25]} camera={{ position: [0, 1.4, 5.6], fov: 35 }} gl={{ antialias: true, alpha: true }}>
         <Rig />
         <Lights />
         <Street />

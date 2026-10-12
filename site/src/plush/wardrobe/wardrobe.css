@@ -1,0 +1,224 @@
+/* PLUSH PANIC: the Sewing Table drawer and the Loft's game HUD bits (kept beside the wardrobe, not in styles.css). */
+
+.pp-wardrobe {
+  position: absolute;
+  right: 12px;
+  top: 64px;
+  width: min(430px, calc(100vw - 24px));
+  max-height: calc(100vh - 150px);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(36, 22, 12, 0.93);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  text-shadow: none;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.pp-wardrobe header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pp-wardrobe h3 {
+  margin: 0;
+  color: #fde68a;
+  flex: 1;
+}
+
+.pp-wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(253, 230, 138, 0.15);
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.pp-wr-close {
+  padding: 4px 8px;
+}
+
+.pp-wr-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pp-wr-tab {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(253, 230, 138, 0.25);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fef3c7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pp-wr-tab.is-worn {
+  border-color: rgba(134, 239, 172, 0.6);
+}
+
+.pp-wr-tab.is-active {
+  background: #fde68a;
+  color: #451a03;
+  font-weight: 800;
+}
+
+.pp-wr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 6px;
+  overflow: auto;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.pp-wr-item {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 2px solid color-mix(in srgb, var(--rar) 45%, transparent);
+}
+
+.pp-wr-item.is-worn {
+  border-color: #86efac;
+  background: rgba(134, 239, 172, 0.12);
+}
+
+.pp-wr-item.is-trying {
+  border-color: #fde68a;
+  box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.35);
+}
+
+.pp-wr-face {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+.pp-wr-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 -6px 10px rgba(0, 0, 0, 0.25);
+}
+
+.pp-wr-name {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.pp-wr-rar {
+  font-size: 10px;
+  color: var(--rar);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pp-wr-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #bbf7d0;
+  text-align: center;
+}
+
+.pp-wr-state.is-locked {
+  color: #fcd34d;
+  opacity: 0.85;
+}
+
+.pp-wr-buy {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.pp-wr-try {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(253, 230, 138, 0.12);
+  font-size: 13px;
+}
+
+.pp-wr-try strong {
+  color: #fde68a;
+  flex: 1;
+}
+
+.pp-wardrobe footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pp-wardrobe footer .btn,
+.pp-wr-try .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Loft game HUD (status pill and meters reuse the in-round classes). */
+.pp-loftgame .pp-left {
+  bottom: 70px;
+}
+
+.pp-toasts {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  pointer-events: none;
+}
+
+.pp-toast {
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(28, 17, 9, 0.85);
+  border: 1px solid rgba(253, 230, 138, 0.45);
+  color: #fde68a;
+  font-weight: 800;
+  font-size: 15px;
+  animation: pp-toast-in 0.35s ease-out;
+}
+
+@keyframes pp-toast-in {
+  from {
+    transform: translateY(-8px) scale(0.92);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .pp-wardrobe {
+    top: auto;
+    bottom: 12px;
+    max-height: 52vh;
+  }
+}

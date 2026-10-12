@@ -1,0 +1,18 @@
+<linker>
+  <!-- Managed stripping is High for the WebGL build (a smaller, faster-loading download). Netcode for GameObjects,
+       Unity Transport and the Multiplayer Services use reflection and generated code, so they are kept whole. -->
+  <assembly fullname="Unity.Netcode.Runtime" preserve="all" />
+  <assembly fullname="Unity.Netcode.Components" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Networking.Transport" preserve="all" />
+  <assembly fullname="Unity.Services.Core" preserve="all" />
+  <assembly fullname="Unity.Services.Core.Internal" preserve="all" />
+  <assembly fullname="Unity.Services.Core.Configuration" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Core.Registration" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Authentication" preserve="all" />
+  <assembly fullname="Unity.Services.Multiplayer" preserve="all" />
+  <assembly fullname="Unity.Services.QoS" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Wire.Internal" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Newtonsoft.Json" preserve="all" ignoreIfMissing="1" />
+  <!-- Game code: NetworkBehaviours and RPCs are found by reflection. -->
+  <assembly fullname="Assembly-CSharp" preserve="all" />
+</linker>

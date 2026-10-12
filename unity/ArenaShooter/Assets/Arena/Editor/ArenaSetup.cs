@@ -713,7 +713,13 @@ namespace Arena.EditorTools
             PlayerSettings.WebGL.decompressionFallback = true; // static hosts like GitHub Pages don't send Content-Encoding
             PlayerSettings.WebGL.dataCaching = true;
             PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly;
-            PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.WebGL, ManagedStrippingLevel.Medium);
+            // Smaller, faster-loading build: strip hard, optimise IL2CPP for size, drop unused engine modules.
+            // (Gzip stays: the site serves the existing build with a gzip Content-Encoding header.)
+            PlayerSettings.stripEngineCode = true;
+            PlayerSettings.WebGL.initialMemorySize = 64;
+            PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.WebGL, ManagedStrippingLevel.High);
+            PlayerSettings.SetIl2CppCodeGeneration(NamedBuildTarget.WebGL, Il2CppCodeGeneration.OptimizeSize);
+            PlayerSettings.SetIl2CppCompilerConfiguration(NamedBuildTarget.WebGL, Il2CppCompilerConfiguration.Master);
         }
     }
 }
