@@ -546,6 +546,14 @@ export default defineLevel<MarbleState>({
     survivalTimeUp(ctx, this.rank!(ctx, s), 'nearest the middle', "too near the edge")
   },
 
+  onThrow(ctx, s, kind, target) {
+    // The gallery's crumbs turn into little marbles flicked at the target.
+    if (kind !== 'crumb') return false
+    if (!launch(ctx, s, false, target, 6.5)) return false
+    ctx.fx.popup(target, 'Marble from the gallery!', '#7dd3fc')
+    return true
+  },
+
   onFall(ctx, _s, toy) {
     ctx.fail(toy, toy.grudge ? `rolled off (thanks, ${toy.grudge.name})` : 'rolled off the board')
   },

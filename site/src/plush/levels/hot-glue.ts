@@ -343,7 +343,7 @@ function drawGlue(s: GlueState) {
     o[i] = 255
     o[i + 1] = 226 + Math.round(a * 24)
     o[i + 2] = 150 + Math.round(a * 75)
-    o[i + 3] = Math.round(k * (130 + a * 85))
+    o[i + 3] = Math.round(k * (150 + a * 80))
     // The bump map reads the red channel: write the soft mask there (opaque).
     d[i] = d[i + 1] = d[i + 2] = Math.round(a * 255)
     d[i + 3] = 255
@@ -651,7 +651,7 @@ export default defineLevel<GlueState>({
     const bump = new THREE.CanvasTexture(bumpCanvas)
     const glue = new THREE.Mesh(
       new THREE.PlaneGeometry(HX * 2, HZ * 2).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.12, metalness: 0, bumpMap: bump, bumpScale: 6, depthWrite: false }),
+      new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.12, metalness: 0, bumpMap: bump, bumpScale: 14, depthWrite: false }),
     )
     glue.position.y = 0.025
     glue.receiveShadow = true

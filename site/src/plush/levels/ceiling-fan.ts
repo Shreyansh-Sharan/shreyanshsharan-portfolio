@@ -416,6 +416,8 @@ export default defineLevel<FanState>({
           }
           toy.body.setTranslation({ x, y: CORD_Y - 0.55, z }, true)
           toy.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+          // The host owns a hanging toy's position (an online player's screen follows it).
+          toy.forced = Math.max(toy.forced, 0.25)
           return
         }
         if (toy.feet < -1.2 || toy.feet > 0.7) return
@@ -483,6 +485,7 @@ export default defineLevel<FanState>({
           if (d > 0.55 || toy.feet > CORD_Y - 0.2 || toy.feet < -1) continue
           if (toy.pad.grab && toy.canAct) {
             toy.data.hang = { i, r: along, until: t + 2.6 }
+            toy.forced = Math.max(toy.forced, 0.25)
             ctx.fx.sfx('squeak', toy.pos)
             ctx.fx.popup(toy, 'Hold on!', '#fde68a')
             ctx.addSprinkles(toy, 1, 'cord ride')

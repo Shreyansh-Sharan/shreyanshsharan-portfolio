@@ -720,6 +720,16 @@ export default defineLevel<LaserState>({
     void dt
   },
 
+  onThrow(ctx, s, kind, target) {
+    // A feather from the gallery catches the cat's eye: a dot that is still moving swerves to the target.
+    if (kind !== 'feather') return false
+    const i = s.paws.findIndex((p) => p.on && p.ph === 0)
+    if (i < 0) return false
+    startMove(ctx, s, i, clampSill(target.pos.x, target.pos.z, _e), 0.7)
+    ctx.fx.popup(target, 'The cat noticed you!', '#fca5a5')
+    return true
+  },
+
   rank(ctx) {
     return ctx.active().sort((a, b) => b.pos.z - a.pos.z)
   },
