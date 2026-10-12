@@ -1,0 +1,25 @@
+<linker>
+  <!-- Netcode for GameObjects, Unity Transport and Multiplayer Services use reflection and generated code. -->
+  <assembly fullname="Unity.Netcode.Runtime" preserve="all" />
+  <assembly fullname="Unity.Networking.Transport" preserve="all" />
+  <assembly fullname="Unity.Services.Core" preserve="all" />
+  <assembly fullname="Unity.Services.Core.Internal" preserve="all" />
+  <assembly fullname="Unity.Services.Core.Configuration" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Core.Registration" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Authentication" preserve="all" />
+  <assembly fullname="Unity.Services.Multiplayer" preserve="all" />
+  <assembly fullname="Unity.Services.QoS" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Unity.Services.Wire.Internal" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="Newtonsoft.Json" preserve="all" ignoreIfMissing="1" />
+  <!-- glTFast is only used to import the character in the editor; kept if anything references it at runtime. -->
+  <assembly fullname="glTFast" ignoreIfMissing="1">
+    <namespace fullname="GLTFast" preserve="nothing" />
+  </assembly>
+  <!-- Match state, teams and reviews are serialized with JsonUtility (saves and the online state). -->
+  <assembly fullname="Assembly-CSharp">
+    <namespace fullname="Cricket.Sim" preserve="all" />
+    <type fullname="Cricket.Game.ReviewInfo" preserve="all" />
+    <type fullname="Cricket.Core.WebBridge/Inbound" preserve="all" />
+    <type fullname="Cricket.Net.NetMatch" preserve="all" />
+  </assembly>
+</linker>
