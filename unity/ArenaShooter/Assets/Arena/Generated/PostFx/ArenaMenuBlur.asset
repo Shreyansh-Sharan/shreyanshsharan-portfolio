@@ -1,34 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-4835050870235956232
-MonoBehaviour:
-  m_ObjectHideFlags: 3
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 556797029e73b2347956b6579e77e05b, type: 3}
-  m_Name: DepthOfField
-  m_EditorClassIdentifier: 
-  active: 1
-  enabled:
-    overrideState: 1
-    value: 1
-  focusDistance:
-    overrideState: 1
-    value: 0.3
-  aperture:
-    overrideState: 1
-    value: 1.2
-  focalLength:
-    overrideState: 1
-    value: 95
-  kernelSize:
-    overrideState: 1
-    value: 1
---- !u!114 &-2415395888458314946
+--- !u!114 &-874018693030474525
 MonoBehaviour:
   m_ObjectHideFlags: 3
   m_CorrespondingSourceObject: {fileID: 0}
@@ -85,5 +57,33 @@ MonoBehaviour:
   m_Name: ArenaMenuBlur
   m_EditorClassIdentifier: 
   settings:
-  - {fileID: -4835050870235956232}
-  - {fileID: -2415395888458314946}
+  - {fileID: 1780042698378376204}
+  - {fileID: -874018693030474525}
+--- !u!114 &1780042698378376204
+MonoBehaviour:
+  m_ObjectHideFlags: 3
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 556797029e73b2347956b6579e77e05b, type: 3}
+  m_Name: DepthOfField
+  m_EditorClassIdentifier: 
+  active: 1
+  enabled:
+    overrideState: 1
+    value: 1
+  focusDistance:
+    overrideState: 1
+    value: 0.3
+  aperture:
+    overrideState: 1
+    value: 1.2
+  focalLength:
+    overrideState: 1
+    value: 95
+  kernelSize:
+    overrideState: 1
+    value: 1
