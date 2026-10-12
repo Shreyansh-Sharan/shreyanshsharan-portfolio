@@ -18,8 +18,8 @@ import { Sabotage, THROW_INFO, trickPrice } from './sabotage'
 import { awardsFor, botName, planShow, roundTarget, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
 import { BALL_DROP, clearOneShots, emptyPad, FOOT, Toy, type BodyMode, type Pad, type ToyEvents } from './toy'
 import {
-  freshStats, THROW_KINDS, type AnyLevel, type Contestant, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice, type ThrowKind,
-  type TrickDef, type TrickIcon,
+  freshStats, THROW_KINDS, type AnyLevel, type Contestant, type DuelResult, type DuelSpec, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice,
+  type ThrowKind, type TrickDef, type TrickIcon,
 } from './types'
 import { LEVELS, levelById } from '../levels'
 
@@ -88,7 +88,15 @@ export interface Hud {
   touch: boolean
   zone: string | null
   quality: 'low' | 'high'
+  /** This round is a timed duel / table mini-game (launched by a board). */
+  duel: { seconds: number; party: boolean; names: string[] } | null
 }
+
+/** The level id of the board mode (Toy Box Trail). */
+export const BOARD_LEVEL = 'toy-box-trail'
+
+/** A round's length: a duel's override, else the level's own. */
+const roundLength = (r: { setup: RoundSetup; level: AnyLevel }) => r.setup.duration ?? r.level.duration
 
 interface Round {
   setup: RoundSetup
@@ -107,6 +115,8 @@ interface Round {
   ended: boolean
   outOrder: number[]
   tags: { el: HTMLDivElement; name: HTMLSpanElement; mark: HTMLSpanElement }[]
+  /** Duel rounds: the result, worked out when the round ends. */
+  duelResult?: DuelResult
 }
 
 /** One effect event (host → clients). `to` = contestant index for screen-only effects. */
@@ -204,7 +214,13 @@ class Ctx implements LevelCtx {
     return this.g.clock
   }
   get timeLeft() {
-    return Math.max(0, this.r.level.duration - Math.max(0, this.g.clock))
+    return Math.max(0, roundLength(this.r) - Math.max(0, this.g.clock))
+  }
+  get duel() {
+    return this.r.setup.duel ?? null
+  }
+  get session() {
+    return this.g.session
   }
   get phase(): 'intro' | 'countdown' | 'play' | 'end' {
     const p = this.g.phase
@@ -332,6 +348,14 @@ class Ctx implements LevelCtx {
     this.g.handleSignal(name, toy)
   }
 
+  startDuel(spec: DuelSpec) {
+    return this.isHost && this.g.runDuel(spec)
+  }
+
+  duelLevels(n: number) {
+    return duelLevels(n).map((l) => ({ id: l.id, name: l.name, type: l.type }))
+  }
+
   spawnGrid(n: number, opts: { x: number; z: number; y?: number; yaw: number; spacing?: number; cols?: number }) {
     return spawnGrid(n, opts)
   }
@@ -386,6 +410,11 @@ export class Game {
   onDisconnect: ((why: string) => void) | null = null
   /** The local player's look (name, toy, tint). */
   look: Look
+  /** Survives between rounds until the Loft (see LevelCtx.session). */
+  session: Record<string, unknown> = {}
+  /** The round to go back to when a duel ends, and the result waiting for it. */
+  private duelReturn: RoundSetup | null = null
+  private pendingDuel: DuelResult | null = null
   readonly fxApi: FxApi
   readonly fxLocal: FxApi
   /** This screen's free pointer (see LevelCtx.pointer). */
@@ -650,6 +679,9 @@ export class Game {
     if (this.role === 'client') return
     this.results = null
     this.plan = null
+    this.session = {}
+    this.duelReturn = null
+    this.pendingDuel = null
     this.buildRoster('hub')
     this.startHub()
   }
@@ -684,6 +716,59 @@ export class Game {
     this.planMode = 'quick'
     this.results = null
     this.nextPlannedRound()
+  }
+
+  /** Toy Box Trail: the board mode for 2 to 6 toys (people first, bots fill the table). Solo/host. */
+  startBoard(size = this.settings.boardSize ?? 4) {
+    if (this.role === 'client') return
+    const lv = levelById(BOARD_LEVEL)
+    if (!lv) return
+    const people = this.roster.filter((c) => c.human).length
+    this.buildRoster('show', Math.max(2, Math.min(6, Math.max(people, size))))
+    this.plan = null
+    this.planMode = 'board'
+    this.results = null
+    this.session = {}
+    this.duelReturn = null
+    this.pendingDuel = null
+    this.beginRound({
+      // An online room may hold more people than a board seats: the first six play, the rest watch.
+      levelId: lv.id, seed: Date.now() & 0xffffff, mode: 'board', toys: this.roster.slice(0, lv.players[1]).map((c) => c.idx), target: 1, index: 0, total: 1, final: false,
+      settings: { ...this.settings },
+    })
+  }
+
+  /**
+   * Play a registered level as a timed duel or whole-table mini-game (host), then come back to the current
+   * round (rebuilt from its `ctx.session` state, no intro) and hand its level `onDuelEnd(result)`. From the Loft
+   * (tests) it returns to the Loft. Returns false if the level is unknown or a duel is already pending.
+   */
+  runDuel(spec: DuelSpec): boolean {
+    const r = this.round
+    if (this.role === 'client' || !r || this.duelReturn || r.setup.duel) return false
+    const lv = levelById(spec.levelId)
+    if (!lv || lv.type === 'hub') return false
+    const toys = spec.toys.filter((i, k, a) => this.roster[i] && a.indexOf(i) === k)
+    if (!toys.length) return false
+    const seconds = spec.seconds ?? (lv.duel ? lv.duel.seconds : undefined) ?? 30
+    const party = !!spec.party
+    this.duelReturn = { ...r.setup, skipIntro: true }
+    const setup: RoundSetup = {
+      levelId: lv.id,
+      seed: (Date.now() & 0xffffff) ^ 0x2545,
+      mode: 'quick',
+      toys,
+      target: party ? toys.length : 1,
+      index: r.setup.index,
+      total: r.setup.total,
+      final: false,
+      settings: { ...r.setup.settings },
+      duel: { seconds, party, tag: spec.tag ?? (party ? 'party' : 'duel') },
+      duration: seconds,
+    }
+    // Never swap rounds mid-step: the next frame starts the duel.
+    this.deferred = () => this.beginRound(setup)
+    return true
   }
 
   /** Tests: play a specific level as the next Show round. */
@@ -755,7 +840,7 @@ export class Game {
     r.hazards = new Hazards(() => r.ctx)
     this.round = r
     this.clock = 0
-    this.phase = setup.mode === 'hub' ? 'loft' : 'intro'
+    this.phase = setup.mode === 'hub' ? 'loft' : setup.skipIntro ? 'play' : 'intro'
     this.phaseT = 0
     this.acc = 0
     this.pinned = this.hover = this.spec = -1
@@ -807,7 +892,8 @@ export class Game {
       trickFx: (def, user, target, result) => this.emitFx({ k: 'tr', id: def.id, u: user.idx, t: target ? target.idx : -1, r: result }),
       throwFx: (kind, from, target) => this.emitFx({ k: 'th', kind, f: from.idx, t: target.idx }),
     })
-    for (const c of this.roster) if (c.out && !setup.toys.includes(c.idx)) r.sab.joinGallery(c)
+    // Knocked-out contestants (and, in a duel, everyone not duelling) throw things from the gallery.
+    for (const c of this.roster) if ((c.out || setup.duel) && !setup.toys.includes(c.idx)) r.sab.joinGallery(c)
     this.buildTags(r)
 
     this.input.setMode(level.pointer ?? 'look')
@@ -817,6 +903,12 @@ export class Game {
     if (this.role === 'host') {
       this.send({ t: 'pp-round', r: setup, roster: this.rosterRows() })
       this.outEvents = []
+    }
+    // Back from a duel: the level that started it hears how it went.
+    if (this.pendingDuel && this.role !== 'client' && !setup.duel) {
+      const res = this.pendingDuel
+      this.pendingDuel = null
+      level.onDuelEnd?.(r.ctx, r.state, res)
     }
     this.pushHud(true)
   }
@@ -1061,6 +1153,11 @@ export class Game {
     this.padFlags.emote = kind
   }
 
+  /** Send a level action to the host (a level's own HUD panel: roll the die, pick a path, buy an item). */
+  levelAction(text: string) {
+    this.action(`lv:${text}`)
+  }
+
   /** Pick a rival for tricks by roster position in this round (HUD). */
   pickTarget(idx: number) {
     this.pinned = idx
@@ -1235,7 +1332,10 @@ export class Game {
 
   private applyHostAct(r: Round, cIdx: number, a: string) {
     const [kind, id, tgt] = a.split(':')
-    if (kind === 'trick') {
+    if (kind === 'lv') {
+      const user = r.toys.find((t) => t.c.idx === cIdx) ?? null
+      r.level.onAction?.(r.ctx, r.state, user, a.slice(3), cIdx)
+    } else if (kind === 'trick') {
       const user = r.toys.find((t) => t.c.idx === cIdx)
       if (!user) return
       const res = r.sab.use(user, id, Number(tgt))
@@ -1251,8 +1351,14 @@ export class Game {
   /** Phase changes (solo/host). */
   private director(r: Round) {
     const ctx = r.ctx
-    if (this.phase === 'intro' && this.phaseT >= INTRO) this.setPhase('countdown')
-    else if (this.phase === 'countdown') {
+    if (this.phase === 'intro' && this.phaseT >= INTRO) {
+      if (r.setup.mode === 'board') {
+        // A board has no countdown: straight in.
+        this.setPhase('play')
+        this.clock = 0
+        r.level.start?.(ctx, r.state)
+      } else this.setPhase('countdown')
+    } else if (this.phase === 'countdown') {
       const n = Math.ceil(COUNTDOWN - this.phaseT)
       const prev = Math.ceil(COUNTDOWN - (this.phaseT - STEP))
       if (n !== prev && n > 0) this.fxApi.sfx('count')
@@ -1265,7 +1371,7 @@ export class Game {
       }
     } else if (this.phase === 'play') {
       if (r.ended) this.endRound(r)
-      else if (this.clock >= r.level.duration) {
+      else if (this.clock >= roundLength(r)) {
         this.timeUp(r)
         this.endRound(r)
       }
@@ -1285,6 +1391,12 @@ export class Game {
       if (t.status === 'qualified') q++
       else if (t.status === 'play') a++
     }
+    if (r.setup.mode === 'board') return
+    if (r.setup.duel) {
+      // A duel ends when someone gets through; a table mini-game when everyone has.
+      if (q >= r.setup.target || !a) r.ended = true
+      return
+    }
     if (r.setup.mode === 'quick') {
       if (!a) r.ended = true
       return
@@ -1301,6 +1413,11 @@ export class Game {
   private timeUp(r: Round) {
     const ctx = r.ctx
     this.fxApi.say("TIME'S UP", '#fde68a', 1.6)
+    if (r.setup.duel) {
+      // Duels are ranked when the round ends; the level may still name a winner.
+      r.level.onTimeUp?.(ctx, r.state)
+      return
+    }
     if (r.level.onTimeUp) {
       r.level.onTimeUp(ctx, r.state)
       return
@@ -1348,12 +1465,61 @@ export class Game {
         }
       }
     }
-    this.fxApi.say(r.setup.mode === 'quick' ? 'ROUND OVER' : r.setup.final ? 'SHOW OVER' : 'ROUND OVER', '#fde68a', 2)
+    if (r.setup.duel) {
+      const res = this.duelOutcome(r)
+      r.duelResult = res
+      const w = this.roster[res.winner]
+      this.fxApi.say(w ? `${w.name} ${r.setup.duel.party ? 'wins the mini-game!' : 'wins the duel!'}` : 'DUEL OVER', '#fde68a', 2.6)
+      const wt = r.toys.find((t) => t.c.idx === res.winner)
+      if (wt) this.fxApi.confetti(wt.pos)
+    } else if (r.setup.mode !== 'board') this.fxApi.say(r.setup.mode === 'quick' ? 'ROUND OVER' : r.setup.final ? 'SHOW OVER' : 'ROUND OVER', '#fde68a', 2)
     this.audio.music.stop()
+  }
+
+  /** A duel's placings: through first (by time), then the level's rank, then everyone else. */
+  private duelOutcome(r: Round): DuelResult {
+    const ctx = r.ctx
+    const order: number[] = []
+    const add = (t: Toy) => {
+      if (!order.includes(t.c.idx)) order.push(t.c.idx)
+    }
+    for (const t of r.toys.filter((x) => x.status === 'qualified').sort((a, b) => a.doneAt - b.doneAt)) add(t)
+    if (r.level.rank) for (const t of r.level.rank(ctx, r.state)) add(t)
+    for (const t of r.toys) if (t.status === 'play') add(t)
+    for (const t of r.toys) add(t)
+    const d = r.setup.duel!
+    return { levelId: r.level.id, levelName: r.level.name, tag: d.tag, party: d.party, toys: [...r.setup.toys], order, winner: order[0] ?? -1 }
   }
 
   private afterRound(r: Round) {
     if (r.setup.mode === 'hub') return
+    if (r.setup.duel) {
+      // Back to whatever started the duel.
+      const back = this.duelReturn
+      this.duelReturn = null
+      this.pendingDuel = r.duelResult ?? this.duelOutcome(r)
+      if (back) this.beginRound(back)
+      else this.toLoft()
+      return
+    }
+    if (r.level.results) {
+      // A game mode (the board) decides its own placings.
+      const m = r.level.results(r.ctx, r.state)
+      m.order.forEach((idx, i) => {
+        if (this.roster[idx]) this.roster[idx].place = i + 1
+      })
+      const res = awardsFor(this.roster, m.order, false, r.level.name)
+      res.title = m.title
+      if (m.crown) for (const a of res.awards) if (a.id === 'crown') Object.assign(a, m.crown)
+      for (const [k, v] of Object.entries(m.buttons ?? {})) res.buttons[Number(k)] = (res.buttons[Number(k)] ?? 0) + v
+      this.showResults(res)
+      const champ = r.toys.find((t) => t.c.idx === m.order[0])
+      if (champ) {
+        this.crown(champ)
+        this.emitFx({ k: 'crown', i: champ.idx })
+      }
+      return
+    }
     const plan = this.plan
     const winners = r.toys.filter((t) => t.status === 'qualified').sort((a, b) => a.doneAt - b.doneAt)
     const quick = r.setup.mode === 'quick'
@@ -1449,6 +1615,7 @@ export class Game {
     if (this.role === 'client') return
     // Never swap rounds mid-step (the physics world is in use): run it at the start of the next frame.
     if (name === 'chest' && toy && this.phase === 'loft' && toy.c.idx === this.meIdx) this.deferred = () => this.startShow()
+    if (name === 'board' && toy && this.phase === 'loft' && toy.c.idx === this.meIdx) this.deferred = () => this.startBoard()
   }
   private deferred: (() => void) | null = null
 
@@ -1735,7 +1902,7 @@ export class Game {
     const me = r.toys.find((t) => t.c.idx === this.meIdx) ?? null
     const level = r.level
     const aim = this.aimTarget(r, me)
-    const galleryMe = this.gallery(r) && r.setup.mode === 'show'
+    const galleryMe = this.gallery(r) && (r.setup.mode === 'show' || !!r.setup.duel)
     const tricks: TrickHud[] = []
     if (me && me.status === 'play' && this.phase !== 'loft') {
       this.visibleTricks(r, me).forEach((def, i) => {
@@ -1778,7 +1945,7 @@ export class Game {
       qualified: ctx.qualifiedCount(),
       active: ctx.active().length,
       field: r.toys.length,
-      timeLeft: this.phase === 'play' ? ctx.timeLeft : level.duration,
+      timeLeft: this.phase === 'play' ? ctx.timeLeft : roundLength(r),
       countdown: this.phase === 'countdown' ? Math.ceil(COUNTDOWN - this.phaseT) : 0,
       me: {
         status: me ? me.status : galleryMe ? 'gallery' : 'none',
@@ -1805,6 +1972,7 @@ export class Game {
       touch: coarse(),
       zone: this.zone,
       quality: this.quality,
+      duel: r.setup.duel ? { seconds: r.setup.duel.seconds, party: r.setup.duel.party, names: r.toys.map((t) => t.name) } : null,
     }
   }
 
@@ -2198,6 +2366,7 @@ export class Game {
       plan: this.plan,
       feed: this.feedList.map((f) => f.text),
       quality: this.quality,
+      duel: r?.setup.duel ?? null,
     }
   }
 
@@ -2251,6 +2420,11 @@ interface Snap {
   h: unknown
   p: number[][]
   g: number[][]
+}
+
+/** Registered levels that work as a duel / table mini-game for `n` toys. */
+export function duelLevels(n: number): AnyLevel[] {
+  return LEVELS.filter((l) => l.type !== 'hub' && l.type !== 'hidden' && l.duel !== false && n >= l.players[0] && n <= l.players[1])
 }
 
 const coarse = () => {

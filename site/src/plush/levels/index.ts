@@ -5,11 +5,15 @@ import loft from './loft'
 import cookieCutter from './cookie-cutter'
 import musicBox from './music-box'
 import topSumo from './top-sumo'
+import toyBoxTrail from '../board/trail'
 
 export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo]
 
+/** Game modes that run as one long round of their own (not drawn by the Show or Quick Play). */
+export const MODES: AnyLevel[] = [toyBoxTrail]
+
 export function levelById(id: string): AnyLevel | undefined {
-  return LEVELS.find((l) => l.id === id)
+  return LEVELS.find((l) => l.id === id) ?? MODES.find((l) => l.id === id)
 }
 
 /** Levels you can pick in Quick Play (everything except the hub and hidden Loft games). */

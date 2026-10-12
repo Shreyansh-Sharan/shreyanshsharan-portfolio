@@ -15,8 +15,59 @@ export type { ToyKind } from './assets'
 /** Round types, as in the design: the Show draws rounds by type. `hub` is the Loft. */
 export type LevelType = 'race' | 'survival' | 'team' | 'logic' | 'final' | 'hidden' | 'hub'
 
-/** How a round is being played. `quick` = Quick Play (no eliminations: fails retry), `hub` = the Loft. */
-export type PlayMode = 'show' | 'quick' | 'hub'
+/**
+ * How a round is being played. `quick` = Quick Play (no eliminations: fails retry), `hub` = the Loft, `board` =
+ * a turn-based mode that runs as one long round (Toy Box Trail). Duels and table mini-games launched from a
+ * board run as `quick` rounds with `ctx.duel` set.
+ */
+export type PlayMode = 'show' | 'quick' | 'hub' | 'board'
+
+/** Set on a round that runs a level as a timed duel or table mini-game (see LevelCtx.startDuel). */
+export interface DuelInfo {
+  /** Round length in seconds (replaces the level's own duration). */
+  seconds: number
+  /** true: the whole table plays (everyone is ranked); false: a 1v1 or 1v1v1 duel (first through wins). */
+  party: boolean
+  /** Free text the caller passes through to the result (e.g. 'duel' or 'party'). */
+  tag: string
+}
+
+/** Ask the engine to play a registered level as a timed duel (host only). */
+export interface DuelSpec {
+  levelId: string
+  /** Contestant (roster) indices taking part. */
+  toys: number[]
+  /** Default: the level's `duel.seconds`, else 30. */
+  seconds?: number
+  party?: boolean
+  tag?: string
+}
+
+/** How a duel went: handed to the caller level's `onDuelEnd` when its round resumes. */
+export interface DuelResult {
+  levelId: string
+  levelName: string
+  tag: string
+  party: boolean
+  /** Contestant indices that took part. */
+  toys: number[]
+  /** Contestant indices, best first: whoever got through first, then the level's rank(), then the rest. */
+  order: number[]
+  /** order[0]. */
+  winner: number
+}
+
+/** A level that runs its own game mode (Toy Box Trail) can hand the engine the final results. */
+export interface ModeResults {
+  /** Contestant indices, winner first. */
+  order: number[]
+  /** Extra buttons per contestant on top of the placing and award buttons. */
+  buttons?: Record<number, number>
+  /** Kicker on the results card (default: 'Show results'). */
+  title?: string
+  /** Rename the winner's award (default 'Top of the Pile'). */
+  crown?: { title: string; blurb: string }
+}
 
 /** 0 mild, 1 normal, 2 mean. */
 export type Spice = 0 | 1 | 2
@@ -91,6 +142,8 @@ export interface LevelHud {
   prompt?: string
   /** Small chips under the timer, e.g. "Table shrinks in 8 s". */
   chips?: string[]
+  /** Anything else for a level-specific HUD panel (Toy Box Trail's board panel reads this). */
+  extra?: unknown
 }
 
 /**
@@ -197,6 +250,13 @@ export interface LevelCtx {
    * state in visual(), so every screen hears the same thing. It stops between rounds.
    */
   readonly music: { start(tempo: number): void; windDown(seconds: number): void; stop(): void; readonly playing: boolean }
+  /** Set when this round is a timed duel or table mini-game launched by another level (null otherwise). */
+  readonly duel: DuelInfo | null
+  /**
+   * Scratch space that survives from round to round until the player goes back to the Loft or starts something
+   * new. A board keeps its game here while a duel runs. Each screen has its own (clients refill it via unpack).
+   */
+  readonly session: Record<string, unknown>
 
   /* ----- Results (host) ----- */
   /** This toy is through (race finish, shape cut out). */
@@ -228,6 +288,15 @@ export interface LevelCtx {
   grabbable(body: RigidBody, obj: THREE.Object3D): void
   /** Hub only: tell the page something happened (e.g. 'chest' when a toy jumps in the toy chest). */
   signal(name: string, toy: Toy | null): void
+  /**
+   * Host: pause this level and play another registered level as a timed duel (or a whole-table mini-game).
+   * The swap happens at the start of the next frame. When the duel ends the engine rebuilds this level (its
+   * state comes back from `ctx.session`, skipping the intro) and calls `onDuelEnd`. Returns false if the
+   * level is unknown or a duel is already pending.
+   */
+  startDuel(spec: DuelSpec): boolean
+  /** Levels that can be played as a duel / mini-game by `n` toys (registered, not hub/hidden, `duel` not false). */
+  duelLevels(n: number): { id: string; name: string; type: LevelType }[]
 
   /* ----- Helpers ----- */
   spawnGrid(n: number, opts: { x: number; z: number; y?: number; yaw: number; spacing?: number; cols?: number }): Spawn[]
@@ -277,6 +346,8 @@ export interface LevelDef<S = unknown> {
   keepFailed?: boolean
   /** Background colour / fog for the level (defaults to the attic's warm haze). */
   sky?: { color: string; fogNear: number; fogFar: number }
+  /** As a board duel / mini-game: false opts out; `seconds` sets its length (default 30). */
+  duel?: false | { seconds?: number }
 
   /** Build colliders and visuals. Runs on every screen with the same seed, so it must only use ctx.rng. */
   build(ctx: LevelCtx): void
@@ -318,6 +389,15 @@ export interface LevelDef<S = unknown> {
   canThrow?(ctx: LevelCtx, state: S, kind: ThrowKind, target: Toy): boolean
   /** A gallery throw landed. Return true if handled; otherwise the engine's default nudge applies. Host only. */
   onThrow?(ctx: LevelCtx, state: S, kind: ThrowKind, target: Toy, from: Contestant): boolean
+  /** Host: the duel this level started with ctx.startDuel() is over (runs right after the level is rebuilt). */
+  onDuelEnd?(ctx: LevelCtx, state: S, result: DuelResult): void
+  /**
+   * Host: a player sent a level action (from `game.levelAction(text)` on their screen: buttons in a level's own
+   * HUD panel). `toy` is their toy in this round (null if they have none).
+   */
+  onAction?(ctx: LevelCtx, state: S, toy: Toy | null, action: string, contestant: number): void
+  /** Host: when the round ends, show these results instead of the Show/Quick Play results (game modes). */
+  results?(ctx: LevelCtx, state: S): ModeResults
   /** Free anything not under ctx.root (audio nodes, DOM). Every screen. */
   dispose?(ctx: LevelCtx, state: S): void
 }

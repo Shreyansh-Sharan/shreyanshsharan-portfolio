@@ -19,6 +19,12 @@ plush/
     music-box.ts     survival: move while the music plays (synced phases, WebAudio, a key pickup)
     top-sumo.ts      survival: ride balls on a shrinking stool (ball mode, custom hazard, shrinking floor)
     robo-vac.example.ts  the worked example below (compiles, not registered)
+  board/             Toy Box Trail, the board mode (see "Game modes and duels" below)
+    trail.ts         the rules: turns, dice, tiles, items, cards, duels, bots, sync, camera (a LevelDef)
+    layout.ts        the board graph: tiles, forks, ladder, slide (pure data, also drawn by the mini-map)
+    items.ts         the bag of tricks and the surprise deck (pure data)
+    view.ts          the visuals: canvas-painted cards, mirror pond, ladder, slide, cookie jar, foam dice
+    TrailPanel.tsx   its HUD panel: turn, timer, dice, players, bag, choices, mini-map, turn log
   engine/
     types.ts         THE LEVEL API: LevelDef, LevelCtx, TrickDef, Contestant, FxApi, LevelHud
     game.ts          the engine: renderer, rounds, Show flow, online sync, HUD state, test hooks
@@ -81,6 +87,9 @@ Rules of thumb:
 | `pointerHome` / `pick` | every screen | free-pointer levels: where the stick needle starts, which rival a click picks |
 | `canThrow` / `onThrow` | host | peanut-gallery throwables |
 | `dispose(ctx, s)` | every screen | free anything not under `ctx.root` |
+| `onAction(ctx, s, toy, text, c)` | host | a player's choice from a level's own panel (`game.levelAction`) |
+| `onDuelEnd(ctx, s, result)` | host | a duel this level started with `ctx.startDuel` is over |
+| `results(ctx, s)` | host | a game mode's final placings (instead of the Show / Quick Play results) |
 
 Round phases: `intro` (4.5 s card + fly-round) → `countdown` (3 s) → `play` (`duration` s) → `end` (4 s
 summary). In the Loft, the phase stays at `play`. `ctx.time` is negative during the countdown and counts up
@@ -108,6 +117,7 @@ defineLevel<State>({
   fallY?: -8,
   keepFailed?: false,       // leave eliminated toys in the scene (Cookie Cutter's slumped losers)
   sky?: { color, fogNear, fogFar },
+  duel?: false | { seconds?: 30 },  // as a board duel / mini-game: opt out, or set its length
   ...hooks
 })
 ```
@@ -128,7 +138,9 @@ defineLevel<State>({
 Read-only facts: `root` (add visuals here; it is cleared between rounds), `scene`, `phys`, `assets`, `rng`, `seed`,
 `mode` ('show' | 'quick' | 'hub'), `role`/`isHost`, `difficulty` (0–2), `spice` (0 mild, 1 normal, 2 mean),
 `quality` ('low' | 'high'), `toys`, `me`, `target`, `round` {index,total,final}, `time`, `timeLeft`,
-`phase`, `pointer` (this screen's free pointer), `cam`, `music`, `hazards`, `THREE`, `RAPIER`.
+`phase`, `pointer` (this screen's free pointer), `cam`, `music`, `hazards`, `THREE`, `RAPIER`, `duel` (set in a
+duel round) and `session` (survives between rounds). Game modes also get `startDuel(spec)` and `duelLevels(n)`
+(see "Game modes and duels").
 
 Results (host): `qualify(toy, note?)`, `fail(toy, reason)`, `end()`, `active()`, `qualifiedCount()`.
 
@@ -227,6 +239,84 @@ boxes sewing armchair. Textures: floor biscuit stool tinlid.
 `bots.ts` has `skill(ctx)` (reaction, accuracy, pace, blunder and aggression by difficulty), `steerTo`,
 `hopObstacles`, `avoidWalls`, `keepInside`, `nearestRival` and `bully`.
 
+## Game modes and duels
+
+The engine can run a level as a **timed duel** and then go back to whatever started it. Toy Box Trail uses this
+for its duels and its whole-table mini-games, and any level can do the same. All of it is additive: a level
+that doesn't use these hooks behaves exactly as before.
+
+```ts
+// Host: pause this level, play Spinning Top Sumo as a 30 s duel between contestants 0 and 2, then come back.
+ctx.startDuel({ levelId: 'top-sumo', toys: [0, 2], seconds: 30, party: false, tag: 'duel' })
+// When it ends the engine rebuilds this level (state from ctx.session, no intro) and calls:
+onDuelEnd(ctx, s, result) // { levelId, levelName, tag, party, toys, order: [best first], winner }
+```
+
+- **The duel round** is a `quick` round (fails retry, nobody is eliminated) with `ctx.duel = { seconds, party,
+  tag }` and the round timer set to `seconds`. A duel (`party: false`) ends as soon as one toy is through. A
+  table mini-game (`party: true`) ends when everyone is through or time runs out. The placings are: through
+  first (by time), then the level's `rank()`, then everyone else. Levels can read `ctx.duel` if they want a
+  short form of their own. Everyone not in the duel watches from the peanut gallery and can throw things.
+- **Which levels** can be a duel: `ctx.duelLevels(n)` lists registered levels (not hub or hidden) whose player
+  range fits `n` and that don't set `duel: false`. New levels join automatically. Set `duel: { seconds }` if
+  30 s is wrong for yours, or `duel: false` to opt out.
+- **`ctx.session`** is a plain object that survives from round to round until the Loft or a new game. Keep a
+  mode's game in it so a duel in between doesn't lose it. Each screen has its own copy (clients refill theirs
+  from `unpack`).
+- **`onAction(ctx, s, toy, text, contestant)`** (host): a player's choice from a level's own HUD panel. The
+  page calls `game.levelAction('roll')` on any screen and the text arrives here on the host (it travels as
+  the `lv:<text>` action).
+- **`results(ctx, s) → { order, buttons?, title?, crown? }`** (host): a game mode's final placings. The engine
+  adds the usual awards (Biggest Menace, Most Betrayed, Revenge Served, Saint, plus the crown award, renamed by
+  `crown`), adds `buttons`, shows the results card and saves the player's earnings.
+- **`LevelHud.extra`** carries any data a level-specific panel needs. `Hud.tsx` shows Toy Box Trail's panel
+  when the round's mode is `board`.
+- **`toy.pose`** forces an animation (`'jump'`, `'sit'`, `'cheer'`…) while set. The board drives its seated
+  toys tile to tile this way.
+- **Game modes** live in `MODES` in `levels/index.ts` (found by `levelById`, never drawn by the Show or Quick
+  Play). A mode starts with its own `PlayMode`: `board` is one long round that skips the countdown and only
+  ends when the level calls `ctx.end()`.
+
+Page and test API: `game.startBoard(size?)`, `game.runDuel(spec)` (the same as `ctx.startDuel`; from the Loft
+it returns to the Loft), `game.levelAction(text)`, `game.session`.
+
+## Toy Box Trail
+
+The board mode for 2 to 6 toys (people first, bots fill the table). Start it from the menu ("Play Toy Box
+Trail"), from the Loft (the button, or hop on the board-game box beside the toy chest), or with
+`#/plush?auto=board`. It is one long `board` round of the `toy-box-trail` level.
+
+- **The board** (`board/layout.ts`): 57 tiles, 40 to 47 hops from the start to the cookie jar. Two forks: across
+  the hand-mirror pond on bottle caps (short, with a slippery cap that splashes you back) or round it (long, with
+  a shop), and through the sock drawer (short: a duel, the slide and sticky tape) or along the skirting board
+  (long, with a shop). A popsicle-stick ladder over a book stack skips nine tiles; the slide sends you back seven.
+- **A turn**: a moment to use one trick from your bag, then roll the big foam die (a real Rapier body, read by
+  which face ends up on top; Double Die throws two). Hop tile to tile, pick a way at forks, then the tile acts:
+  Button Stash +3, Hole in the Pocket -3, Surprise Card (14 funny events), Button Shop, Duel (pick a rival),
+  Sticky Tape (miss a turn), Slippery Cap, Ladder, Slide. Landing on another toy starts a 1v1 (or 1v1v1) duel,
+  at most once every other table round (otherwise you bump them and pinch a button). A duel tile is a duel
+  once per table round.
+- **Duels** play a registered level for 30 s (the bag cycles through every level that fits, so Cookie Cutter,
+  Spinning Top Sumo and Music Box Freeze all come up). The winner takes 6 buttons from each loser, or swaps
+  places with the loser furthest ahead. Losers get a grudge on the winner.
+- **Every third table round** the whole table plays a 35 s mini-game: 10, 6, 4, 2, 1, 1 bonus buttons by placing.
+- **Bag of tricks** (three slots, bought at shops): Squeaky Hammer (6, a rival back 3 tiles), Mousetrap (4, set on
+  your tile or two ahead of a rival; the next rival onto it stops and pays you 4), Jack-in-the-Box (7, pop out
+  next to a random toy), Bubble Wrap (4, blocks the next trick and bounces it back: the sender goes back 3),
+  Double Die (5), Magnet Spool (7, reel the leader back to your tile). **Grudges**: whoever hit you last;
+  hitting them back refunds half the trick's price (half-price revenge). Stats feed the usual awards.
+- **Winning**: first to the jar. Results order the rest by distance to the jar, then buttons. Everyone keeps half
+  their board buttons on top of the placing and award buttons, saved to their profile.
+- **Bots** decide after a short think: tricks by difficulty (hammer the leader or their grudge, trap in front of
+  the leader, magnet or jack when far behind, double die when far out), shortest way at forks, shopping by
+  need, swap only when it gains four or more tiles.
+- **Online**: the host runs the rules. The whole game (`TrailData`, about 1 KB) goes in each snapshot, so a late
+  or dropped packet heals itself; the dice are synced props. Clients send `roll`, `item:<slot>:<arg>`,
+  `fork:<k>`, `buy:<id>`, `done`, `pick:<c>`, `stake:buttons|swap` through `game.levelAction`. Everyone's
+  camera follows the active toy and the dice (or "Whole board"). A 15 s turn timer (10 s for choices, 16 s in
+  the shop) plays a sensible default for an idle player; a silent player's seat is played by the bot hook after
+  3 s; a player who leaves becomes a bot.
+
 ## Online, in one paragraph
 
 The host's browser runs every round. About 20 times a second it sends a snapshot: phase, clock, toys,
@@ -316,7 +406,11 @@ respawn with no extra code.
 
 - `?snap` (before the `#`) exposes `window.__plush` without an animation loop. Step it with
   `__plush.simulate(seconds, render = true)`. `?net=local` also exposes it, with the live loop running.
-- Deep links: `#/plush?auto=loft`, `#/plush?auto=quick&level=<id>`, `#/plush?auto=host`, `#/plush?join=CODE`.
+- Deep links: `#/plush?auto=loft`, `#/plush?auto=quick&level=<id>`, `#/plush?auto=host`, `#/plush?join=CODE`,
+  `#/plush?auto=board` (Toy Box Trail).
+- Board: `startBoard()`, `setAutopilot(true)` (your seat plays itself), `session.trail` (the board game: poke
+  `ph`, `turn`, `players[i].tile` / `.items` / `.b` to set up a case), `levelAction('roll')`, and
+  `runDuel({ levelId, toys, seconds })`.
   `?quality=low|high` forces a quality tier.
 - `__plush.debug()` gives the phase, level, round, toys, roster with stats, gallery ammo, results, plan and feed.
   `__plush.levelState()` gives the level's state object.

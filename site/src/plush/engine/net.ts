@@ -3,7 +3,7 @@
 // effect events; clients send their pad ~30 times a second plus one-shot actions, and predict their own toy.
 import type { Link } from '../../racer/net'
 import type { ShowResults, ShowSettings } from './show'
-import type { Contestant, PlayMode } from './types'
+import type { Contestant, DuelInfo, PlayMode } from './types'
 
 export { hostRoom, joinRoom, type Link } from '../../racer/net'
 
@@ -26,6 +26,12 @@ export interface RoundSetup {
   final: boolean
   /** Contestant index → spawn order is the order of `toys`. */
   settings: ShowSettings
+  /** A timed duel / table mini-game (see LevelCtx.startDuel). */
+  duel?: DuelInfo
+  /** Round length override in seconds (duels). */
+  duration?: number
+  /** Start straight in play (a board resuming after a duel). */
+  skipIntro?: boolean
 }
 
 export type RosterRow = Pick<Contestant, 'idx' | 'id' | 'name' | 'kind' | 'tint' | 'human' | 'out' | 'outRound'>
