@@ -17,7 +17,10 @@ Ads never cover live gameplay. That's an AdSense policy, and it also keeps the g
 
 ## What you need to set up
 
-1. **A custom domain.** AdSense only approves sites on a domain you own. A `*.github.io` or `*.vercel.app` address won't be approved. Buy a domain (about ₹800–1,000 a year) and point it at Vercel or GitHub Pages.
+1. **Your domain, shreyanshsharan.com.** AdSense only approves sites on a domain you own, so the site must be served from it rather than a `*.github.io` or `*.vercel.app` address. Connect it to whichever host you use:
+   - **Vercel:** Project → Settings → Domains → add `shreyanshsharan.com` and `www.shreyanshsharan.com`, then add the DNS records Vercel shows at your domain registrar.
+   - **GitHub Pages:** repo Settings → Pages → Custom domain → `shreyanshsharan.com`, tick **Enforce HTTPS**, and at your registrar add A records for `@` pointing to 185.199.108.153, 185.199.109.153, 185.199.110.153 and 185.199.111.153, plus a CNAME for `www` pointing to `shreyansh-sharan.github.io`.
+   - Use only one of the two for the domain.
 2. **Google AdSense.**
    - Sign up at adsense.google.com, add your domain and wait for approval (often a few days to a few weeks).
    - Create a display ad unit and copy its slot ID.
