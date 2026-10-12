@@ -297,7 +297,7 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
           </button>
         </div>
       )}
-      <div className="pp-prompt">
+      <div className="pp-prompt is-loft">
         {hud.zone === 'chest'
           ? host
             ? 'Climb the blocks and jump into the toy chest to start the Show!'
@@ -306,7 +306,9 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
             ? 'The Sewing Table: change your toy, tint and name.'
             : hud.zone
               ? `${zoneName(hud.zone)}: a hidden game is coming here soon.`
-              : 'WASD to walk · Space jump · Shift dive · E grab · click to shove · 1 2 3 emotes'}
+              : hud.touch
+                ? 'Stick to walk · Jump · Dive · Grab (hold) · Shove'
+                : 'WASD to walk · Space jump · Shift dive · E grab · click to shove · 1 2 3 emotes'}
       </div>
     </>
   )

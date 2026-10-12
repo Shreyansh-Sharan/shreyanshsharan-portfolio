@@ -224,6 +224,8 @@ export interface LevelCtx {
   emit(data: unknown, to?: Toy): void
   /** A dynamic body whose transform is streamed to clients and copied onto `obj` every frame. */
   syncProp(body: RigidBody, obj: THREE.Object3D): void
+  /** Like syncProp, and toys can pick it up with Grab (E) and throw it by letting go. */
+  grabbable(body: RigidBody, obj: THREE.Object3D): void
   /** Hub only: tell the page something happened (e.g. 'chest' when a toy jumps in the toy chest). */
   signal(name: string, toy: Toy | null): void
 
@@ -262,6 +264,8 @@ export interface LevelDef<S = unknown> {
   /** Height of the plane the free pointer is projected onto. */
   pointerPlaneY?: number
   camera?: CameraPreset
+  /** The slow fly-round during the intro card (default: radius 15, height 9 round the origin). */
+  introOrbit?: { radius: number; height: number; center?: [number, number, number] }
   /** Sabotage resource: what each toy starts with. */
   sprinkles?: { start: number; name?: string }
   tricks?: TrickDef<S>[]

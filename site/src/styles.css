@@ -6026,13 +6026,45 @@ p {
     transform: translateY(-50%);
   }
   .pp-trick {
-    width: 64px;
+    width: 50px;
+    padding: 4px 2px 12px;
+  }
+  .pp-trickname,
+  .pp-why {
+    display: none;
+  }
+  .pp-aim {
+    font-size: 11px;
   }
   .pp-left {
     bottom: 236px;
+    width: min(200px, 50vw);
   }
-  .pp-tricks {
-    bottom: 230px;
+  .pp-tricks,
+  .pp-gallery {
+    bottom: 232px;
+    left: auto;
+    right: 10px;
+    transform: none;
+    justify-items: end;
+  }
+  .pp-tricks .pp-trickbar,
+  .pp-gallery .pp-trickbar {
+    max-width: 230px;
+    justify-content: flex-end;
+  }
+  .pp-status {
+    top: 86px;
+    font-size: 18px;
+  }
+  .pp-chips {
+    top: 124px;
+  }
+  .pp-roundinfo {
+    padding: 6px 12px;
+  }
+  .pp-timer {
+    font-size: 24px;
   }
   .pp-prompt {
     bottom: auto;
@@ -6041,5 +6073,13 @@ p {
   .pp-loft {
     top: 56px;
     width: calc(100vw - 24px);
+    padding: 8px 10px;
+  }
+  .pp-loft h2 {
+    display: none;
+  }
+  .pp-prompt.is-loft {
+    top: auto;
+    bottom: 240px;
   }
 }

@@ -75,9 +75,15 @@ export class Sabotage {
     this.host = host
   }
 
+  private list: TrickDef<unknown>[] | null = null
+
+  /** The level's tricks allowed at this spice level (computed once per round). */
   tricks(): TrickDef<unknown>[] {
-    const spice = this.host.ctx.spice
-    return (this.host.level.tricks ?? []).filter((t: TrickDef<unknown>) => (t.minSpice ?? 0) <= spice)
+    if (!this.list) {
+      const spice = this.host.ctx.spice
+      this.list = (this.host.level.tricks ?? []).filter((t: TrickDef<unknown>) => (t.minSpice ?? 0) <= spice)
+    }
+    return this.list
   }
 
   /** Can `user` use trick `def` on `target` right now? true or a reason. */

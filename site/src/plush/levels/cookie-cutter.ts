@@ -449,6 +449,7 @@ export default defineLevel<CCState>({
   bodyMode: 'seated',
   pointer: 'free',
   pointerPlaneY: TOP_Y,
+  introOrbit: { radius: 7, height: 9 },
   sprinkles: { start: 1 },
   keepFailed: true,
   throwables: ['crumb', 'paper', 'feather'],

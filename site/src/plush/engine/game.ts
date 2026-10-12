@@ -101,6 +101,7 @@ interface Round {
   toys: Toy[]
   rigs: ToyRig[]
   props: { body: RigidBody; obj: THREE.Object3D }[]
+  grabbables: RigidBody[]
   sab: Sabotage
   rng: Rng
   ended: boolean
@@ -320,6 +321,11 @@ class Ctx implements LevelCtx {
     if (this.g.role === 'client') body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true)
   }
 
+  grabbable(body: RigidBody, obj: THREE.Object3D) {
+    this.syncProp(body, obj)
+    this.r.grabbables.push(body)
+  }
+
   signal(name: string, toy: Toy | null) {
     this.g.handleSignal(name, toy)
   }
@@ -382,8 +388,25 @@ export class Game {
   readonly fxLocal: FxApi
   /** This screen's free pointer (see LevelCtx.pointer). */
   get pointer() {
-    return { x: this.myPad.px, z: this.myPad.pz, down: this.myPad.down }
+    const p = this.ptr
+    p.x = this.myPad.px
+    p.z = this.myPad.pz
+    p.down = this.myPad.down
+    return p
   }
+  private ptr = { x: 0, z: 0, down: false }
+  /** Toy event handlers per round (built once, not per step). */
+  private evCache: { r: Round; ev: ToyEvents; quiet: ToyEvents } | null = null
+  private events(r: Round) {
+    if (this.evCache?.r !== r) {
+      const ev = this.toyEvents(r)
+      const quiet: ToyEvents = { ...ev, onHit: () => {}, onJump: (t) => this.audio.play('boop', t.pos), onDive: (t) => this.audio.play('whoosh', t.pos), onGrab: () => {}, onWriggle: () => {} }
+      this.evCache = { r, ev, quiet }
+    }
+    return this.evCache
+  }
+  private rigState: RigState = { anim: 'idle', speed: 0, vy: 0, grounded: true, ball: false, ballVel: new THREE.Vector3(), ballScale: 1, stun: 0 }
+  private localFlags = { jump: false, dive: false, shove: false, act: false, emote: '' as Pad['emote'] }
 
   private container: HTMLElement
   private sun: THREE.DirectionalLight
@@ -725,7 +748,7 @@ export class Game {
     root.name = `level:${level.id}`
     this.scene.add(root)
     const rng = makeRng(setup.seed)
-    const r = { setup, level, phys, root, toys: [], rigs: [], props: [], rng, ended: false, outOrder: [], tags: [] } as unknown as Round
+    const r = { setup, level, phys, root, toys: [], rigs: [], props: [], grabbables: [], rng, ended: false, outOrder: [], tags: [] } as unknown as Round
     r.ctx = new Ctx(this, r, rng)
     r.hazards = new Hazards(() => r.ctx)
     this.round = r
@@ -816,6 +839,11 @@ export class Game {
 
   private frame(dt: number, render: boolean) {
     if (this.disposed) return
+    if (this.deferred) {
+      const run = this.deferred
+      this.deferred = null
+      run()
+    }
     const f = this.input.poll()
     const r = this.round
     if (r) this.localControls(f, dt, r)
@@ -1073,7 +1101,7 @@ export class Game {
       onWhiff: () => {},
       onGrab: (t, o) => {
         fx.sfx('squeak', t.pos)
-        r.ctx.blame(o, t)
+        if (o) r.ctx.blame(o, t)
       },
       onWriggle: (t) => {
         fx.popup(t, 'Wriggled free!', '#a7f3d0')
@@ -1127,9 +1155,9 @@ export class Game {
       rm.acts = []
     }
 
-    const ev = this.toyEvents(r)
+    const ev = this.events(r).ev
     const locked = !playing
-    for (const t of r.toys) if (t.status !== 'failed' || (t.data.goneAt as number) > this.clock) t.preStep(dt, r.phys, r.toys, ev, locked)
+    for (const t of r.toys) if (t.status !== 'failed' || (t.data.goneAt as number) > this.clock) t.preStep(dt, r.phys, r.toys, ev, locked, r.grabbables)
     if (playing) {
       r.hazards.affect(ctx, r.toys, dt, false)
       if (this.phase === 'play' || r.setup.mode === 'hub') {
@@ -1138,6 +1166,8 @@ export class Game {
         r.sab.tickGallery(dt)
       }
     }
+    // Belt and braces: if anything above replaced the round, this one's world is gone.
+    if (this.round !== r) return
     r.hazards.update(ctx, this.clock, dt)
     r.phys.step()
     const fallY = r.level.fallY ?? -8
@@ -1237,19 +1267,23 @@ export class Game {
 
   private checkEnd(r: Round) {
     const ctx = r.ctx
-    const q = ctx.qualifiedCount()
-    const active = ctx.active()
+    // Counted without allocating: this runs every step.
+    let q = 0, a = 0
+    for (const t of r.toys) {
+      if (t.status === 'qualified') q++
+      else if (t.status === 'play') a++
+    }
     if (r.setup.mode === 'quick') {
-      if (!active.length) r.ended = true
+      if (!a) r.ended = true
       return
     }
     if (q >= r.setup.target) {
       r.ended = true
-    } else if (q + active.length <= r.setup.target && active.length > 0) {
+    } else if (q + a <= r.setup.target && a > 0) {
       // Enough have dropped out: everyone still standing goes through.
-      for (const t of active) ctx.qualify(t, 'survived')
+      for (const t of ctx.active()) ctx.qualify(t, 'survived')
       r.ended = true
-    } else if (!active.length) r.ended = true
+    } else if (!a) r.ended = true
   }
 
   private timeUp(r: Round) {
@@ -1401,8 +1435,10 @@ export class Game {
     }
     this.onSignal?.(name, toy ? toy.c.idx : -1)
     if (this.role === 'client') return
-    if (name === 'chest' && toy && this.phase === 'loft' && toy.c.idx === this.meIdx) this.startShow()
+    // Never swap rounds mid-step (the physics world is in use): run it at the start of the next frame.
+    if (name === 'chest' && toy && this.phase === 'loft' && toy.c.idx === this.meIdx) this.deferred = () => this.startShow()
   }
+  private deferred: (() => void) | null = null
 
   /* ================= Effects ================= */
 
@@ -1536,16 +1572,15 @@ export class Game {
       rig.root.rotation.y += dy * Math.min(1, dt * 16)
       if (t.mode === 'ball') rig.ball.position.set(t.pos.x, t.pos.y - BALL_DROP, t.pos.z)
       const anim: AnimKey = this.role === 'client' && !t.isMe ? t.anim : t.pickAnim()
-      const st: RigState = {
-        anim,
-        speed: Math.hypot(t.vel.x, t.vel.z),
-        vy: t.vel.y,
-        grounded: t.grounded,
-        ball: t.mode === 'ball',
-        ballVel: t.vel,
-        ballScale: t.popped > 0 ? 0.62 : 1,
-        stun: t.stun,
-      }
+      const st = this.rigState
+      st.anim = anim
+      st.speed = Math.hypot(t.vel.x, t.vel.z)
+      st.vy = t.vel.y
+      st.grounded = t.grounded
+      st.ball = t.mode === 'ball'
+      st.ballVel = t.vel
+      st.ballScale = t.popped > 0 ? 0.62 : 1
+      st.stun = t.stun
       rig.lift = t.mode === 'ball' && t.popped > 0 ? -0.2 : 0
       rig.update(vdt, st)
     }
@@ -1604,10 +1639,11 @@ export class Game {
     const level = r.level
     if (this.phase === 'intro') {
       // A slow fly-round of the arena while the intro card is up.
+      const o = level.introOrbit ?? { radius: 15, height: 9 }
+      const [cx, cy, cz] = o.center ?? [0, 0, 0]
       const a = this.phaseT * 0.25
-      const rad = 15
-      _v.set(Math.sin(a) * rad, 9, Math.cos(a) * rad)
-      this.cam.place(_v, _w.set(0, 0.5, 0), dt, 3)
+      _v.set(cx + Math.sin(a) * o.radius, cy + o.height, cz + Math.cos(a) * o.radius)
+      this.cam.place(_v, _w.set(cx, cy + 0.5, cz), dt, 3)
       this.cam.applyShake(dt)
       return
     }
@@ -1999,7 +2035,7 @@ export class Game {
     if (this.padFlags.shove) this.pending.push('shove')
     if (this.padFlags.act) this.pending.push('act')
     if (this.padFlags.emote) this.pending.push(`emote:${this.padFlags.emote}`)
-    const local = { jump: this.padFlags.jump, dive: this.padFlags.dive, shove: this.padFlags.shove, act: this.padFlags.act, emote: this.padFlags.emote }
+    const local = Object.assign(this.localFlags, this.padFlags)
     this.padFlags.jump = this.padFlags.dive = this.padFlags.shove = this.padFlags.act = false
     this.padFlags.emote = ''
     this.inputT -= dt
@@ -2105,8 +2141,7 @@ export class Game {
     // Predict our own toy with the local physics world (fixed steps).
     this.acc += dt
     let steps = 0
-    const ev = this.toyEvents(r)
-    const quiet: ToyEvents = { ...ev, onHit: () => {}, onJump: (t) => this.audio.play('boop', t.pos), onDive: (t) => this.audio.play('whoosh', t.pos), onGrab: () => {}, onWriggle: () => {} }
+    const quiet = this.events(r).quiet
     while (this.acc >= STEP && steps < 8) {
       this.acc -= STEP
       steps++

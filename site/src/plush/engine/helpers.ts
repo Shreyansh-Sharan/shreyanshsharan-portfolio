@@ -260,6 +260,33 @@ export function buildAttic(root: THREE.Object3D, assets: PlushAssets, phys: Phys
   return { group, floor, window: sky.position.clone(), winR }
 }
 
+/**
+ * True once every `interval` seconds of round time. Keeps its bookkeeping in `memo` (put it on your level
+ * state): `if (every(st.timers, 'drop', 5, ctx.time)) dropAPiece()`.
+ */
+export function every(memo: Record<string, number>, key: string, interval: number, t: number) {
+  const next = memo[key] ?? interval
+  if (t < next) return false
+  memo[key] = next + interval
+  return true
+}
+
+/** A countdown on the level state: `const c = countdown(3)`, then `c.left(ctx.time)` / `c.done(ctx.time)`. */
+export function countdown(seconds: number, start = 0) {
+  return {
+    end: start + seconds,
+    restart(t: number, s = seconds) {
+      this.end = t + s
+    },
+    left(t: number) {
+      return Math.max(0, this.end - t)
+    },
+    done(t: number) {
+      return t >= this.end
+    },
+  }
+}
+
 /** Ease 0..1. */
 export const easeOut = (t: number) => 1 - (1 - t) * (1 - t)
 

@@ -72,7 +72,8 @@ export interface ToyEvents {
   onJump(t: Toy): void
   onDive(t: Toy): void
   onWhiff(t: Toy): void
-  onGrab(t: Toy, target: Toy): void
+  /** target is null when an object (not a toy) was picked up. */
+  onGrab(t: Toy, target: Toy | null): void
   onWriggle(t: Toy, from: Toy): void
 }
 
@@ -112,6 +113,8 @@ export class Toy {
   /** Seconds the host owns this toy's position (knocked, grabbed, teleported): online clients stop predicting. */
   forced = 0
   holding: Toy | null = null
+  /** A loose object being carried (see LevelCtx.grabbable). */
+  holdingProp: RigidBody | null = null
   grabbedBy: Toy | null = null
   escape = 0
   grabT = 0
@@ -234,6 +237,15 @@ export class Toy {
   }
 
   release(toss: boolean) {
+    const prop = this.holdingProp
+    if (prop) {
+      this.holdingProp = null
+      this.grabCd = 0.5
+      if (toss) {
+        const f = this.facing(_v)
+        prop.setLinvel({ x: f.x * 7 + this.vel.x * 0.5, y: 4.5, z: f.z * 7 + this.vel.z * 0.5 }, true)
+      }
+    }
     const t = this.holding
     if (!t) return
     this.holding = null
@@ -250,9 +262,10 @@ export class Toy {
 
   /**
    * One fixed step of movement, before the physics step. `locked` freezes input (intro, countdown, frozen
-   * levels). `others` are the toys this one can shove, dive into or grab.
+   * levels). `others` are the toys this one can shove, dive into or grab; `grabbables` are loose objects
+   * (dynamic bodies a level registered with ctx.grabbable) it can pick up and throw.
    */
-  preStep(dt: number, _phys: Phys, others: readonly Toy[], ev: ToyEvents, locked: boolean) {
+  preStep(dt: number, _phys: Phys, others: readonly Toy[], ev: ToyEvents, locked: boolean, grabbables: readonly RigidBody[] = []) {
     const b = this.body
     if (b.isKinematic()) {
       if (this.mode === 'seated' && this.seat) b.setNextKinematicTranslation({ x: this.seat.x, y: this.seat.y, z: this.seat.z })
@@ -312,7 +325,7 @@ export class Toy {
       }
       this.dive = Math.max(0, this.dive - dt)
     } else {
-      const speed = this.runSpeed * (this.holding ? 0.6 : 1) * (this.grabbedBy ? 0.2 : 1)
+      const speed = this.runSpeed * (this.holding ? 0.6 : this.holdingProp ? 0.8 : 1) * (this.grabbedBy ? 0.2 : 1)
       if (this.dive > 0) {
         // Committed: no steering mid-dive, a little drag.
         this.dive -= dt
@@ -419,8 +432,8 @@ export class Toy {
       }
     }
 
-    // Grab: hold the toy in front while the key is held.
-    if (control && p.grab && !this.holding && this.grabCd <= 0 && this.mode === 'walk') {
+    // Grab: hold the toy (or loose object) in front while the key is held.
+    if (control && p.grab && !this.holding && !this.holdingProp && this.grabCd <= 0 && this.mode === 'walk') {
       const f = this.facing(_v)
       let best: Toy | null = null
       let bestD = MOVE.grabRange
@@ -441,7 +454,35 @@ export class Toy {
         best.emote = ''
         this.grabT = 0
         ev.onGrab(this, best)
-      } else this.grabCd = 0.4
+      } else {
+        // No toy in reach: a loose object?
+        let prop: RigidBody | null = null
+        let pd = MOVE.grabRange + 0.3
+        for (const g of grabbables) {
+          const gp = g.translation()
+          _w.set(gp.x - this.pos.x, 0, gp.z - this.pos.z)
+          const d = _w.length()
+          if (d < pd && Math.abs(gp.y - this.pos.y) < 1.4 && _w.dot(f) / Math.max(d, 1e-3) > 0.2 && !others.some((o) => o.holdingProp === g)) {
+            prop = g
+            pd = d
+          }
+        }
+        if (prop) {
+          this.holdingProp = prop
+          this.grabT = 0
+          ev.onGrab(this, null)
+        } else this.grabCd = 0.4
+      }
+    }
+    if (this.holdingProp) {
+      const g = this.holdingProp
+      this.grabT += dt
+      if (!p.grab || !control) this.release(this.grabT > 0.15 && control)
+      else {
+        const f = this.facing(_v)
+        const gp = g.translation()
+        g.setLinvel({ x: (this.pos.x + f.x * 0.85 - gp.x) * 12 + vx * 0.6, y: (this.pos.y + 0.45 - gp.y) * 10, z: (this.pos.z + f.z * 0.85 - gp.z) * 12 + vz * 0.6 }, true)
+      }
     }
     if (this.holding) {
       const t = this.holding

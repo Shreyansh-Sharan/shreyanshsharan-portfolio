@@ -368,8 +368,10 @@ export default defineLevel<SumoState>({
     if (v.scissors) {
       const cutting = st.cuts > 0 && t - (st.nextCut - CUT_EVERY) < CUT_TIME
       const prog = cutting ? (t - (st.nextCut - CUT_EVERY)) / CUT_TIME : 0
+      // Only around a cut: they glide in during the warning, run round the rim, then leave.
+      v.scissors.visible = ctx.phase === 'play' && (cutting || warning)
       const a = st.cuts * 1.7 + prog * Math.PI * 2
-      const rr = radius + 2.2
+      const rr = radius + (cutting ? 2.6 : 2.6 + Math.max(0, st.nextCut - t - 0.5) * 2)
       v.scissors.position.set(Math.sin(a) * rr, 0.3 + (cutting ? Math.sin(t * 30) * 0.1 : 0.6), Math.cos(a) * rr)
       v.scissors.rotation.set(0, a + Math.PI / 2, cutting ? Math.sin(t * 25) * 0.15 : 0)
       if (cutting) {

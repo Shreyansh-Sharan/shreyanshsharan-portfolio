@@ -122,6 +122,7 @@ export default defineLevel<MBState>({
   duration: 100,
   canBeFinal: true,
   camera: { kind: 'chase', dist: 7 },
+  introOrbit: { radius: 5, height: 13 },
   // Plush toddle: slower than usual so the walk to the box spans several verses.
   runSpeed: 3.6,
   sprinkles: { start: 1 },

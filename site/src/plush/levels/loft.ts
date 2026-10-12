@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { prop, propSize } from '../engine/assets'
 import { avoidWalls, hopObstacles, steerTo } from '../engine/bots'
 import { buildAttic, textSprite } from '../engine/helpers'
+import { PROP_GROUPS } from '../engine/physics'
 import { defineLevel, type LevelCtx, type Toy } from '../engine/types'
 
 /** Corners and spots toys wander between. Exported so other agents can hang hidden games off them. */
@@ -21,6 +22,7 @@ export const LOFT_ZONES = {
 export type LoftZone = keyof typeof LOFT_ZONES
 
 const HW = 18
+const _col = new THREE.Color()
 const HD = 18
 // The toy chest: footprint and wall height of its box (the lid stands open behind it).
 const CHEST = { x: 0, z: 0, hw: 1.7, hd: 1.25, wall: 1.45 }
@@ -270,6 +272,22 @@ export default defineLevel<LoftState>({
     const top = prop(ctx.assets, 'top', 1.8)
     placeProp(ctx, top, -4, -8)
 
+    // Loose toys to pick up (E) and throw: alphabet blocks and a beach ball.
+    const looseCols = ['#f97316', '#22c55e', '#3b82f6', '#e11d48']
+    for (let i = 0; i < 5; i++) {
+      const a = 0.8 + i * 1.25
+      const x = Math.sin(a) * 8.5, z = Math.cos(a) * 8.5
+      const ball = i === 4
+      const body = ctx.phys.dynamic({ x, y: 1 + i * 0.1, z }, { damping: 0.4 })
+      ctx.phys.attach(body, ball ? ctx.RAPIER.ColliderDesc.ball(0.45).setDensity(0.3) : ctx.RAPIER.ColliderDesc.cuboid(0.35, 0.35, 0.35).setDensity(0.4), { friction: 0.7, restitution: ball ? 0.75 : 0.2, groups: PROP_GROUPS })
+      const mesh = ball
+        ? new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 2), mat('#f43f5e', { roughness: 0.35 }))
+        : new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), mat(looseCols[i % looseCols.length]))
+      mesh.castShadow = true
+      ctx.root.add(mesh)
+      ctx.grabbable(body, mesh)
+    }
+
     // A rug under the chest.
     const rug = new THREE.Mesh(new THREE.CircleGeometry(6.5, 40).rotateX(-Math.PI / 2), mat('#9f1239', { roughness: 1 }))
     rug.position.y = 0.01
@@ -355,7 +373,7 @@ export default defineLevel<LoftState>({
     if (st.ball) st.ball.rotation.y += dt * 0.8
     if (st.topSpin) st.topSpin.rotation.y += dt * 9
     if (st.tiles) {
-      const c = new THREE.Color()
+      const c = _col
       const beat = Math.floor(t * 2)
       if (st.tiles.userData.beat !== beat) {
         st.tiles.userData.beat = beat

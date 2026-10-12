@@ -100,6 +100,8 @@ export class CamRig {
 
   resize(w: number, h: number) {
     this.camera.aspect = w / Math.max(1, h)
+    // Portrait phones see too little sideways at the desktop FOV.
+    this.camera.fov = this.camera.aspect < 1 ? 74 : 58
     this.camera.updateProjectionMatrix()
   }
 }
