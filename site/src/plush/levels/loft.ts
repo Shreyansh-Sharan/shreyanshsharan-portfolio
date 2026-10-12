@@ -271,15 +271,19 @@ export default defineLevel<LoftState>({
         if (toy.c.human) ctx.fx.popup(toy, 'Ready! The host starts the Show', '#93c5fd')
       }
     }
-    // Standing on the board-game box starts Toy Box Trail (for the host or solo player).
+    // Standing on the board-game box offers Toy Box Trail; pressing the action key starts it (host or solo
+    // player). It sits beside the toy chest, so stepping on it by accident must not start anything.
     const me = ctx.me
     if (me) {
       const on = me.grounded && me.feet > BOARD_BOX.h - 0.15 && Math.hypot(me.pos.x - BOARD_BOX.x, me.pos.z - BOARD_BOX.z) < BOARD_BOX.hd + 0.2
-      if (on && !me.data.onBoardBox) {
+      if (on && !me.data.onBoardBox) ctx.fx.popup(me, 'Toy Box Trail! Press R (or Act) to play', '#fde68a')
+      const act = !!me.pad.act
+      if (on && act && !me.data.boardAct) {
         ctx.fx.confetti(me.pos)
         ctx.signal('board', me)
       }
       me.data.onBoardBox = on
+      me.data.boardAct = act
     }
     for (const [a, k] of ACTS) a.tick(ctx, stateOf(st, k), dt)
   },

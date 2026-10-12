@@ -10,9 +10,31 @@ import pillowFort from './pillow-fort'
 import tidyUp from './tidy-up'
 import sockHoops from './sock-hoops'
 import eggHunt from './egg-hunt'
+import blockMemory from './block-memory'
+import pianoBridge from './piano-bridge'
+import crayonMatch from './crayon-match'
+import toyPile from './toy-pile'
+import cushionKing from './cushion-king'
+import merryGoRound from './merry-go-round'
 import toyBoxTrail from '../board/trail'
 
-export const LEVELS: AnyLevel[] = [loft, musicBox, cookieCutter, topSumo, yarnTug, pillowFort, tidyUp, sockHoops, eggHunt]
+export const LEVELS: AnyLevel[] = [
+  loft,
+  musicBox,
+  cookieCutter,
+  topSumo,
+  yarnTug,
+  pillowFort,
+  tidyUp,
+  sockHoops,
+  eggHunt,
+  blockMemory,
+  pianoBridge,
+  crayonMatch,
+  toyPile,
+  cushionKing,
+  merryGoRound,
+]
 
 /** Game modes that run as one long round of their own (not drawn by the Show or Quick Play). */
 export const MODES: AnyLevel[] = [toyBoxTrail]

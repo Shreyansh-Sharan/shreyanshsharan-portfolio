@@ -15,7 +15,7 @@ import { loadPhysics, Phys, RAPIER, STEP, type RigidBody } from './physics'
 import { ANIMS, EMOTES, ToyRig, type AnimKey, type EmoteKey, type RigState } from './rig'
 import { makeRng, type Rng } from './rng'
 import { Sabotage, THROW_INFO, trickPrice } from './sabotage'
-import { assignTeams, awardsFor, botName, planShow, roundTarget, TEAM_DEFAULTS, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
+import { assignTeams, awardsFor, botName, pickFinal, planShow, roundTarget, TEAM_DEFAULTS, TINTS, type Profile, type RoundPlan, type ShowResults, type ShowSettings } from './show'
 import { BALL_DROP, clearOneShots, emptyPad, FOOT, Toy, type BodyMode, type Pad, type ToyEvents } from './toy'
 import {
   freshStats, THROW_KINDS, type AnyLevel, type Contestant, type DuelResult, type DuelSpec, type FxApi, type LevelCtx, type LevelHud, type PlayMode, type Spawn, type Spice,
@@ -779,7 +779,9 @@ export class Game {
 
   /** Start a full Show from the Loft (solo/host). */
   startShow() {
-    if (this.role === 'client' || !this.round) return
+    if (this.role === 'client') return
+    // The Loft may be mid-rebuild (a settings change rebuilds it next frame): start once it's back.
+    if (!this.round || this.deferred) return this.afterRebuild(() => this.startShow())
     this.buildRoster('show')
     const rng = makeRng(Date.now() & 0xffffff)
     this.plan = planShow(LEVELS, this.roster.length, this.settings.rounds, rng)
@@ -862,7 +864,7 @@ export class Game {
       this.plan = []
       this.planMode = 'show'
     }
-    this.plan.splice(this.planIdx, 0, { levelId, final })
+    this.plan.splice(this.planIdx, 0, { levelId, final, forced: true })
     this.nextPlannedRound()
   }
 
@@ -872,6 +874,15 @@ export class Game {
     const alive = this.roster.filter((c) => !c.out)
     // Two left: straight to the final.
     if (this.planMode === 'show' && alive.length <= 2 && !plan[this.planIdx].final) this.planIdx = plan.length - 1
+    // The crown round: swap in a real final that fits the toys actually left (rounds can thin the field early).
+    const fin = plan[this.planIdx]
+    const planned = levelById(fin.levelId)
+    const misfit = !!planned && (alive.length < planned.players[0] || alive.length > planned.players[1])
+    if (this.planMode === 'show' && fin.final && !fin.forced && planned && (planned.type !== 'final' || misfit)) {
+      const played = new Set(plan.slice(0, this.planIdx).map((x) => x.levelId))
+      const better = pickFinal(LEVELS, alive.length, makeRng((Date.now() & 0xffffff) ^ alive.length), played)
+      if (better.type === 'final' || misfit) plan[this.planIdx] = { levelId: better.id, final: true }
+    }
     const p = plan[this.planIdx]
     const lv = levelById(p.levelId) ?? LEVELS[0]
     const quick = this.planMode === 'quick'
@@ -1774,6 +1785,12 @@ export class Game {
     if (name === 'board' && toy && this.phase === 'loft' && toy.c.idx === this.meIdx) this.deferred = () => this.startBoard()
   }
   private deferred: (() => void) | null = null
+
+  /** Run `fn` after any pending rebuild, so a start request made during one isn't lost. */
+  private afterRebuild(fn: () => void) {
+    const prev = this.deferred
+    this.deferred = prev ? () => (prev(), fn()) : fn
+  }
 
   /* ================= Effects ================= */
 

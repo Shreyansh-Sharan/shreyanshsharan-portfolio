@@ -450,7 +450,7 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
           ? lh.prompt
           : hud.zone === 'chest'
             ? host
-              ? 'Climb the blocks and jump into the toy chest to start the Show! Hop on the board-game box beside it for Toy Box Trail.'
+              ? 'Climb the blocks and jump into the toy chest to start the Show! For Toy Box Trail, stand on the board-game box beside it and press R.'
               : 'Jump in the toy chest to show you are ready.'
             : hud.zone === 'sewing'
               ? 'The Sewing Table: dress up from ten trait slots. Your toy turns on the tape measure.'
