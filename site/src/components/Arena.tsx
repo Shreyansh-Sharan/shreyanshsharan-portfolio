@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, Crosshair, Expand, LogOut, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
+import { AdSlot } from './AdSlot'
+import { GearShelf } from './GearShelf'
+import { adBreak, useGameAds } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'arena')!.accent
 const GAME_URL = 'games/arena/index.html'
@@ -244,12 +247,17 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
           </p>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="gaming" />
     </Page>
   )
 }
 
-function ArenaPlayer({ src, onExit }: { src: string; onExit: () => void }) {
+function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  // Leaving a match is a natural break for an interstitial; the lobby comes back once it's done.
+  const onExit = useCallback(() => adBreak('arena-exit', { done: exit }), [exit])
+  useGameAds(frame, 'arena')
   const [code, setCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)

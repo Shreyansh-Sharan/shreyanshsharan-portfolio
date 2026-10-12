@@ -4,6 +4,8 @@ import { Page } from '../components/Page'
 import { CONFIG } from './config'
 import { fanLevel, type Save } from './save'
 import type { RaceResult } from './game'
+import { AdSlot } from '../components/AdSlot'
+import { adBreak } from '../lib/ads'
 
 function Lights({ n, max = 5 }: { n: number; max?: number }) {
   return (
@@ -89,11 +91,11 @@ export function Results({
           </table>
           <div className="vr-actions">
             {onAgain && (
-              <button className="btn btn-primary" onClick={onAgain}>
+              <button className="btn btn-primary" onClick={() => adBreak('racer-results', { done: onAgain })}>
                 {r.mode === 'combat' ? <Play size={16} /> : <RotateCcw size={16} />} {label}
               </button>
             )}
-            <button className="btn" onClick={onMenu}>
+            <button className="btn" onClick={() => adBreak('racer-results', { done: onMenu })}>
               {menuLabel}
             </button>
           </div>
@@ -133,6 +135,7 @@ export function Results({
           </ul>
         </section>
       </div>
+      <AdSlot />
     </Page>
   )
 }
@@ -172,7 +175,7 @@ export function Standings({ series, save, onMenu, onAgain }: { series: Record<st
         </table>
         <p className="muted small">Total fans: {save.fans.toLocaleString()} · Series wins: {save.seriesWins}</p>
         <div className="vr-actions">
-          <button className="btn btn-primary" onClick={onAgain}>
+          <button className="btn btn-primary" onClick={() => adBreak('racer-series', { done: onAgain })}>
             <Swords size={16} /> New series
           </button>
           <button className="btn" onClick={onMenu}>
@@ -180,6 +183,7 @@ export function Standings({ series, save, onMenu, onAgain }: { series: Record<st
           </button>
         </div>
       </section>
+      <AdSlot />
     </Page>
   )
 }
