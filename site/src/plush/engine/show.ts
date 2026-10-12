@@ -2,6 +2,7 @@
 // the end-of-Show awards and buttons. Pure logic (no three.js), shared by the engine and the page.
 import type { Rng } from './rng'
 import type { AnyLevel, Contestant, LevelType, Spice } from './types'
+import type { Outfit } from '../wardrobe/catalog'
 
 export interface ShowSettings {
   /** Toys in a Show, people first; bots fill the rest. */
@@ -125,7 +126,15 @@ export interface Profile {
   shows: number
   wins: number
   settings: ShowSettings
+  /** Sewing Table: what you wear, and the items you own (free ones are always owned). */
+  outfit?: Outfit
+  owned?: string[]
+  /** End-of-Show awards won, by award id (the Loft notice board shows Biggest Menace). */
+  awards?: Record<string, number>
 }
+
+/** A change to the saved profile: fields to merge, or a function of the current profile (buying, rewards). */
+export type ProfilePatch = Partial<Profile> | ((prev: Profile) => Partial<Profile>)
 
 const KEY = 'pp-profile'
 

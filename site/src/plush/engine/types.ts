@@ -8,6 +8,7 @@ import type { PlushAssets, ToyKind } from './assets'
 import type { BodyMode, Toy } from './toy'
 import type { Hazards } from './hazards'
 import type { CamRig } from './camera'
+import type { Outfit } from '../wardrobe/catalog'
 
 export type { Toy, BodyMode } from './toy'
 export type { ToyKind } from './assets'
@@ -40,6 +41,8 @@ export interface Contestant {
   kind: ToyKind
   tint: string
   human: boolean
+  /** What they wear from the Sewing Table (item id per slot). Optional: older peers send none. */
+  outfit?: Outfit
   /** Eliminated from the Show (sits in the peanut gallery). */
   out: boolean
   /** Round they went out in (-1 still in). */
@@ -197,6 +200,11 @@ export interface LevelCtx {
    * state in visual(), so every screen hears the same thing. It stops between rounds.
    */
   readonly music: { start(tempo: number): void; windDown(seconds: number): void; stop(): void; readonly playing: boolean }
+  /**
+   * This screen's WebAudio, for levels that make their own sound (the Loft's zone ambience). `ensure()` returns
+   * the context once the player has interacted (null before); connect to `bus`, which follows the site's mute.
+   */
+  readonly sound: { ensure(): AudioContext | null; readonly bus: GainNode | null; play(name: string, pos?: THREE.Vector3Like, vol?: number): void }
 
   /* ----- Results (host) ----- */
   /** This toy is through (race finish, shape cut out). */

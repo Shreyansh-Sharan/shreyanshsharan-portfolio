@@ -4,6 +4,7 @@
 import type { Link } from '../../racer/net'
 import type { ShowResults, ShowSettings } from './show'
 import type { Contestant, PlayMode } from './types'
+import type { Outfit } from '../wardrobe/catalog'
 
 export { hostRoom, joinRoom, type Link } from '../../racer/net'
 
@@ -11,6 +12,8 @@ export interface Look {
   name: string
   kind: string
   tint: string
+  /** Sewing Table outfit (optional, so older peers still talk to newer ones). */
+  outfit?: Outfit
 }
 
 /** What a client needs to build a round exactly like the host. */
@@ -28,7 +31,7 @@ export interface RoundSetup {
   settings: ShowSettings
 }
 
-export type RosterRow = Pick<Contestant, 'idx' | 'id' | 'name' | 'kind' | 'tint' | 'human' | 'out' | 'outRound'>
+export type RosterRow = Pick<Contestant, 'idx' | 'id' | 'name' | 'kind' | 'tint' | 'human' | 'out' | 'outRound' | 'outfit'>
 
 /**
  * Messages. Pad `p`: [mx, mz, yaw, flags, px, pz, x, y, z, toyYaw] where flags = grab | down<<1, and x/y/z/toyYaw is

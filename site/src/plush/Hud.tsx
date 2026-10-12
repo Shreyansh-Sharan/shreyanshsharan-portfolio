@@ -8,10 +8,14 @@ import {
 } from 'lucide-react'
 import type { Game, Hud } from './engine/game'
 import type { PlushAssets } from './engine/assets'
-import type { Profile } from './engine/show'
+import type { Profile, ProfilePatch } from './engine/show'
 import type { TrickIcon } from './engine/types'
 import { quickPlayLevels } from './levels'
-import { Customise, SettingsForm } from './Forms'
+import { SettingsForm } from './Forms'
+import { claimClaw } from './levels/loft/records'
+import { clawPrize, RARITY_NAMES } from './wardrobe/catalog'
+import { earnedChallenges, emotesOwned, ownedSet } from './wardrobe/store'
+import { Wardrobe } from './wardrobe/Wardrobe'
 
 const ICONS: Record<TrickIcon, typeof Cookie> = {
   crumb: Cookie, slam: Hand, milk: Milk, paw: PawPrint, crack: Zap, swap: ArrowLeftRight, bubble: Shield, tickle: Feather, key: Key, tack: Pin, magnet: Magnet, zap: Zap, star: Star,
@@ -23,11 +27,75 @@ const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.flo
 
 const TYPE_NAMES: Record<string, string> = { race: 'Race', survival: 'Survival', team: 'Team', logic: 'Logic', final: 'Final', hidden: 'Loft secret', hub: 'Hub' }
 
-export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAssets | null; onProfile: (p: Partial<Profile>) => void; onQuit: () => void }) {
-  const { hud, game } = p
+/** Buttons a Loft game pays out when it finishes. */
+const LOFT_PAY: Record<string, (v: number) => number> = { freeze: (v) => Math.floor(v / 2), vine: (v) => Math.floor(v / 4), bowl: (v) => Math.floor(v / 10) }
+
+export function PlushHud(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAssets | null; onProfile: (p: ProfilePatch) => void; onQuit: () => void }) {
+  const { hud, game, onProfile } = p
   const playing = hud.phase === 'play'
+  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([])
+  const profileRef = useRef(p.profile)
+  useEffect(() => {
+    profileRef.current = p.profile
+  })
+  const toast = (text: string) => {
+    const id = Date.now() + Math.random()
+    setToasts((t) => [...t.slice(-2), { id, text }])
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200)
+  }
+  // Loft games report here (on this player's screen only): buttons for a finished game, claw prizes.
+  useEffect(() => {
+    game.onSignal = (name) => {
+      if (name.startsWith('loft-score:')) {
+        const [, g, v, fin] = name.split(':')
+        const pay = fin === '1' ? Math.min(30, LOFT_PAY[g]?.(Number(v)) ?? 0) : 0
+        if (pay > 0) {
+          onProfile((prev) => ({ buttons: prev.buttons + pay }))
+          toast(`+${pay} buttons`)
+        }
+      } else if (name.startsWith('loft-claw:')) {
+        const seed = Number(name.split(':')[1]) || 1
+        if (!claimClaw()) {
+          toast("Today's prize is already claimed. Come back tomorrow!")
+          return
+        }
+        let x = seed
+        const rand = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648)
+        const prize = clawPrize(ownedSet(profileRef.current), rand)
+        if (!prize) {
+          onProfile((prev) => ({ buttons: prev.buttons + 50 }))
+          toast('You own everything! +50 buttons instead')
+          return
+        }
+        onProfile((prev) => ({ owned: [...new Set([...(prev.owned ?? []), prize.id])] }))
+        toast(`Button Claw prize: ${prize.name} (${RARITY_NAMES[prize.rarity]})!`)
+      }
+    }
+    return () => {
+      game.onSignal = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game])
+  // Challenge pieces unlock themselves once their goal is met.
+  const earned = earnedChallenges(p.profile)
+  const earnedKey = earned.map((i) => i.id).join()
+  useEffect(() => {
+    if (!earned.length) return
+    onProfile((prev) => ({ owned: [...new Set([...(prev.owned ?? []), ...earned.map((i) => i.id)])] }))
+    for (const it of earned) toast(`Unlocked: ${it.name}!`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earnedKey])
   return (
     <div className={`pp-hud ${hud.pointer === 'free' ? 'is-free' : ''}`}>
+      {toasts.length > 0 && (
+        <div className="pp-toasts">
+          {toasts.map((t) => (
+            <div key={t.id} className="pp-toast">
+              {t.text}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="pp-topbar">
         <button className="btn pp-leave" onClick={p.onQuit}>
           <LogOut size={16} /> Leave
@@ -204,16 +272,25 @@ function Results({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () => vo
   )
 }
 
-function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAssets | null; onProfile: (p: Partial<Profile>) => void }) {
+function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAssets | null; onProfile: (p: ProfilePatch) => void }) {
   const { hud, game } = p
   const [open, setOpen] = useState<null | 'custom' | 'settings' | 'quick'>(null)
   const [copied, setCopied] = useState(false)
   const lastZone = useRef<string | null>(null)
+  const auto = useRef(false)
   useEffect(() => {
-    // Walking up to the sewing table opens the wardrobe.
-    if (hud.zone === 'sewing' && lastZone.current !== 'sewing') setOpen('custom')
+    // Stepping onto the tape-measure podium opens the wardrobe (and stepping off closes it again).
+    if (hud.zone === 'sewing' && lastZone.current !== 'sewing') {
+      setOpen('custom')
+      auto.current = true
+    } else if (hud.zone !== 'sewing' && lastZone.current === 'sewing' && auto.current) {
+      setOpen((o) => (o === 'custom' ? null : o))
+      auto.current = false
+    }
     lastZone.current = hud.zone
   }, [hud.zone])
+  const lh = hud.levelHud
+  const emotes = emotesOwned(p.profile)
   const host = hud.role !== 'client'
   const people = hud.roster.filter((r) => r.human)
   return (
@@ -258,23 +335,45 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
           )}
         </div>
         <div className="pp-emotes">
-          {(['wave', 'dance', 'stomp'] as const).map((e, i) => (
+          {emotes.map((e, i) => (
             <button key={e} className="btn btn-secondary" onClick={() => game.emote(e)}>
-              <kbd>{i + 1}</kbd> {e}
+              <kbd>{i + 1}</kbd> {EMOTE_NAMES[e] ?? e}
             </button>
           ))}
         </div>
         {!host && <p className="muted small">The host starts the Show. Jump in the toy chest to show you're ready.</p>}
       </div>
-      {open && (
-        <div className="pp-drawer">
-          {open === 'custom' && (
-            <>
-              <h3>Sewing Table</h3>
-              <Customise profile={p.profile} assets={p.assets} onProfile={p.onProfile} compact />
-              <p className="muted small">Hats, eyes and the full wardrobe are coming to the Sewing Table soon.</p>
-            </>
+      {open === 'custom' && <Wardrobe profile={p.profile} assets={p.assets} game={game} onProfile={p.onProfile} onClose={() => setOpen(null)} />}
+      {lh && (
+        <div className="pp-loftgame">
+          {lh.status && (
+            <div className={`pp-status ${lh.status.pulse ? 'is-pulse' : ''}`} style={{ color: lh.status.color, borderColor: lh.status.color }}>
+              {lh.status.text}
+            </div>
           )}
+          {lh.chips && lh.chips.length > 0 && (
+            <div className="pp-chips">
+              {lh.chips.map((c) => (
+                <span key={c}>{c}</span>
+              ))}
+            </div>
+          )}
+          {lh.bars && lh.bars.length > 0 && (
+            <div className="pp-left">
+              {lh.bars.map((b) => (
+                <div key={b.label} className={`pp-bar ${b.danger ? 'is-danger' : ''}`}>
+                  <span>{b.label}</span>
+                  <i>
+                    <b style={{ width: `${Math.round(b.value * 100)}%`, background: b.color }} />
+                  </i>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {open && open !== 'custom' && (
+        <div className="pp-drawer">
           {open === 'settings' && (
             <>
               <h3>Show settings</h3>
@@ -298,20 +397,31 @@ function LoftPanel(p: { hud: Hud; game: Game; profile: Profile; assets: PlushAss
         </div>
       )}
       <div className="pp-prompt is-loft">
-        {hud.zone === 'chest'
-          ? host
-            ? 'Climb the blocks and jump into the toy chest to start the Show!'
-            : 'Jump in the toy chest to show you are ready.'
-          : hud.zone === 'sewing'
-            ? 'The Sewing Table: change your toy, tint and name.'
-            : hud.zone
-              ? `${zoneName(hud.zone)}: a hidden game is coming here soon.`
-              : hud.touch
-                ? 'Stick to walk · Jump · Dive · Grab (hold) · Shove'
-                : 'WASD to walk · Space jump · Shift dive · E grab · click to shove · 1 2 3 emotes'}
+        {lh?.prompt
+          ? lh.prompt
+          : hud.zone === 'chest'
+            ? host
+              ? 'Climb the blocks and jump into the toy chest to start the Show!'
+              : 'Jump in the toy chest to show you are ready.'
+            : hud.zone === 'sewing'
+              ? 'The Sewing Table: dress up from ten trait slots. Your toy turns on the tape measure.'
+              : hud.zone
+                ? ZONE_HINTS[hud.zone] ?? zoneName(hud.zone)
+                : hud.touch
+                  ? 'Stick to walk · Jump · Dive · Grab (hold) · Shove'
+                  : `WASD to walk · Space jump · Shift dive · E grab · click to shove · 1–${emotes.length} emotes`}
       </div>
     </>
   )
+}
+
+const EMOTE_NAMES: Record<string, string> = { wave: 'Wave', dance: 'Dance', stomp: 'Stomp', spin: 'Twirl', flip: 'Backflip', boogie: 'Disco Fever' }
+
+const ZONE_HINTS: Record<string, string> = {
+  disco: 'Disco Closet: step onto the light-up floor for Freeze Dance. Climb the shoebox to the coat-hanger balcony.',
+  jungle: 'Houseplant Jungle: stand on the pot by the hoop and press R (Act) for Vine Swing.',
+  beach: 'Bathtub Beach: Bath Bomb Bowling starts at the end of the bath mat. Press R (Act) there.',
+  arcade: 'Cardboard Arcade: press R (Act) at the claw machine for Button Claw. One prize a day!',
 }
 
 function zoneName(z: string) {

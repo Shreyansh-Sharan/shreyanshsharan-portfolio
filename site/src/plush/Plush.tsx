@@ -9,7 +9,8 @@ import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
 import { loadPlushAssets, type PlushAssets } from './engine/assets'
-import { loadProfile, MAX_PEOPLE, MAX_SHOW, saveProfile, type Profile } from './engine/show'
+import { loadProfile, MAX_PEOPLE, MAX_SHOW, saveProfile, type Profile, type ProfilePatch } from './engine/show'
+import { emotesOwned } from './wardrobe/store'
 import { quickPlayLevels } from './levels'
 import type { Game, Hud } from './engine/game'
 import type { NetSession } from './engine/net'
@@ -43,8 +44,10 @@ export function Plush({ auto, level, join, onAccent }: { auto?: string; level?: 
     }
   }, [])
 
-  const update = (p: Partial<Profile>) => {
+  // Patches can be functions of the current profile (buying, rewards), so updates never work from a stale copy.
+  const update = (patch: ProfilePatch) => {
     setProfile((prev) => {
+      const p = typeof patch === 'function' ? patch(prev) : patch
       const next = { ...prev, ...p, settings: { ...prev.settings, ...(p.settings ?? {}) } }
       saveProfile(next)
       return next
@@ -169,7 +172,7 @@ function Menu(p: { profile: Profile; assets: PlushAssets | null; pct: number; er
 
 /* ---------- Stage ---------- */
 
-function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; profile: Profile; onProfile: (p: Partial<Profile>) => void; onExit: (why?: string) => void }) {
+function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; profile: Profile; onProfile: (p: ProfilePatch) => void; onExit: (why?: string) => void }) {
   const host = useRef<HTMLDivElement>(null)
   const gameRef = useRef<Game | null>(null)
   const [hud, setHud] = useState<Hud | null>(null)
@@ -178,6 +181,18 @@ function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; pro
   profileRef.current = p.profile
   const { onExit } = p
   const ready = !!p.assets
+  // Your look (name, toy, tint, Sewing Table outfit) and unlocked emotes follow the saved profile.
+  const lookKey = JSON.stringify([p.profile.name, p.profile.kind, p.profile.tint, p.profile.outfit ?? {}])
+  const emoteKey = emotesOwned(p.profile).join()
+  useEffect(() => {
+    const g = gameRef.current
+    if (!g) return
+    const pr = profileRef.current
+    g.setLook({ name: pr.name, kind: pr.kind, tint: pr.tint, outfit: pr.outfit })
+  }, [lookKey])
+  useEffect(() => {
+    gameRef.current?.setEmotes(emotesOwned(profileRef.current))
+  }, [emoteKey])
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('arena-running', { detail: true }))
@@ -216,6 +231,13 @@ function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; pro
         gameRef.current = game
         game.onHud = setHud
         game.onEarn = (prof) => saveProfile(prof)
+        game.onReward = (r) =>
+          p.onProfile((prev) => {
+            const awards = { ...(prev.awards ?? {}) }
+            for (const a of r.awards) awards[a] = (awards[a] ?? 0) + 1
+            return { buttons: prev.buttons + r.buttons, shows: prev.shows + 1, wins: prev.wins + (r.win ? 1 : 0), awards }
+          })
+        game.setEmotes(emotesOwned(profileRef.current))
         game.onDisconnect = (why) => onExit(why)
         if (q.has('snap') || q.get('net') === 'local') (window as unknown as { __plush: Game }).__plush = game
         await game.init()
@@ -257,9 +279,7 @@ function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; pro
           assets={p.assets}
           onProfile={(np) => {
             p.onProfile(np)
-            const merged = { ...p.profile, ...np }
-            gameRef.current?.setLook({ name: merged.name, kind: merged.kind, tint: merged.tint })
-            if (np.settings) gameRef.current?.setSettings({ ...p.profile.settings, ...np.settings })
+            if (typeof np !== 'function' && np.settings) gameRef.current?.setSettings({ ...p.profile.settings, ...np.settings })
           }}
           onQuit={() => onExit()}
         />

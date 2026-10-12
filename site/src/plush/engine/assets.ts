@@ -13,6 +13,10 @@ export const TOY_NAMES: Record<ToyKind, string> = { sock: 'Sock', bear: 'Bear', 
 export const PROPS = ['musicbox', 'ballerina', 'top', 'chest', 'scissors', 'tin', 'crown', 'horse', 'boxes', 'sewing', 'armchair'] as const
 export type PropName = (typeof PROPS)[number]
 
+/** Sewing Table cosmetics with real models (public/plush/cosmetics/<name>.glb). The rest are built from primitives. */
+export const COSMETICS = ['wizard', 'beanie', 'glasses', 'wings'] as const
+export type CosmeticName = (typeof COSMETICS)[number]
+
 export const TEXTURES = ['floor', 'biscuit', 'stool', 'tinlid'] as const
 export type TexName = (typeof TEXTURES)[number]
 
@@ -42,6 +46,18 @@ export interface PlushAssets {
   kinds: ToyKind[]
   props: Partial<Record<PropName, THREE.Object3D>>
   tex: Partial<Record<TexName, THREE.Texture>>
+  /** Cosmetic models (may be missing: the wardrobe falls back to primitives). */
+  cosmetics: Partial<Record<CosmeticName, THREE.Object3D>>
+}
+
+/** Mark a loaded scene's geometries and materials as shared, so round teardown and rig disposal leave them be. */
+function keepAll(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    m.geometry.userData.keep = true
+    for (const mt of Array.isArray(m.material) ? m.material : [m.material]) mt.userData.keep = true
+  })
 }
 
 const base = `${import.meta.env.BASE_URL}plush/`
@@ -51,7 +67,7 @@ export function loadPlushAssets(onProgress?: (done: number, total: number) => vo
   if (pending) return pending
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const texLoader = new THREE.TextureLoader()
-  const total = TOY_KINDS.length + PROPS.length + TEXTURES.length
+  const total = TOY_KINDS.length + PROPS.length + TEXTURES.length + COSMETICS.length
   let done = 0
   const tick = () => onProgress?.(++done, total)
   const glb = (path: string) =>
@@ -74,8 +90,9 @@ export function loadPlushAssets(onProgress?: (done: number, total: number) => vo
     Promise.all(TOY_KINDS.map((k) => glb(`chars/${k}.glb`))),
     Promise.all(PROPS.map((p) => glb(`models/${p}.glb`))),
     Promise.all(TEXTURES.map(tex)),
-  ]).then(([toys, props, texs]) => {
-    const out: PlushAssets = { toys: {}, kinds: [], props: {}, tex: {} }
+    Promise.all(COSMETICS.map((c) => glb(`cosmetics/${c}.glb`))),
+  ]).then(([toys, props, texs, cos]) => {
+    const out: PlushAssets = { toys: {}, kinds: [], props: {}, tex: {}, cosmetics: {} }
     TOY_KINDS.forEach((k, i) => {
       const g = toys[i]
       if (!g || !g.animations.length) return
@@ -93,6 +110,10 @@ export function loadPlushAssets(onProgress?: (done: number, total: number) => vo
     PROPS.forEach((p, i) => {
       if (props[i]) out.props[p] = props[i]!.scene
     })
+    COSMETICS.forEach((c, i) => {
+      if (cos[i]) out.cosmetics[c] = cos[i]!.scene
+    })
+    for (const o of [...Object.values(out.props), ...Object.values(out.cosmetics)]) if (o) keepAll(o)
     TEXTURES.forEach((t, i) => {
       if (texs[i]) out.tex[t] = texs[i]!
     })
