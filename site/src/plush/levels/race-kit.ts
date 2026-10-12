@@ -258,6 +258,8 @@ export interface Checkpoint extends Zone {
   name?: string
   /** Landing this far below the checkpoint's floor (on lower ground) counts as a fall. Default 2.5 m. */
   drop?: number
+  /** Where fallen toys come back, if not the checkpoint zone itself (e.g. the dry top of an island). */
+  spot?: Zone
 }
 
 /** A bot waypoint. */
@@ -418,11 +420,11 @@ export function raceRespawn(ctx: LevelCtx, rs: RaceState, course: Course, toy: T
   const cp = rs.cp[toy.idx] ?? -1
   rs.respawns[toy.idx] = (rs.respawns[toy.idx] ?? 0) + 1
   const n = rs.respawns[toy.idx] + toy.idx * 3
-  const at = cp >= 0 ? zoneSpot(course.cps[cp], n, course.cps[cp].yaw) : toy.spawn
+  const at = cp >= 0 ? zoneSpot(course.cps[cp].spot ?? course.cps[cp], n, course.cps[cp].yaw) : toy.spawn
   ctx.respawn(toy, at, 0.5)
   rs.hold[toy.idx] = 0
   const d = toy.data as BotMem
-  d.wp = cp >= 0 ? course.cpWp[cp] : 0
+  d.resync = true
   d.stuck = 0
   d.bestD = Infinity
   if (why) ctx.fx.popup(toy, why, '#bae6fd')
@@ -530,6 +532,8 @@ export interface BotMem {
   route?: number
   wanderT?: number
   wanderA?: number
+  /** Re-find the route after a respawn. */
+  resync?: boolean
 }
 
 /**
@@ -545,6 +549,20 @@ export function follow(
 ) {
   const d = toy.data as BotMem
   if (d.wp === undefined) d.wp = 0
+  if (d.resync) {
+    // Back at a checkpoint: pick up the route at the waypoint nearest to here.
+    d.resync = false
+    let best = 0, bd = Infinity
+    for (let i = 0; i < path.length; i++) {
+      const w = o.toWorld ? o.toWorld(path[i], _w) : _w.set(path[i].x, path[i].y, path[i].z)
+      const dd = Math.hypot(w.x - toy.pos.x, (w.y - toy.feet) * 2, w.z - toy.pos.z)
+      if (dd <= bd + 0.01) {
+        bd = dd
+        best = i
+      }
+    }
+    d.wp = best
+  }
   if (d.lane === undefined) d.lane = (((toy.idx * 7919 + ctx.seed) % 1000) / 1000) * 2 - 1
   if (d.wp >= path.length) d.wp = path.length - 1
   const lane = d.lane
@@ -615,6 +633,8 @@ export function follow(
     toy.pad.mx = (dx / dist) * k
     toy.pad.mz = (dz / dist) * k
   }
+  // In the air over a waypoint we can reach: aim to land on it rather than sail past.
+  if (!toy.grounded && dist < 6 && wp.y <= toy.feet + 0.3) airAim(toy, tx, wp.y, tz)
   if (toy.grounded) {
     if (w.jump && dist < w.jump) toy.pad.jump = true
     if (w.dive && dist < w.dive && toy.diveCd <= 0) toy.pad.dive = true
@@ -648,6 +668,24 @@ export function follow(
     toy.pad.mx = Math.sin(d.wanderA ?? 0) * o.pace
     toy.pad.mz = Math.cos(d.wanderA ?? 0) * o.pace
   }
+}
+
+/**
+ * Mid-air steering for bots: set the stick so the toy lands on (x, y, z). Uses the time until its feet come
+ * back down to y under gravity, and asks for the horizontal speed that covers the gap in that time.
+ */
+export function airAim(toy: Toy, x: number, y: number, z: number) {
+  const vy = toy.vel.y
+  const drop = toy.feet - y
+  const disc = vy * vy + 48 * drop
+  if (disc < 0) return
+  const T = Math.max(0.12, (vy + Math.sqrt(disc)) / 24)
+  const wx = (x - toy.pos.x) / T, wz = (z - toy.pos.z) / T
+  const sp = toy.runSpeed || 5.6
+  const l = Math.hypot(wx, wz) / sp
+  const k = l > 1 ? 1 / l : 1
+  toy.pad.mx = (wx / sp) * k
+  toy.pad.mz = (wz / sp) * k
 }
 
 /* ================================ Movers ================================ */
@@ -684,11 +722,14 @@ export function mover(
     /** Extra colliders in the body's local space. */
     extra?: { pos: [number, number, number]; half: [number, number, number] }[]
     onKnock?: (toy: Toy) => void
+    /** A round platform (radius = half[0]) instead of a box. */
+    cyl?: boolean
   },
 ) {
   const RAPIER = ctx.RAPIER
   const body = ctx.phys.kinematic({ x: 0, y: -50, z: 0 })
-  ctx.phys.attach(body, RAPIER.ColliderDesc.cuboid(o.half[0], o.half[1], o.half[2]), { friction: o.friction ?? 0.8 })
+  const shape = o.cyl ? RAPIER.ColliderDesc.cylinder(o.half[1], o.half[0]) : RAPIER.ColliderDesc.cuboid(o.half[0], o.half[1], o.half[2])
+  ctx.phys.attach(body, shape, { friction: o.friction ?? 0.8 })
   for (const e of o.extra ?? []) ctx.phys.attach(body, RAPIER.ColliderDesc.cuboid(...e.half).setTranslation(...e.pos), { friction: 0.6 })
   let obj = o.obj
   if (!obj) {
@@ -706,6 +747,8 @@ export function mover(
   const hitT = new Map<Toy, number>()
   const prevPos = new THREE.Vector3(0, -50, 0)
   let primed = false
+  const reach = Math.max(half.x, half.y, half.z) + 1.6
+  const far = (toy: Toy) => Math.abs(toy.pos.x - obj.position.x) > reach || Math.abs(toy.pos.z - obj.position.z) > reach || Math.abs(toy.pos.y - obj.position.y) > reach
   const local = (toy: Toy, m: THREE.Matrix4) => {
     _inv.copy(m).invert()
     return _v.set(toy.pos.x, toy.pos.y - FOOT, toy.pos.z).applyMatrix4(_inv)
@@ -720,9 +763,10 @@ export function mover(
     predict: true,
     carrying(toy: Toy) {
       if (!h.on || toy.status === 'failed' || toy.mode === 'seated') return false
-      if (!toy.grounded && toy.airT > 0.06) return false
+      if ((!toy.grounded && toy.airT > 0.06) || far(toy)) return false
       const l = local(toy, cur)
-      return Math.abs(l.x) <= half.x + 0.25 && Math.abs(l.z) <= half.z + 0.25 && l.y > half.y - 0.35 && l.y < half.y + 0.45
+      const inside = o.cyl ? Math.hypot(l.x, l.z) <= half.x + 0.25 : Math.abs(l.x) <= half.x + 0.25 && Math.abs(l.z) <= half.z + 0.25
+      return inside && l.y > half.y - 0.35 && l.y < half.y + 0.45
     },
     update(_c, t, dt) {
       const on = o.pose(Math.max(0, t), next)
@@ -760,7 +804,7 @@ export function mover(
         toy.yaw += _e.y
         return
       }
-      if (!o.shove || !c.isHost) return
+      if (!o.shove || !c.isHost || far(toy)) return
       const sp = vel.length()
       if (sp < 1.2) return
       const l = local(toy, cur)
