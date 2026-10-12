@@ -2061,6 +2061,71 @@ p {
   }
 }
 
+/* ---------- Cricket ---------- */
+
+.cricket-select {
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.cricket-select option {
+  background: #0a0b14;
+}
+
+.cricket-select:focus-visible {
+  outline: 2px solid #86efac;
+  outline-offset: 1px;
+}
+
+.field.cricket-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.cricket-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #22c55e;
+}
+
+.cricket-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cricket-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.cricket-progress-bar > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #86efac);
+  transition: width 0.3s var(--ease);
+}
+
+/* The build loads here, invisible, while the visitor picks their settings. Not display:none, so it keeps running. */
+.cricket-preload {
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  display: flex;
+}
+
 /* ---------- VOLT RIOT ---------- */
 
 .vr-title {
@@ -6628,4 +6693,62 @@ p {
   .tb-shelf .pp-trick {
     width: 78px;
   }
+
+/* ---------- Ads and affiliate gear ---------- */
+.ad-slot {
+  display: grid;
+  gap: 4px;
+  margin: 28px 0 0;
+  min-height: 100px;
+}
+
+.ad-label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.gear-shelf {
+  margin-top: 28px;
+}
+
+.gear-list {
+  list-style: none;
+  margin: 12px 0 8px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.gear-list a {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 12px 34px 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.gear-list a:hover,
+.gear-list a:focus-visible {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: var(--surface-strong);
+}
+
+.gear-list a span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.gear-list a svg {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  color: var(--muted);
 }

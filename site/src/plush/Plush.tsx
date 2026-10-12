@@ -16,6 +16,8 @@ import type { Game, Hud } from './engine/game'
 import type { NetSession } from './engine/net'
 import { Customise, SettingsForm } from './Forms'
 import { PlushHud } from './Hud'
+import { AdSlot } from '../components/AdSlot'
+import { GearShelf } from '../components/GearShelf'
 
 const accent = tiles.find((t) => t.id === 'plush-panic')?.accent ?? (['#7c2d12', '#fbbf24'] as [string, string])
 const KEYART = `${import.meta.env.BASE_URL}plush/keyart.webp`
@@ -195,6 +197,8 @@ function Menu(p: { profile: Profile; assets: PlushAssets | null; pct: number; er
           </ul>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="party" />
     </Page>
   )
 }

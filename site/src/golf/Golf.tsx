@@ -16,6 +16,9 @@ import { loadGolfAssets, type GolfAssets } from './assets'
 import type { ItemType } from './golfer'
 import type { Game, HoleResult, Hud } from './game'
 import { hostRoom, isGolfMsg, joinRoom, MAX_GOLFERS, type GolfMsg, type GolfNet, type GolfSetup, type GolfSlot, type Link, type LobbyGolfer } from './net'
+import { AdSlot } from '../components/AdSlot'
+import { GearShelf } from '../components/GearShelf'
+import { adBreak } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'bogey-brawl')?.accent ?? (['#14532d', '#bef264'] as [string, string])
 
@@ -467,6 +470,8 @@ export function Golf({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string
           </ul>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="golf" />
     </Page>
   )
 }
@@ -844,7 +849,7 @@ function Results(p: { result: HoleResult; tour: TourState | null; online: 'host'
         )}
         <div className="bb-actions">
           {online !== 'client' ? (
-            <button className="btn btn-primary" onClick={p.onAgain}>
+            <button className="btn btn-primary" onClick={() => (online ? p.onAgain() : adBreak('golf-results', { done: p.onAgain }))}>
               <RotateCcw size={16} />{' '}
               {tour && !last
                 ? `Next hole: ${holeById(tour.holes[tour.idx + 1]).name}`
@@ -857,11 +862,12 @@ function Results(p: { result: HoleResult; tour: TourState | null; online: 'host'
           ) : (
             <span className="muted small">{tour && !last ? 'Waiting for the host to start the next hole…' : 'Waiting for the host to start another round…'}</span>
           )}
-          <button className="btn" onClick={p.onMenu}>
+          <button className="btn" onClick={() => adBreak('golf-results', { done: p.onMenu })}>
             {online ? 'Leave' : 'Menu'}
           </button>
         </div>
       </section>
+      <AdSlot />
     </Page>
   )
 }

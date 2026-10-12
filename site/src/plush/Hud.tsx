@@ -17,6 +17,7 @@ import { claimClaw } from './levels/loft/records'
 import { clawPrize, RARITY_NAMES } from './wardrobe/catalog'
 import { earnedChallenges, emotesOwned, ownedSet } from './wardrobe/store'
 import { Wardrobe } from './wardrobe/Wardrobe'
+import { adBreak } from '../lib/ads'
 
 const ICONS: Record<TrickIcon, typeof Cookie> = {
   crumb: Cookie, slam: Hand, milk: Milk, paw: PawPrint, crack: Zap, swap: ArrowLeftRight, bubble: Shield, tickle: Feather, key: Key, tack: Pin, magnet: Magnet, zap: Zap, star: Star,
@@ -293,16 +294,16 @@ function Results({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () => vo
         {hud.role !== 'client' ? (
           <>
             {res.quick && lvl && (
-              <button className="btn btn-primary" onClick={() => game.startQuick(lvl.id)}>
+              <button className="btn btn-primary" onClick={() => betweenShows(hud.role, () => game.startQuick(lvl.id))}>
                 Play again
               </button>
             )}
             {res.title && (
-              <button className="btn btn-primary" onClick={() => game.startBoard()} data-testid="tb-again">
+              <button className="btn btn-primary" onClick={() => betweenShows(hud.role, () => game.startBoard())} data-testid="tb-again">
                 Play again
               </button>
             )}
-            <button className={`btn ${res.quick || res.title ? '' : 'btn-primary'}`} onClick={() => game.toLoft()}>
+            <button className={`btn ${res.quick || res.title ? '' : 'btn-primary'}`} onClick={() => betweenShows(hud.role, () => game.toLoft())}>
               Back to the Loft
             </button>
           </>
@@ -654,4 +655,10 @@ function TouchControls({ hud, game }: { hud: Hud; game: Game }) {
       </div>
     </div>
   )
+}
+
+/** A natural break for an interstitial between Shows, solo only so online players stay in step. */
+function betweenShows(role: string, next: () => void) {
+  if (role === 'solo') adBreak('plush-results', { done: next })
+  else next()
 }

@@ -20,6 +20,7 @@ import { endFight, enemies, fight, results } from './combat'
 import { PlayerFx } from './PlayerFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
+import { isLowGraphics } from '../lib/graphics'
 
 export type SceneMode = 'boot' | 'home' | 'page'
 
@@ -38,6 +39,8 @@ function weakGpu() {
 }
 
 function quality() {
+  // The user's explicit "low graphics" choice always wins — a guaranteed fallback for weak GPUs.
+  if (isLowGraphics()) return 'low'
   const small = window.innerWidth < 820 || matchMedia('(pointer: coarse)').matches
   const cores = navigator.hardwareConcurrency ?? 4
   const deviceMem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8

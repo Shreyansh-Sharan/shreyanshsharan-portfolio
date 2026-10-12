@@ -56,9 +56,10 @@ export class Cart {
     this.mesh.add(this.body)
     const src = assets?.props.cart
     if (src) {
-      // The model's nose points along -Z; turn it round to face +Z (our forward).
+      // The model's nose points along its +X axis; rotate it to face +Z (our forward) so the cart
+      // doesn't drive sideways. (Was Math.PI, which left the nose on X — the cause of the sideways cart.)
       const m = prop(src, 2.5, 'max')
-      m.rotation.y = Math.PI
+      m.rotation.y = -Math.PI / 2
       this.body.add(m)
     } else this.body.add(this.fallback(color))
     if (owner) {

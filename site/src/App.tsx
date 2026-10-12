@@ -13,6 +13,7 @@ import { Profile } from './components/Profile'
 import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
+import { Cricket } from './components/Cricket'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
 import { CanvasErrorBoundary } from './world/CanvasErrorBoundary'
@@ -91,7 +92,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') return
+        if (route.name === 'arena' || route.name === 'cricket' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') return
         setPlaying(!world.get().playing)
       } else if (e.key === 'Escape' && world.get().playing && !world.get().open) {
         setPlaying(false)
@@ -110,7 +111,7 @@ export default function App() {
 
   // Leaving the site for a route (e.g. from a mission briefing) ends explore mode.
   useEffect(() => {
-    if ((route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') && world.get().playing) world.set({ playing: false })
+    if ((route.name === 'arena' || route.name === 'cricket' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') && world.get().playing) world.set({ playing: false })
   }, [route.name])
 
   const mode: SceneMode = route.name === 'boot' ? 'boot' : route.name === 'home' ? 'home' : 'page'
@@ -143,6 +144,9 @@ export default function App() {
       break
     case 'arena':
       screen = <Arena key={route.join ?? ''} join={route.join} onAccent={setAccent} />
+      break
+    case 'cricket':
+      screen = <Cricket key={route.join ?? ''} join={route.join} onAccent={setAccent} />
       break
     case 'racer':
       screen = (

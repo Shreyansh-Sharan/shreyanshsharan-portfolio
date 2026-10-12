@@ -10,6 +10,9 @@ import { CONFIG } from './config'
 import { loadSportsAssets, type SportsAssets } from './assets'
 import { ACHIEVEMENTS, ROLES, SKILLS, TIER_COLOR, fmtTime, loadProgress, resetProgress, type Progress } from './progress'
 import type { Game, Hud } from './game'
+import { AdSlot } from '../components/AdSlot'
+import { GearShelf } from '../components/GearShelf'
+import { adBreak } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'sports-complex')?.accent ?? (['#991b1b', '#f97316'] as [string, string])
 const DIFFS = ['Easy', 'Normal', 'Hard'] as const
@@ -246,6 +249,8 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
           </button>
         </section>
       </div>
+      <AdSlot />
+      <GearShelf topic="sports" />
     </Page>
   )
 }
@@ -306,7 +311,7 @@ function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficul
           <p>
             <MousePointer2 size={16} /> Click to look around. Esc frees the mouse; Esc again leaves.
           </p>
-          <button className="btn" onClick={p.onQuit}>
+          <button className="btn" onClick={() => adBreak('sports-exit', { done: p.onQuit })}>
             <LogOut size={16} /> Back to menu
           </button>
         </div>
