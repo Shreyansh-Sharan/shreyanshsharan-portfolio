@@ -23,6 +23,7 @@ const WorldCanvas = lazy(() => import('./world/WorldCanvas'))
 const Racer = lazy(() => import('./racer/Racer').then((m) => ({ default: m.Racer })))
 const Golf = lazy(() => import('./golf/Golf').then((m) => ({ default: m.Golf })))
 const Sports = lazy(() => import('./sports/Sports').then((m) => ({ default: m.Sports })))
+const Plush = lazy(() => import('./plush/Plush').then((m) => ({ default: m.Plush })))
 const PlayHud = lazy(() => import('./world/PlayHud').then((m) => ({ default: m.PlayHud })))
 
 function canRun3D() {
@@ -90,7 +91,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports') return
+        if (route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') return
         setPlaying(!world.get().playing)
       } else if (e.key === 'Escape' && world.get().playing && !world.get().open) {
         setPlaying(false)
@@ -109,7 +110,7 @@ export default function App() {
 
   // Leaving the site for a route (e.g. from a mission briefing) ends explore mode.
   useEffect(() => {
-    if ((route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports') && world.get().playing) world.set({ playing: false })
+    if ((route.name === 'arena' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush') && world.get().playing) world.set({ playing: false })
   }, [route.name])
 
   const mode: SceneMode = route.name === 'boot' ? 'boot' : route.name === 'home' ? 'home' : 'page'
@@ -161,6 +162,13 @@ export default function App() {
       screen = (
         <Suspense fallback={null}>
           <Sports auto={route.auto} onAccent={setAccent} />
+        </Suspense>
+      )
+      break
+    case 'plush':
+      screen = (
+        <Suspense fallback={null}>
+          <Plush key={route.join ?? route.auto ?? 'menu'} auto={route.auto} level={route.level} join={route.join} onAccent={setAccent} />
         </Suspense>
       )
       break

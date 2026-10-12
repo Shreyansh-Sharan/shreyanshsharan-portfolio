@@ -56,6 +56,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Scoring', detail: 'First to hole out scores 100, plus par bonuses and knockouts. Unfinished at the end of overtime costs 50.' },
         { title: 'Assets', detail: 'A rigged golfer with run, idle and swing animations, plus rideable carts, cactus, neon towers, snowmen and a volcano.' },
       ]
+    case 'plush-panic':
+      return [
+        { title: 'The Show', detail: 'Up to 16 toys (bots fill the gaps) play rounds that shrink the field, ending in a crown final. Knocked-out toys heckle from the peanut gallery.' },
+        { title: 'Levels', detail: 'Cookie Cutter (trace a biscuit without cracking it), Music Box Freeze (move only while the tune plays) and Spinning Top Sumo (ride a ball off a shrinking stool).' },
+        { title: 'Sabotage', detail: 'Crumb Flick, Table Slam, Milk Splash, Plate Swap, thumbtacks, magnets and Bubble Wrap. Grudges make revenge half price; awards for the Biggest Menace.' },
+        { title: 'Online', detail: 'Host a room and share the code: the host runs the physics, friends join peer to peer. Walk round the Loft together between Shows.' },
+      ]
     case 'sports-complex':
       return [
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },
