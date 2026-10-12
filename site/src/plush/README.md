@@ -18,6 +18,12 @@ plush/
     cookie-cutter.ts logic: trace a biscuit (free pointer, seated toys, lots of tricks)
     music-box.ts     survival: move while the music plays (synced phases, WebAudio, a key pickup)
     top-sumo.ts      survival: ride balls on a shrinking stool (ball mode, custom hazard, shrinking floor)
+    yarn-tug.ts      team: tug of war on the beat, best of three (seated toys, animOverride, side camera)
+    pillow-fort.ts   team: tear down their cushion fort, steal the flag (grabbable walls, throws, rebuild)
+    tidy-up.ts       team: carry toys to your basket, push big ones over your line (live-count scoring)
+    sock-hoops.ts    team: basketball with a sock (aimed throws, passes, dunks, blocks, moving hoops)
+    egg-hunt.ts      team: search plants for eggs, carry them home, decoys pop (pooled props)
+    team-kit.ts      shared helpers for the team pack (textures, baskets, carrying bots, throws)
     robo-vac.example.ts  the worked example below (compiles, not registered)
   engine/
     types.ts         THE LEVEL API: LevelDef, LevelCtx, TrickDef, Contestant, FxApi, LevelHud
@@ -122,6 +128,48 @@ defineLevel<State>({
 - In a final, `target` is 1. The winner gets the crown, which is attached to the head bone.
 - Quick Play has no eliminations. `fail()` calls your `retry()`, and the round ends on the timer or when
   everyone has qualified.
+- Team levels (below) end with `ctx.winTeam(team)` instead: in a Show the losing team is eliminated.
+
+## Team levels
+
+Round 3 of a Show is drawn from the `team` and `logic` types. A team level sets `teams` and the engine does the
+rest of the bookkeeping:
+
+```ts
+defineLevel<State>({
+  id: 'yarn-tug', type: 'team',
+  teams: {
+    names: ['Purl', 'Knit'], colors: ['#e11d48', '#0ea5e9'], // default: Buttons (red) and Bobbins (blue)
+    scoreName: 'sets',                                     // what the HUD calls the score
+    friendlyFire: { shove: false, dive: false, grab: true }, // the default; `true` turns everything on
+  },
+  ...
+})
+```
+
+- **Teams**: the host splits the field into two balanced random teams (people spread across both sides first,
+  sizes differ by at most one) and sends them with the round, so every screen agrees. `toy.team` is 0 or 1
+  (-1 in levels without teams) and is set before `init`/`spawn`, so you can lay teams out by side.
+- **Looks**: each toy keeps its own tint but wears a team sash, its foot ring and name tag turn the team colour,
+  and the intro card says which team you are on. `toy.animOverride` (any rig animation) lets a level pose toys,
+  e.g. holding a rope; set it from `visual()` so every screen agrees.
+- **Scores**: `ctx.teams` is `[{ idx, name, color, score }, ...]`, synced to clients and shown under the timer.
+  Use `ctx.addTeamScore(team, n, why?, by?)` for events (a basket) or `ctx.setTeamScore(team, n)` for a live
+  count (eggs in the nest).
+- **Rivals**: `ctx.sameTeam(a, b)`, `ctx.rivalsOf(toy)`, `ctx.teammatesOf(toy)`, `ctx.teamToys(team)`. A
+  `'rival'` trick only ever targets the other team (the crosshair, Tab, auto-targeting and bot sabotage skip
+  teammates). Teammates never become your grudge. Shove and dive pass through teammates unless the level allows
+  friendly fire; grabbing a teammate (to carry or throw them) is on by default.
+- **Winning**: `ctx.winTeam(team, note?)` ends the round. In a Show every active toy on that team goes through and
+  the rest are eliminated together (one "team out" line in the feed, not eight). In Quick Play the winners are
+  marked through. If time runs out and `onTimeUp` doesn't pick a winner, the higher score wins (then the side
+  with more toys standing, then a coin toss on the round seed). If one side has nobody left standing, the
+  other side wins.
+- **Bots**: `bots.ts` adds `nearestMate(ctx, toy)` and `teamRank(ctx, toy, score)` (this toy's rank among its
+  teammates by any score, for sharing out jobs: the two nearest the ball chase it, one guards, the rest get
+  open). `nearestRival` skips teammates. `levels/team-kit.ts` has carrying helpers (`fetch`, `carryTo`,
+  `holdChanges` to see who let go of what, `throwBody` for aimed throws) used by the five team levels.
+- **Sizes**: the planner can hand a team level any field from 2 up, so make 1-v-1 work too.
 
 ## LevelCtx: what a level can use
 
@@ -131,6 +179,9 @@ Read-only facts: `root` (add visuals here; it is cleared between rounds), `scene
 `phase`, `pointer` (this screen's free pointer), `cam`, `music`, `hazards`, `THREE`, `RAPIER`.
 
 Results (host): `qualify(toy, note?)`, `fail(toy, reason)`, `end()`, `active()`, `qualifiedCount()`.
+
+Teams (see Team levels): `teams`, `teamOf`, `sameTeam`, `rivalsOf`, `teammatesOf`, `teamToys`, `addTeamScore`,
+`setTeamScore`, `winTeam(team, note?)`.
 
 Toys (host): `knock(toy, {x,y,z}, stun, by?)` (a velocity change plus a stun; `by` gets the grudge),
 `respawn(toy, at?, stun?)`, `setBodyMode(toy, 'walk'|'ball'|'seated')`, `blame(victim, by)`,
@@ -159,6 +210,7 @@ A `Toy` is one contestant's body for one round. Its body origin is the capsule c
 - `mode` ('walk' | 'ball' | 'seated'), `seat` (where a seated toy sits), `runSpeed`, `frozen` (cannot act)
 - `stun`, `dive`, `holding`, `grabbedBy`, `holdingProp`, `popped` (ball mode: no grip)
 - Sabotage: `sprinkles`, `busy` (tied up after a trick), `cooldowns`, `usedOnce`, `grudge`, `bubble`
+- `team` (-1, or 0/1 in team levels), `friendly` (which moves hit teammates), `animOverride` (force a pose)
 - `data`: per-level scratch space (bot memory). It is not synced.
 - `c`: the `Contestant` (name, kind, tint, human, stats)
 - `rig`: the visual `ToyRig` (see Cosmetics)
