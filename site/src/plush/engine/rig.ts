@@ -107,7 +107,7 @@ function hueMaterial(src: THREE.MeshStandardMaterial, hue: number, sat: number) 
 }
 
 const ringGeo = new THREE.RingGeometry(0.34, 0.44, 24).rotateX(-Math.PI / 2)
-const sashGeo = new THREE.TorusGeometry(0.33, 0.055, 5, 18)
+const sashGeo = new THREE.TorusGeometry(0.27, 0.05, 5, 18)
 const knotGeo = new THREE.IcosahedronGeometry(0.08, 0)
 const ballGeo = new THREE.IcosahedronGeometry(0.55, 2)
 
@@ -370,14 +370,14 @@ export class ToyRig {
   setTeam(color: string) {
     const c = new THREE.Color(color)
     ;(this.ring.material as THREE.MeshBasicMaterial).color.copy(c)
-    this.ring.scale.setScalar(1.25)
+    this.ring.scale.setScalar(1.12)
     const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.75, emissive: c, emissiveIntensity: 0.18, flatShading: true })
     this.materials.push(mat)
     const g = new THREE.Group()
     const sash = new THREE.Mesh(sashGeo, mat)
     sash.rotation.set(Math.PI / 2, 0.55, 0)
     const knot = new THREE.Mesh(knotGeo, mat)
-    knot.position.set(0.22, -0.12, 0.2)
+    knot.position.set(0.17, -0.1, 0.17)
     g.add(sash, knot)
     return this.attach('chest', g, { offset: [0, 0.02, 0] })
   }

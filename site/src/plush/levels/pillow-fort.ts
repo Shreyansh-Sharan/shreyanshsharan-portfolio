@@ -23,7 +23,7 @@ const DROP_AT = [55, 90]
 const EXTRA = 4
 const LOOSE = 6
 /** Seconds to tug a cushion free of a rival wall. */
-const TUG = 0.9
+const TUG = 1.4
 /** A fort's flag is exposed once fewer than this share of its cushions stand. */
 const EXPOSE = 0.4
 
@@ -506,7 +506,7 @@ export default defineLevel<FortState>({
       } else if (!held) s.tug[toy.idx] = 0
       // Duvets slow you down; jumping shakes them off.
       const slowed = s.duvet[toy.idx] > t
-      toy.runSpeed = slowed ? 2.6 : tugging ? 0.6 : 5.6
+      toy.runSpeed = slowed ? 2.6 : tugging ? 0.6 : held && s.flags.includes(held) ? 4 : 5.6
       if (slowed && toy.pad.jump) s.duvet[toy.idx] -= 0.5
     }
 
