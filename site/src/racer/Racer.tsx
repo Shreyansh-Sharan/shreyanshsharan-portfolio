@@ -637,7 +637,7 @@ function Menu(p: {
   return (
     <Page onBack={() => navigate('#/home/volt-riot')} className="racer-page">
       <header className="page-header">
-        <p className="eyebrow">Extras · Combat racer</p>
+        <p className="eyebrow">Games · Combat racer</p>
         <h1 className="page-title vr-title">VOLT RIOT</h1>
         <p className="page-lead">
           Neon street racing with weapons. Twelve power-ups, three bay slots, ten segments of health. Race or fight solo against AI, or online with

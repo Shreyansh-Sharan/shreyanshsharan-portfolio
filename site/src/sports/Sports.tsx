@@ -75,7 +75,7 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
   return (
     <Page onBack={() => navigate('#/home/sports-complex')} className="racer-page sc-page">
       <header className="page-header">
-        <p className="eyebrow">Extras · 3D sports world</p>
+        <p className="eyebrow">Games · 3D sports world</p>
         <h1 className="page-title sc-title">SPORTS COMPLEX</h1>
         <p className="page-lead">
           Walk a sunny complex as the low-poly me. Drive the F1 circuit through the career one sector per role, take penalties in the stadium for

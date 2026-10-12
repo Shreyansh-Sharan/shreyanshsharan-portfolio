@@ -342,7 +342,7 @@ export function Golf({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string
   return (
     <Page onBack={() => navigate('#/home/bogey-brawl')} className="racer-page golf-page">
       <header className="page-header">
-        <p className="eyebrow">Extras · Battle golf</p>
+        <p className="eyebrow">Games · Battle golf</p>
         <h1 className="page-title bb-title">BOGEY BRAWL</h1>
         <p className="page-lead">
           Everyone plays the hole at once. First ball in the cup wins the most points, and in between you can club, shoot, rocket and run over your rivals with

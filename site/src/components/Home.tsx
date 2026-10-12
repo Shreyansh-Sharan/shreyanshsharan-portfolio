@@ -15,7 +15,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'profile', label: 'Home' },
   { id: 'career', label: 'Career' },
   { id: 'showcase', label: 'Showcase' },
-  { id: 'extras', label: 'Extras' },
+  { id: 'extras', label: 'Games' },
 ]
 
 const TAB_IDS = TABS.map((t) => t.id)

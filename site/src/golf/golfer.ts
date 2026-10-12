@@ -235,6 +235,10 @@ export class Golfer {
         this.pos.z = t.z + (dz / d) * r
       }
     }
+    const myMove = this.vel.x * this.vel.x + this.vel.z * this.vel.z
+    const mx = this.vel.x,
+      mz = this.vel.z
+    const ml = Math.hypot(mx, mz) || 1
     for (const o of others) {
       if (o === this || o.respawn > 0 || o.cart) continue
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z
@@ -244,20 +248,25 @@ export class Golfer {
         const d = Math.sqrt(d2)
         this.pos.x += (dx / d) * (r - d) * 0.5
         this.pos.z += (dz / d) * (r - d) * 0.5
+        // Sabotage: run into a rival to stagger them — a brief shock plus a shove the way you're moving.
+        // Only when you're actually moving into them, and don't re-trigger while they're already stunned.
+        if (myMove > 1.2 && o.stun <= 0 && !o.immune) {
+          o.stun = CONFIG.body_check_stun
+          o.stunTotal = CONFIG.body_check_stun
+          o.kb.set((-dx / d) * CONFIG.body_check_shove, 0, (-dz / d) * CONFIG.body_check_shove)
+          o.vel.multiplyScalar(0.3)
+        }
       }
-      // Sabotage: walk into a rival's resting ball to nudge it off its line (no power-up needed).
+      // Sabotage: walk into a rival's resting ball to nudge it a little off its line (no power-up needed).
       const b = o.ball
       if (b.mode === 'rest') {
         const bx = this.pos.x - b.pos.x, bz = this.pos.z - b.pos.z
         const br = CONFIG.player_radius + CONFIG.ball_radius + 0.15
         const bd2 = bx * bx + bz * bz
-        const moving = this.vel.x * this.vel.x + this.vel.z * this.vel.z
-        if (bd2 < br * br && moving > 0.5) {
-          // Kick the ball the way the player is moving, a bit harder the faster they're going.
-          const sp = Math.min(6, 2.5 + Math.sqrt(moving))
-          const nx = this.vel.x, nz = this.vel.z
-          const nl = Math.hypot(nx, nz) || 1
-          b.vel.set((nx / nl) * sp, 0, (nz / nl) * sp)
+        if (bd2 < br * br && myMove > 0.5) {
+          // A gentle nudge — enough to throw their line off, not to send it across the hole.
+          const sp = Math.min(CONFIG.ball_nudge_max, 1.4 + Math.sqrt(myMove) * 0.6)
+          b.vel.set((mx / ml) * sp, 0, (mz / ml) * sp)
           b.mode = 'rolling'
         }
       }

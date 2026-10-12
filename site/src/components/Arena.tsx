@@ -105,7 +105,7 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
   return (
     <Page onBack={() => navigate('#/home/arena')} className="arena-page">
       <header className="page-header">
-        <p className="eyebrow">Extras · Unity 6</p>
+        <p className="eyebrow">Games · Unity 6</p>
         <h1 className="page-title">Dunes Arena</h1>
         <p className="page-lead">
           A lightweight multiplayer shooter on six original maps, from the Dunes desert and a night-time harbour to three

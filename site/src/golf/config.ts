@@ -20,6 +20,9 @@ export const CONFIG = {
   melee_range: 2, // m
   melee_stun: 1.5, // s
   melee_boost: 3, // s
+  body_check_stun: 1.2, // s a rival is shocked when you run into them
+  body_check_shove: 4, // knockback given by a body-check (applied over stun_knockback_time)
+  ball_nudge_max: 3, // m/s cap when you bump a rival's resting ball — a nudge, not a launch
   dive_duration: 0.6, // s
   dive_speed: 14, // m/s
   dive_iframes: 0.4, // s
