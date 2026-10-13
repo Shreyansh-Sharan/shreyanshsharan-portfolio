@@ -975,10 +975,10 @@ export class Game {
     const throttle = Math.max(k.has('up') ? 1 : 0, pad?.throttle ?? 0)
     const brake = Math.max(k.has('down') ? 1 : 0, pad?.brake ?? 0)
     const steer = (k.has('right') ? 1 : 0) - (k.has('left') ? 1 : 0)
-    // Smooth keyboard steering; analogue sticks pass straight through.
+    // Smooth keyboard steering (the car's own wheel rate does the rest); analogue sticks pass straight through.
     if (pad?.steer) this.steerSmooth = pad.steer
     else {
-      const rate = steer === 0 || Math.sign(steer) !== Math.sign(this.steerSmooth) ? 9 : 5
+      const rate = steer === 0 || Math.sign(steer) !== Math.sign(this.steerSmooth) ? 12 : 7
       this.steerSmooth += THREE.MathUtils.clamp(steer - this.steerSmooth, -rate * dt, rate * dt)
     }
     const actions: string[] = []
@@ -1709,7 +1709,7 @@ export class Game {
         break
       case 'jolt':
         victim.vel.multiplyScalar(0.8)
-        victim.yawRate += (Math.random() - 0.5) * 2
+        victim.yawKick += (Math.random() - 0.5) * 2
         break
       case 'kick':
         victim.steerKick = CONFIG.bolt_steer_kick
@@ -1998,9 +1998,11 @@ export class Game {
       wantPos = p.pos.clone().addScaledVector(f, -dist).setY(2.65 - k * 0.45 + gy)
       wantLook = p.pos.clone().addScaledVector(f, 6 + k * 4).setY(1.1 + gy)
     }
+    // The position trails the car (so it swings out behind through corners); the look point barely lags, so a
+    // change of heading reads on screen the moment the nose moves.
     const snap = this.phaseTime < 0.05 && this.phase === 'countdown'
     this.camPos.lerp(wantPos, snap ? 1 : this.lookBack ? 1 : k)
-    this.camLook.lerp(wantLook, snap ? 1 : this.lookBack ? 1 : Math.min(1, k * 1.6))
+    this.camLook.lerp(wantLook, snap ? 1 : this.lookBack ? 1 : 1 - Math.exp(-dt * 22))
     cam.position.copy(this.camPos)
     if (this.shakeAmt > 0) {
       cam.position.x += (Math.random() - 0.5) * this.shakeAmt

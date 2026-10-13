@@ -1,4 +1,6 @@
-// A car: arcade handling (kinematic with lateral slip and a drift state), health, the power-up bay and race progress.
+// A car: arcade handling (a rate-limited wheel drives the yaw straight off a bicycle model, capped by grip; sideways
+// slip dies away rather than being clamped, so the car slides a touch through fast corners and always recovers;
+// a drift state lets the tail hang out), health, the power-up bay and race progress.
 import * as THREE from 'three'
 import { CONFIG, kmh } from './config'
 import { buildCarMesh, topSpeedKmh, type CarClass, type CarMesh, type CarModel, type Driver } from './cars'
@@ -22,6 +24,12 @@ export type StunKind = 'spin' | 'flip' | 'none'
 const WHEELBASE = 2.6
 const HALF_WIDTH = 1.0
 const BOWL_CAR_R = 1.6 // collision radius against the bowl's rim and obstacles
+const STEER_MAX = 0.55 // rad of wheel at a standstill (a 4.2 m turning radius)
+const STEER_RATE = 3.6 // rad/s the wheel turns towards the stick
+const BRAKE = 32 // m/s²
+const REVERSE_ACCEL = 9 // m/s²
+const REVERSE_TOP = 12 // m/s
+const ROLL = 1.2 // rolling resistance (m/s²)
 const qTilt = new THREE.Quaternion()
 const tiltAxis = new THREE.Vector3()
 const GRAVITY = CONFIG.jump_gravity
@@ -43,12 +51,16 @@ export class Car {
   readonly pos = new THREE.Vector3()
   readonly vel = new THREE.Vector3()
   yaw = 0
-  yawRate = 0
+  yawRate = 0 // rad/s this step (steering plus any spin from a hit)
+  wheel = 0 // rad, + = left; follows the stick at STEER_RATE through a range that narrows with speed
+  yawKick = 0 // rad/s of spin from a jolt, dying away
   readonly input: CarInput = { throttle: 0, brake: 0, steer: 0, handbrake: false }
   baseTop: number // m/s
-  accel: number // m/s²
-  latMax: number // m/s²
-  gripRate: number // 1/s
+  accel: number // m/s² off the line; the pull fades linearly to nothing at top speed
+  latMax: number // m/s² of cornering grip: caps the yaw rate at speed
+  gripRate: number // 1/s sideways slip dies away (lower = more slide through fast corners)
+  steerFast: number // rad of wheel at top speed: full lock there is just past the grip cap, so the stick maps to lateral g
+  drag: number // quadratic drag so lifting off bleeds speed, set so a car on full throttle still reaches its top
   rubber = 1
   topCap = Infinity
 
@@ -160,10 +172,16 @@ export class Car {
     this.driver = opts.driver
     this.skill = opts.skill ?? 0.6
     this.mesh = buildCarMesh(model, opts.glb)
+    // Stats onto the model: Speed sets the top (by class), Acceleration the pull off the line, Grip the cornering
+    // limit and how quickly a slide settles, Stability calms the slide further; Drift is used in step().
+    const st = model.stats
+    const cls = 'DCBA'.indexOf(opts.cls ?? model.cls)
     this.baseTop = kmh(topSpeedKmh(model, opts.cls ?? model.cls))
-    this.accel = 5.6 + model.stats.accel * 0.82
-    this.latMax = 13 + model.stats.grip * 1.1
-    this.gripRate = 7 + model.stats.grip * 0.5
+    this.accel = 9.5 + st.accel * 1.05
+    this.latMax = 19 + st.grip * 1.2 + cls * 1.5
+    this.gripRate = 5 + st.grip * 0.35 + st.stability * 0.15
+    this.steerFast = Math.atan((1.15 * this.latMax * WHEELBASE) / (this.baseTop * this.baseTop))
+    this.drag = Math.max(0, 0.36 * this.accel - ROLL) / (this.baseTop * this.baseTop)
     if (!this.isPlayer) {
       const c = document.createElement('canvas')
       c.width = 256
@@ -333,38 +351,48 @@ export class Car {
     const acc =
       this.accel * (nitroOn ? CONFIG.nitro_accel_mult : 1) * (this.boost > 0 ? 1.6 : 1) * (this.bog > 0 ? 0.35 : 1) * (ramOn ? CONFIG.ram_accel_mult : 1)
 
-    // Rotate first; the velocity keeps its world direction, so turning creates slip that grip then removes.
+    const driftStat = this.model.stats.drift
+    const stability = this.model.stats.stability
     const fwd0 = this.forwardSpeed
     const spd = Math.abs(fwd0)
-    // Keep more steering authority at speed so you can turn while on the throttle (less understeer).
-    const steerAngle = 0.6 * (1 - 0.38 * Math.min(1, spd / Math.max(1, this.baseTop)))
-    let targetYaw = (-st * spd * Math.tan(steerAngle)) / WHEELBASE * Math.sign(fwd0 || 1)
-    // The cap shrinks with speed but with a floor, so fast corners don't go numb unless you overcook them.
-    const yawCap = (this.drifting ? this.latMax * 1.55 : this.latMax * 1.25) / Math.max(spd, 9)
-    targetYaw = THREE.MathUtils.clamp(targetYaw, -Math.min(2.6, yawCap), Math.min(2.6, yawCap))
-    if (this.drifting) targetYaw *= 1.25
-    if (this.airBrake > 0) targetYaw *= 1.6
-    this.yawRate += (targetYaw - this.yawRate) * Math.min(1, dt * (this.drifting ? 6 : 10))
+
+    // Steering: the wheel turns at a fixed rate towards the stick through a range that narrows with speed, so full
+    // lock is a tight U-turn at walking pace and, at speed, a small angle that lands just past the grip limit (the
+    // stick then reads as lateral g). The yaw rate comes straight off the wheel, capped by what the tyres can hold;
+    // there is no separate lag on the yaw, which is what makes the nose feel connected to the stick.
+    let range = THREE.MathUtils.lerp(STEER_MAX, this.steerFast, Math.min(1, spd / Math.max(1, this.baseTop)))
+    if (this.airBrake > 0) range *= 1.6
+    const want = -st * range
+    this.wheel += THREE.MathUtils.clamp(want - this.wheel, -STEER_RATE * dt, STEER_RATE * dt)
+    let grip = this.latMax
+    if (this.drifting) grip *= 1.2 + driftStat * 0.02 // a drift turns tighter than the tyres alone would allow
+    if (this.airBrake > 0) grip *= 1.6
+    const cap = grip / Math.max(spd, 1)
+    this.yawKick *= Math.exp(-dt * 3)
+    this.yawRate = THREE.MathUtils.clamp((fwd0 * Math.tan(this.wheel)) / WHEELBASE, -cap, cap) + this.yawKick
     this.yaw += this.yawRate * dt
 
+    // The velocity keeps its world direction, so turning creates sideways slip for the tyres to work off.
     const f = this.forward, r = this.right
     let vf = this.vel.dot(f)
     let vl = this.vel.dot(r)
 
-    // Engine, brakes, drag.
-    if (thr > 0) {
-      if (vf < top) vf += acc * thr * Math.max(0.05, 1 - (vf / top) ** 2) * dt
-      else vf -= (vf - top) * 1.2 * dt
-    } else vf -= vf * 0.18 * dt
-    if (vf > top * 1.02 && !nitroOn && !ramOn) vf -= (vf - top) * 1.5 * dt
+    // Engine: a strong pull off the line that fades linearly towards top speed. Drag and rolling resistance are
+    // always there (lifting off bleeds speed, so corners can be set up on the throttle alone); the throttle makes
+    // them up in proportion, so a car on full throttle really reaches its top.
+    const drag = ROLL * Math.sign(vf) + this.drag * vf * spd
+    if (thr > 0 && vf < top) vf += thr * (acc * Math.max(0.04, 1 - vf / top) + Math.max(0, drag)) * dt
+    if (vf > top * 1.02) vf -= (vf - top) * 1.5 * dt // over the top (a boost just ran out): ease back down
+    if (Math.abs(drag * dt) > spd && thr === 0) vf = 0
+    else vf -= drag * dt
     if (brk > 0) {
-      if (vf > 0.5) vf = Math.max(0, vf - 30 * brk * dt)
-      else vf = Math.max(-12, vf - 9 * brk * dt)
+      if (vf > 0.5) vf = Math.max(0, vf - BRAKE * brk * dt)
+      else vf = Math.max(-REVERSE_TOP, vf - REVERSE_ACCEL * brk * dt)
     }
-    if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 5 * dt)
+    if (hb) vf -= Math.sign(vf) * Math.min(spd, 5 * dt)
 
-    // Drift state: handbrake or a sharp turn at speed starts it; grip drops; a clean exit gives a mini-boost.
-    const driftStat = this.model.stats.drift
+    // Drift state: the handbrake, or throwing it in hard near top speed, starts one; the tail steps out and the
+    // slip stops settling until the car is pointing the way it is going again. A clean exit gives a mini-boost.
     if (!this.drifting && vf > 12) {
       const sharp = Math.abs(st) > 0.85 && vf > (0.95 - driftStat * 0.035) * this.baseTop
       if (hb || sharp) {
@@ -372,8 +400,8 @@ export class Car {
         this.driftTime = 0
         this.driftDist = 0
         this.driftClean = true
-        // Kick the tail out.
-        vl += -Math.sign(st || this.yawRate || 1) * Math.min(6, vf * 0.12)
+        // Kick the tail out (less on a stable car).
+        vl += -Math.sign(st || this.yawRate || 1) * Math.min(6, vf * 0.12) * (1.3 - stability * 0.04)
       }
     }
     if (this.drifting) {
@@ -381,20 +409,24 @@ export class Car {
       this.driftDist += Math.abs(vf) * dt
       const slip = Math.abs(Math.atan2(vl, Math.max(1, vf)))
       const hold = 0.1 + driftStat * 0.012
-      if (vf < 8 || (!hb && slip < hold && this.driftTime > 0.35)) {
+      // Over once the car is pointing the way it is going, or the driver straightens up (the slip then settles
+      // at the normal grip rate).
+      if (vf < 8 || (!hb && this.driftTime > 0.35 && (slip < hold || Math.abs(st) < 0.25))) {
         if (vf >= 8 && this.driftClean && this.driftTime > 0.6) this.boost = Math.max(this.boost, CONFIG.drift_exit_boost)
         this.longestDrift = Math.max(this.longestDrift, this.driftDist)
         this.drifting = false
       }
     }
 
-    // Tyres: lateral friction capped by grip (lower while drifting).
-    const gripMul = this.drifting ? CONFIG.drift_grip_mult * (1.25 - driftStat * 0.05) : 1
-    const cap = this.latMax * (this.drifting ? 0.85 : 1)
-    const want = vl * (1 - Math.exp(-this.gripRate * gripMul * 2.5 * dt))
-    const maxDelta = cap * dt
-    vl -= THREE.MathUtils.clamp(want, -maxDelta, maxDelta)
-    if (this.drifting) vf -= Math.abs(vl) * 0.12 * dt
+    // Tyres. Gripping: sideways slip dies away at the car's grip rate, never clamped, so a hard corner is a small
+    // steady slide (which costs a little speed) rather than a wash-out. Drifting: the slip lingers (a high Drift
+    // stat holds the slide longer) and the velocity is swung round rather than damped, so the car carries its pace
+    // through the slide and only the scrub costs speed.
+    if (this.drifting) {
+      const speed0 = Math.hypot(vf, vl)
+      vl *= Math.exp(-(4.2 - driftStat * 0.22) * dt)
+      vf = Math.sign(vf || 1) * Math.sqrt(Math.max(0, speed0 * speed0 - vl * vl)) - Math.abs(vl) * 0.2 * dt
+    } else vl *= Math.exp(-this.gripRate * dt)
 
     this.vel.copy(f).multiplyScalar(vf).addScaledVector(r, vl)
     this.pos.addScaledVector(this.vel, dt)
@@ -583,6 +615,8 @@ export class Car {
     this.pos.set(x, 0, z)
     this.yaw = yaw
     this.yawRate = 0
+    this.wheel = 0
+    this.yawKick = 0
     this.hint = 0
     this.branch = -1
     this.bi = -1
