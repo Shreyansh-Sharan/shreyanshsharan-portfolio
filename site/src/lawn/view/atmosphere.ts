@@ -32,7 +32,7 @@ float vnoise(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
 }
-float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * vnoise(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
+float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < FBM_OCT; i++) { s += a * vnoise(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
@@ -63,8 +63,10 @@ void main() {
   #include <colorspace_fragment>
 }`
 
-export function skyMaterial() {
+/** The sky dome material; `cheap` (low quality) uses fewer cloud noise octaves. */
+export function skyMaterial(cheap = false) {
   return new THREE.ShaderMaterial({
+    defines: { FBM_OCT: cheap ? 2 : 5 },
     vertexShader: skyVert,
     fragmentShader: skyFrag,
     side: THREE.BackSide,
