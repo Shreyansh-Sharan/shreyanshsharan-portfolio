@@ -621,7 +621,15 @@ function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
 function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
   const m = h.meter
   const selected = h.delivery?.options.find((o) => o.type === h.delivery!.selected)
-  const inGreen = !!m && Math.abs(m.value - m.green) <= m.half
+  // The needle moves every frame straight on the DOM (the HUD itself renders at 10 Hz).
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const needleRef = useRef<HTMLDivElement>(null)
+  const meterShown = !!m
+  useEffect(() => {
+    if (!game || !meterShown) return
+    game.attachMeter(wrapRef.current, needleRef.current)
+    return () => game.attachMeter(null, null)
+  }, [game, meterShown])
   return (
     <div className="ck-bowl">
       {selected && (h.phase === 'predelivery' || h.phase === 'runup') && (
@@ -658,7 +666,7 @@ function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
         )}
       </div>
       {m && (
-        <div className={`ck-power-wrap ${m.running ? 'is-running' : ''} ${inGreen && m.running ? 'is-green' : ''}`}>
+        <div ref={wrapRef} className={`ck-power-wrap ${m.running ? 'is-running' : ''}`} data-green={m.running && Math.abs(m.value - m.green) <= m.half ? '1' : '0'}>
           <div className="ck-power-title">
             {m.running ? (
               <>
@@ -675,7 +683,7 @@ function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
           <div className="ck-power" aria-label="Release meter">
             <div className="ck-power-zone" style={{ left: `${(m.green - m.half) * 100}%`, width: `${m.half * 200}%` }} />
             <div className="ck-power-over" style={{ left: `${(m.green + m.half * 1.15) * 100}%` }} />
-            <div className="ck-power-needle" style={{ left: `${m.value * 100}%` }} />
+            <div ref={needleRef} className="ck-power-needle" style={{ left: `${m.value * 100}%` }} />
             <span className="ck-power-tag ck-power-tag-early">early = short &amp; slow</span>
             <span className="ck-power-tag ck-power-tag-green" style={{ left: `${m.green * 100}%` }}>
               GREEN
