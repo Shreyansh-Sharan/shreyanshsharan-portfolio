@@ -68,7 +68,7 @@ function seed() {
       if (l.ghost) return
       const x = r.center[0] + l.at[0], z = r.center[1] + l.at[1]
       // Walkable sets start open (their walls are measured once the mesh is in); other props block their pad.
-      groups.set(landmarkKey(r.id, i), l.set ? [] : [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
+      groups.set(landmarkKey(r.id, i), l.set || l.stand || l.passage ? [] : [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
     }),
   )
   const neon = REGIONS.find((r) => r.id === 'neon')!

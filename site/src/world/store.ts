@@ -40,6 +40,8 @@ export interface WorldState {
   hubTile: string | null
   /** What fills the tab: the island, or the sports complex entered through the stadium gate. */
   scene: 'world' | 'sports'
+  /** The room the player walked into (the arcade hall, the keep's great hall), or null outdoors. */
+  room: 'arcade' | 'hall' | null
 }
 
 export interface MinigameHud {
@@ -85,6 +87,7 @@ let state: WorldState = {
   exhibit: null,
   hubTile: null,
   scene: 'world',
+  room: null,
 }
 
 const listeners = new Set<() => void>()

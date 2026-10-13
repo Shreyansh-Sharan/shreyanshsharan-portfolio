@@ -22,11 +22,40 @@ export const DENSITY = (() => {
 
 const BUILT = new Set(['neon', 'stadium', 'arcade'])
 
+/**
+ * Where a scattered prop's base goes: the lowest ground under its footprint (centre and eight points at `r`), sunk a
+ * little, so a trunk or root flare on a slope never shows a gap underneath.
+ */
+export function baseHeight(x: number, z: number, r: number, sink: number) {
+  let h = heightAt(x, z)
+  const d = r * 0.7
+  for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r], [d, d], [-d, d], [d, -d], [-d, -d]]) h = Math.min(h, heightAt(x + dx, z + dz))
+  return h - sink
+}
+
+/** Base footprint half-width (fraction of height) of each scattered model, measured from the meshes (root flares). */
+const BASE_FRACTION: Partial<Record<ScatterName, number>> = {
+  rock: 0.5, bush: 0.45, 'tree-fir': 0.055, 'tree-fir-wide': 0.16, 'tree-oak': 0.23, 'tree-round': 0.1, 'tree-birch': 0.06,
+  'tree-poplar': 0.035, pine: 0.1, 'autumn-tree': 0.15, palm: 0.08, cactus: 0.09,
+}
+const BASE_R = (model: ScatterName) => BASE_FRACTION[model] ?? 0.12
+
+/** Ground too uneven under a footprint of radius r for a prop to stand on without burying one side. */
+function tooSteep(x: number, z: number, r: number) {
+  let lo = Infinity, hi = -Infinity
+  for (const [dx, dz] of [[0, 0], [r, r], [-r, r], [r, -r], [-r, -r], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+    const h = heightAt(x + dx, z + dz)
+    lo = Math.min(lo, h)
+    hi = Math.max(hi, h)
+  }
+  return hi - lo > 0.75
+}
+
 /** Keep clear of the walkable sets (towns, the city block, the keep) so trees don't grow through streets. */
 function insideSet(x: number, z: number, margin = 4) {
   for (const r of REGIONS)
     for (const l of r.landmarks) {
-      if (!l.set || !l.foot) continue
+      if (!(l.set || l.stand || l.lod) || !l.foot) continue
       const cx = r.center[0] + l.at[0], cz = r.center[1] + l.at[1]
       const yaw = ((l.rot ?? 0) * Math.PI) / 180
       const c = Math.cos(yaw), s = Math.sin(yaw)
@@ -55,13 +84,19 @@ function scatterTransforms(region: Region, s: Scatter, seed: number) {
     if (insideSet(x, z, small ? 1 : 5)) continue
     if (region.biome === 'arcade' && Math.hypot(x - region.center[0], z - region.center[1]) < 56) continue
     if (region.biome === 'stadium' && Math.hypot(x - region.center[0], z - region.center[1]) < 86) continue
+    // The lantern steps up to the temple stay clear.
+    if (region.biome === 'temple' && Math.abs(x - region.center[0]) < 13 && z - region.center[1] > -12 && z - region.center[1] < 62) continue
+    // Nothing grows inside the keep's bailey (the courtyard and the trophy hall).
+    if (region.biome === 'keep' && Math.abs(x - region.center[0]) < 58 && z - region.center[1] > -56 && z - region.center[1] < 36) continue
     if (region.biome === 'harbour' && Math.hypot(x - region.center[0], z - region.center[1]) < 42 && !small) continue
     // Keep the ground around mission beacons (and the spawn points next to them) clear.
     if (MISSIONS.some((m) => Math.hypot(x - m.x, z - m.z) < 10)) continue
     const height = THREE.MathUtils.lerp(s.height[0], s.height[1], rnd())
     q.setFromEuler(new THREE.Euler(s.model === 'rock' ? rnd() * 0.6 : 0, rnd() * Math.PI * 2, 0))
     const sx = s.model === 'rock' ? 0.8 + rnd() * 0.8 : 1
-    out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, h - 0.15, z), q, new THREE.Vector3(height * sx, height, height * sx)))
+    if (!small && tooSteep(x, z, BASE_R(s.model) * height)) continue
+    const y = baseHeight(x, z, BASE_R(s.model) * height * sx, 0.2)
+    out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(height * sx, height, height * sx)))
   }
   return out
 }
@@ -120,7 +155,9 @@ function wildTransforms(model: ScatterName, count: number, size: [number, number
     const height = THREE.MathUtils.lerp(size[0], size[1], rnd())
     q.setFromEuler(new THREE.Euler(model === 'rock' ? rnd() * 0.6 : 0, rnd() * Math.PI * 2, 0))
     const sx = model === 'rock' ? 0.8 + rnd() * 0.8 : 1
-    out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, h - 0.15, z), q, new THREE.Vector3(height * sx, height, height * sx)))
+    if (!small && tooSteep(x, z, BASE_R(model) * height)) continue
+    const y = baseHeight(x, z, BASE_R(model) * height * sx, 0.2)
+    out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(height * sx, height, height * sx)))
   }
   return out
 }

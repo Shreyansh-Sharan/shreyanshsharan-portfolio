@@ -192,7 +192,11 @@ for (const r of REGIONS) {
   for (const l of r.landmarks) {
     if (l.ghost && !l.pad) continue
     const x = r.center[0] + l.at[0], z = r.center[1] + l.at[1]
-    PADS.push({ x, z, r: l.pad ?? 4, h: Math.max(roadHeight(x, z), WATER_LEVEL + 1.6) })
+    // The pad covers the whole footprint (its corners too), so the building's base sits on level ground.
+    const reach = Math.max(l.pad ?? 4, l.foot && !l.ghost ? Math.hypot(l.foot[0], l.foot[1]) / 2 + 0.5 : 0)
+    // A pad inside a neighbour's pad (a still beside the distillery) takes the level that neighbour already set, so
+    // clustered props share one flat yard instead of tilting it.
+    PADS.push({ x, z, r: reach, h: Math.max(heightAt(x, z), WATER_LEVEL + 1.6) })
   }
   const bx = r.center[0] + r.beacon[0], bz = r.center[1] + r.beacon[1]
   PADS.push({ x: bx, z: bz, r: 3, h: Math.max(roadHeight(bx, bz), WATER_LEVEL + 1.4) })

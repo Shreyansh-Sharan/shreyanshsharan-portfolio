@@ -207,7 +207,7 @@ function Trophy({ e }: { e: Exhibit }) {
   )
 }
 
-function Cabinet({ e }: { e: Exhibit }) {
+export function Cabinet({ e }: { e: Exhibit }) {
   const tile = useMemo(() => tiles.find((t) => t.id === e.tile), [e.tile])
   const screen = useMemo(() => {
     const c = document.createElement('canvas')
@@ -288,7 +288,7 @@ export function Exhibits() {
     setExtraColliders(
       'exhibits',
       list.flatMap((e) =>
-        e.kind === 'plaque' ? [circleCollider(e.x, e.z, 2.6, e.y + 4.8)] : e.kind === 'trophy' ? [circleCollider(e.x, e.z, 0.65, e.y + 2.2)] : e.kind === 'cabinet' ? [circleCollider(e.x, e.z, 0.6, e.y + 2.2)] : e.kind === 'board' ? [circleCollider(e.x, e.z, 0.25, e.y + 3.2)] : [],
+        e.kind === 'plaque' ? [circleCollider(e.x, e.z, 2.6, e.y + 4.8)] : e.kind === 'trophy' ? [circleCollider(e.x, e.z, 0.65, e.y + 2.2)] : e.kind === 'cabinet' ? [{ ...circleCollider(e.x, e.z, 0.6, e.y + 2.2), bottom: e.y - 0.5 }] : e.kind === 'board' ? [circleCollider(e.x, e.z, 0.25, e.y + 3.2)] : [],
       ),
     )
     return () => setExtraColliders('exhibits', [])
@@ -306,7 +306,8 @@ export function Exhibits() {
           case 'trophy':
             return <Trophy key={e.id} e={e} />
           case 'cabinet':
-            return <Cabinet key={e.id} e={e} />
+            // Drawn by the arcade hall itself, only while you are inside.
+            return null
           case 'diorama':
             return <Diorama key={e.id} e={e} />
         }

@@ -1,9 +1,11 @@
 // The career as places: each portfolio chapter is told on plaques and exhibit boards in its district, the
 // certifications and awards stand in the keep's trophy hall, the skill tree hangs on the harbour signpost and
-// the games wait in arcade cabinets on the plaza. Framework-free; Exhibits.tsx draws them, the HUD reads them.
+// the games wait in arcade cabinets inside the castle arcade. Framework-free; Exhibits.tsx draws them, the HUD reads them.
 import { profile, skillTree, tiles, trophies, type Tile, type TrophyTier } from '../data/content'
 import { HUB_MISSIONS, REGIONS, regionById, type Region } from './regions'
 import { heightAt } from './terrain'
+import { STADIUM_PITCH } from './districts'
+import { ROOMS, roomPoint } from './interiors'
 
 export type ExhibitKind = 'plaque' | 'board' | 'trophy' | 'cabinet' | 'sign' | 'diorama'
 
@@ -104,20 +106,23 @@ export function exhibits(): Exhibit[] {
     out.push({ id: `trophy:${i}`, kind: 'trophy', x, y, z, yaw: Math.PI, title: t.name, subtitle: `${t.kind} · ${t.issuer}`, body: t.issuer, lines: [`${t.kind} · ${t.issuer}`, `Tier: ${t.tier}`], accent: TIER_COLOR[t.tier], tier: t.tier, tile: 'trophies' })
   })
   {
-    const [x, y, z] = at(keep, 0, -9)
+    const [x, y, z] = at(keep, -9, -12)
     out.push({
-      id: 'diorama', kind: 'diorama', x, y, z, yaw: Math.PI, title: 'Khotyn Fortress', subtitle: 'Photogrammetry scan · scale model',
-      body: 'A 3D scan of the real fortress, decimated from two million faces to fit the island.', lines: ['A 3D scan of the real fortress on the Dniester, reduced from 1.95 million faces to 89 thousand and coloured per vertex so it could travel to this courtyard.', 'Model: Khotyn Fortress by LZCreation (Sketchfab, CC BY 4.0).'],
+      id: 'diorama', kind: 'diorama', x, y, z, yaw: Math.PI, title: 'Khotyn Keep', subtitle: 'The keep and its great hall',
+      body: 'Walls, towers, the gatehouse and the keep itself: original models made for this island. The door behind leads into the great hall.', lines: ['The bailey is built from separate wall, tower, pillar and gatehouse pieces around a courtyard you can walk; the keep stands at the back.', 'Its door (E) leads into the great hall: the throne, the banquet table, the hearth and the armoury.'],
       accent: '#fb7185', tile: 'architect-mode',
     })
   }
 
-  // Arcade cabinets in front of the castle arcade, one per game.
-  const plaza = regionById('dunes')
+  // Arcade cabinets inside the castle arcade's hall, one per game: half down the west wall, half down the east.
+  const hall = ROOMS.arcade
   const games = GAME_IDS.map((id) => tiles.find((t) => t.id === id)).filter((t): t is Tile => !!t)
+  const perSide = Math.ceil(games.length / 2)
   games.forEach((t, i) => {
-    const [x, y, z] = at(plaza, (i - (games.length - 1) / 2) * 3, -6)
-    out.push({ id: `cabinet:${t.id}`, kind: 'cabinet', x, y, z, yaw: 0, title: t.title, subtitle: t.genre, body: t.tagline, lines: [t.tagline, '', t.blurb], accent: t.accent[1], tile: t.id })
+    const side = i < perSide ? -1 : 1
+    const k = i < perSide ? i : i - perSide
+    const [x, y, z] = roomPoint(hall, side * (hall.w / 2 - 1.6), -7 + k * 4.4)
+    out.push({ id: `cabinet:${t.id}`, kind: 'cabinet', x, y, z, yaw: side < 0 ? Math.PI / 2 : -Math.PI / 2, title: t.title, subtitle: t.genre, body: t.tagline, lines: [t.tagline, '', t.blurb], accent: t.accent[1], tile: t.id })
   })
 
   cache = out
@@ -129,16 +134,10 @@ export const GAME_IDS = ['arena', 'cricket', 'volt-riot', 'bogey-brawl', 'plush-
 
 export const TIER_COLOR: Record<TrophyTier, string> = { platinum: '#e2e8f0', gold: '#fbbf24', silver: '#cbd5e1', bronze: '#d97706' }
 
-/** The arcade door: the castle's front step on the plaza. */
-export function arcadeDoor() {
-  const r = regionById('dunes')
-  return { x: r.center[0], z: r.center[1] - 16, r: 6 }
-}
-
-/** The sports complex gate: the arena's front entrance at the stadium. */
+/** The sports complex gate: the kick-off spot in the middle of the stadium's pitch. */
 export function stadiumGate() {
   const r = regionById('speedway')
-  return { x: r.center[0], z: r.center[1] - 8, r: 6 }
+  return { x: r.center[0] + STADIUM_PITCH[0], z: r.center[1] + STADIUM_PITCH[1], r: 5 }
 }
 
 export const tileFor = (id: string): Tile | undefined => tiles.find((t) => t.id === id)

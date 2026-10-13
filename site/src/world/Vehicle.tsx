@@ -48,9 +48,9 @@ function CarModel() {
 
 function AirshipModel() {
   const obj = useModel('airship', 15)
-  // The hull runs along z in the file; nose forward.
+  // The hull runs along x in the file, nose towards -x: turn it to face +z (the ship's heading).
   useMemo(() => {
-    obj.rotation.y = Math.PI
+    obj.rotation.y = Math.PI / 2
   }, [obj])
   const ref = useRef<THREE.Group>(null)
   useFrame((_, rawDt) => {

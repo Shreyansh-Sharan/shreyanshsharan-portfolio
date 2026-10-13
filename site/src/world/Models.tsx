@@ -9,7 +9,7 @@ import * as THREE from 'three'
 import { AVAILABLE_MODELS, REGIONS, type Landmark, type ModelName, type Region } from './regions'
 import { heightAt } from './terrain'
 import { scatterLayout, type ScatterName } from './layout'
-import { boxCollider, circleCollider, landmarkKey, setLandmarkCollider, setLandmarkFloor, setScatterFactor, type Collider } from './colliders'
+import { boxCollider, circleCollider, groundAt, landmarkKey, setLandmarkCollider, setLandmarkFloor, setScatterFactor, type Collider } from './colliders'
 import { showLoader, trackManager } from '../lib/loader3d'
 import { world } from './store'
 
@@ -112,6 +112,93 @@ function baseFootprint(obj: THREE.Object3D, sliceTop: number) {
   return { cx, cz, hx: (maxX - minX) / 2, hz: (maxZ - minZ) / 2, rmax }
 }
 
+/* ---------- Grounding ---------- */
+
+/**
+ * Where a model's base goes: the lowest terrain under its measured base footprint (centre, corners and edge
+ * midpoints), sunk a little (more for buildings) so slopes never show a gap under a wall.
+ */
+function groundUnder(obj: THREE.Object3D, x: number, z: number, yaw: number, height: number) {
+  const f = baseFootprint(obj, 0.4)
+  const sink = height >= 3 ? 0.3 : 0.05
+  if (!f) return heightAt(x, z) - sink
+  const c = Math.cos(yaw), s = Math.sin(yaw)
+  let h = Infinity
+  for (const u of [-1, 0, 1])
+    for (const v of [-1, 0, 1]) {
+      const lx = f.cx + u * f.hx, lz = f.cz + v * f.hz
+      h = Math.min(h, heightAt(x + lx * c + lz * s, z - lx * s + lz * c))
+    }
+  return h - sink
+}
+
+/** Every placed model by key, for the `?snap` grounding check (see groundReport). */
+export const placed = new Map<string, { name: string; region: string; obj: THREE.Object3D; buried?: boolean }>()
+
+/**
+ * For tests: every placed model whose base floats above the ground (or the floor of a room) anywhere under its
+ * footprint by more than 0.15 m, or is buried by more than 1 m. Trees and props scattered by layout.ts are checked too.
+ */
+export function groundReport(extra: Iterable<{ name: string; region: string; obj: THREE.Object3D }> = []) {
+  const out: { name: string; region: string; float: number; buried: number }[] = []
+  const v = new THREE.Vector3()
+  const toLocal = new THREE.Matrix4()
+  let checked = 0
+  for (const p of [...placed.values(), ...extra]) {
+    p.obj.updateWorldMatrix(true, true)
+    toLocal.copy(p.obj.matrixWorld).invert()
+    // Vertices in the model's own frame (so a rotated footprint is sampled along its own sides), and its base height.
+    const local: THREE.Vector3[] = []
+    let minY = Infinity
+    p.obj.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const pos = m.geometry.attributes.position as THREE.BufferAttribute
+      const step = Math.max(1, Math.floor(pos.count / 4000))
+      for (let i = 0; i < pos.count; i += step) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld)
+        if (v.y < minY) minY = v.y
+        local.push(v.clone().applyMatrix4(toLocal))
+      }
+    })
+    if (!local.length) continue
+    checked++
+    let lowY = Infinity
+    for (const q of local) lowY = Math.min(lowY, q.y)
+    // The base: everything within 0.4 m of the lowest point; its footprint corners, edges and centre are sampled.
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+    const scale = new THREE.Vector3().setFromMatrixScale(p.obj.matrixWorld).y || 1
+    for (const q of local)
+      if (q.y < lowY + 0.4 / scale) {
+        x0 = Math.min(x0, q.x)
+        x1 = Math.max(x1, q.x)
+        z0 = Math.min(z0, q.z)
+        z1 = Math.max(z1, q.z)
+      }
+    // Rooms stand on their floor; everything else on the terrain (not on its own measured terraces).
+    const indoors = p.region === 'room'
+    let float = -Infinity, buried = -Infinity
+    for (const sx of [x0, (x0 + x1) / 2, x1])
+      for (const sz of [z0, (z0 + z1) / 2, z1]) {
+        v.set(sx, lowY, sz).applyMatrix4(p.obj.matrixWorld)
+        const g = indoors ? groundAt(v.x, v.z, minY + 0.5) : heightAt(v.x, v.z)
+        float = Math.max(float, minY - g)
+        buried = Math.max(buried, g - minY)
+      }
+    const deep = 'buried' in p && p.buried
+    if (float > 0.15 || (!deep && buried > 1)) out.push({ name: p.name, region: p.region, float: +float.toFixed(2), buried: +buried.toFixed(2) })
+  }
+  for (const check of scatterChecks.values()) {
+    const r = check()
+    checked += r.checked
+    out.push(...r.bad)
+  }
+  return { checked, bad: out }
+}
+
+/** Per scattered model (one per instanced chunk): checks every instance's base against the terrain. */
+const scatterChecks = new Map<string, () => { checked: number; bad: { name: string; region: string; float: number; buried: number }[] }>()
+
 /* ---------- Walkable sets: walls and floors measured from the mesh ---------- */
 
 const SET_CELL = 2
@@ -189,6 +276,92 @@ function measureSet(obj: THREE.Object3D, groundY = 0) {
   return { solid, floor, tops }
 }
 
+/* ---------- Stands: stepped seating you can climb ---------- */
+
+const STAND_CELL = 1
+
+/**
+ * The treads of a grandstand in 1 m cells (landmark frame): the lowest upward-facing surface in each cell, below the
+ * roof. Rows rise a few tens of centimetres per cell, so the floor lookup steps the player up them one at a time.
+ */
+function measureStand(obj: THREE.Object3D, height: number) {
+  obj.updateWorldMatrix(true, true)
+  inv.copy(obj.matrixWorld).invert()
+  const floor = new Map<string, number>()
+  const roof = height * 0.8
+  const key = (x: number, z: number) => `${Math.floor(x / STAND_CELL)},${Math.floor(z / STAND_CELL)}`
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    const geo = m.geometry
+    const pos = geo.attributes.position as THREE.BufferAttribute
+    const idx = geo.index
+    rel.multiplyMatrices(inv, m.matrixWorld)
+    const count = idx ? idx.count : pos.count
+    for (let t = 0; t + 2 < count; t += 3) {
+      a.fromBufferAttribute(pos, idx ? idx.getX(t) : t).applyMatrix4(rel)
+      b.fromBufferAttribute(pos, idx ? idx.getX(t + 1) : t + 1).applyMatrix4(rel)
+      c.fromBufferAttribute(pos, idx ? idx.getX(t + 2) : t + 2).applyMatrix4(rel)
+      if (Math.max(a.y, b.y, c.y) > roof) continue
+      e1.subVectors(b, a)
+      e2.subVectors(c, a)
+      n.crossVectors(e1, e2)
+      const len = n.length()
+      if (len < 1e-6 || n.y / len < 0.55) continue
+      const longest = Math.max(e1.length(), e2.length(), b.distanceTo(c))
+      const steps = Math.min(30, Math.max(1, Math.ceil(longest / 0.4)))
+      for (let i = 0; i <= steps; i++)
+        for (let j = 0; j <= steps - i; j++) {
+          const u = i / steps, v = j / steps
+          const y = a.y + e1.y * u + e2.y * v
+          if (y < 0.2) continue
+          const k = key(a.x + e1.x * u + e2.x * v, a.z + e1.z * u + e2.z * v)
+          const f = floor.get(k)
+          if (f === undefined || y < f) floor.set(k, y)
+        }
+    }
+  })
+  // The front row sits on a low wall: make its tread one easy step from the ground.
+  for (const [k, h] of floor) if (h > 1.1 && h < 2.2) floor.set(k, 1.1)
+  return floor
+}
+
+/* ---------- Passages: the lining of an opening cut through a shell ---------- */
+
+const LINING = new THREE.MeshStandardMaterial({ color: '#4a4f5c', roughness: 0.9, side: THREE.DoubleSide })
+
+const PORTAL = new THREE.MeshStandardMaterial({ color: '#2f5fb3', roughness: 0.6, metalness: 0.2 })
+
+function PassageLining({ half, top, z0, z1 }: { half: number; top: number; z0: number; z1: number }) {
+  const len = z1 - z0, mid = (z0 + z1) / 2
+  return (
+    <group>
+      {/* A clean frame round each mouth of the opening. */}
+      {[z0, z1].map((z) => (
+        <group key={z} position={[0, 0, z]}>
+          {[-1, 1].map((s) => (
+            <mesh key={s} position={[s * (half + 0.35), top / 2 + 0.2, 0]} material={PORTAL}>
+              <boxGeometry args={[0.7, top + 0.4, 0.7]} />
+            </mesh>
+          ))}
+          <mesh position={[0, top + 0.35, 0]} material={PORTAL}>
+            <boxGeometry args={[half * 2 + 1.4, 0.7, 0.7]} />
+          </mesh>
+        </group>
+      ))}
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * half, top / 2, mid]} rotation={[0, Math.PI / 2, 0]} material={LINING}>
+          <planeGeometry args={[len, top]} />
+        </mesh>
+      ))}
+      <mesh position={[0, top, mid]} rotation={[Math.PI / 2, 0, 0]} material={LINING}>
+        <planeGeometry args={[half * 2, len]} />
+      </mesh>
+      <pointLight position={[0, top - 0.6, mid]} color="#fff1d0" intensity={5} distance={len + 6} />
+    </group>
+  )
+}
+
 /* ---------- Placeholders ---------- */
 
 const IMPOSTOR_MATS = new Map<string, THREE.MeshLambertMaterial>()
@@ -203,7 +376,7 @@ function impostorMaterial(accent: string) {
 
 /** A plain block the size of the building, shown until (and while) the real model streams in. */
 function Impostor({ region, l }: { region: Region; l: Landmark }) {
-  if (l.ghost || (!l.foot && l.height < 6)) return null
+  if (l.ghost || l.lod === 'near' || (!l.foot && l.height < 6)) return null
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
   const y = heightAt(x, z)
   const [w, d] = l.foot ?? [l.height * 0.55, l.height * 0.55]
@@ -222,7 +395,15 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
   const obj = useModel(l.model, l.height)
   const ref = useRef<THREE.Group>(null)
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
-  const y = heightAt(x, z) + (l.lift ?? 0)
+  const y = useMemo(() => groundUnder(obj, x, z, ((l.rot ?? 0) * Math.PI) / 180, l.height) + (l.lift ?? 0), [obj, x, z, l.rot, l.height, l.lift])
+  useEffect(() => {
+    if (l.ghost || l.anim === 'float') return
+    const key = landmarkKey(region.id, index)
+    placed.set(key, { name: l.model, region: region.id, obj, buried: (l.lift ?? 0) < -0.6 })
+    return () => {
+      placed.delete(key)
+    }
+  }, [obj, l.model, l.ghost, l.anim, l.lift, region.id, index])
   useEffect(() => {
     if (!l.tint) return
     const tint = new THREE.Color(l.tint)
@@ -237,7 +418,7 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
       }
     })
   }, [obj, l.tint])
-  const footprint = useMemo(() => (l.set || l.ghost ? null : baseFootprint(obj, Math.min(2.5, l.height * 0.35))), [obj, l.height, l.set, l.ghost])
+  const footprint = useMemo(() => (l.set || l.ghost || l.stand ? null : baseFootprint(obj, Math.min(2.5, l.height * 0.35))), [obj, l.height, l.set, l.ghost, l.stand])
   useEffect(() => {
     loadedModels.add(l.model)
     const st = (streamState[region.id] ??= { near: true, mounted: 0 })
@@ -256,6 +437,21 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
     const yaw = ((l.rot ?? 0) * Math.PI) / 180
     const c = Math.cos(yaw), s = Math.sin(yaw)
     const toWorld = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c]
+    if (l.stand) {
+      // Treads are floors; a tread too high to step onto from the ground is solid below its step height, so you
+      // climb the rows from the front instead of walking into the stand from behind or below.
+      const floor = measureStand(obj, l.height)
+      const list: Collider[] = []
+      for (const [k, h] of floor) {
+        if (h <= 1.2) continue
+        const [gx, gz] = k.split(',').map(Number)
+        const [wx, wz] = toWorld((gx + 0.5) * STAND_CELL, (gz + 0.5) * STAND_CELL)
+        list.push(boxCollider(wx, wz, STAND_CELL / 2, STAND_CELL / 2, yaw, y + h - 1.2))
+      }
+      setLandmarkCollider(landmarkKey(region.id, index), list)
+      setLandmarkFloor(landmarkKey(region.id, index), { x, z, y, yaw, cell: STAND_CELL, floor })
+      return () => setLandmarkFloor(landmarkKey(region.id, index), null)
+    }
     if (l.set) {
       const { solid, floor, tops } = measureSet(obj, -(l.lift ?? 0))
       const list: Collider[] = []
@@ -273,6 +469,20 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
     }
     const f = footprint
     if (!f) return
+    if (l.passage) {
+      // Solid either side of the opening, clear through the middle.
+      const [pw] = l.passage
+      const list: Collider[] = []
+      for (const sgn of [-1, 1]) {
+        const inner = sgn * pw, outer = f.cx + sgn * f.hx
+        const half = Math.abs(outer - inner) / 2
+        if (half < 0.2) continue
+        const [wx, wz] = toWorld((inner + outer) / 2, f.cz)
+        list.push(boxCollider(wx, wz, half, f.hz, yaw, y + l.height))
+      }
+      setLandmarkCollider(landmarkKey(region.id, index), list)
+      return
+    }
     const [wx, wz] = toWorld(f.cx, f.cz)
     const avg = (f.hx + f.hz) / 2
     const top = y + l.height + (l.anim === 'float' ? 1.2 : 0)
@@ -284,7 +494,7 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
           ? circleCollider(wx, wz, f.rmax * 0.92, top)
           : boxCollider(wx, wz, f.hx * 0.94, f.hz * 0.94, yaw, top)
     setLandmarkCollider(landmarkKey(region.id, index), [collider])
-  }, [footprint, obj, x, y, z, l.rot, l.anim, l.height, l.set, l.ghost, l.lift, region.id, index])
+  }, [footprint, obj, x, y, z, l.rot, l.anim, l.height, l.set, l.ghost, l.lift, l.stand, l.passage, region.id, index])
 
   useFrame(({ clock }) => {
     const g = ref.current
@@ -297,6 +507,7 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
   return (
     <group ref={ref} position={[x, y, z]} rotation={[0, ((l.rot ?? 0) * Math.PI) / 180, 0]}>
       <primitive object={obj} />
+      {l.passage?.[2] && footprint && <PassageLining half={l.passage[0]} top={l.passage[1]} z0={footprint.cz - footprint.hz} z1={footprint.cz + footprint.hz} />}
     </group>
   )
 }
@@ -321,9 +532,12 @@ export const streamed = () => [...entered]
  */
 function District({ region }: { region: Region }) {
   const [near, setNear] = useState(false)
+  // Far stand-ins (a closed stadium bowl) load only once the island has settled, so they never weigh on first paint.
+  const [farReady, setFarReady] = useState(false)
   const frame = useRef(0)
   useFrame(({ camera }) => {
     if (frame.current++ % 12 !== 0) return
+    if (!farReady && settled()) setFarReady(true)
     // The first paint is the harbour alone; the other districts wait until the island has settled.
     if (region.id !== 'hub' && !settled()) return
     const d = Math.hypot(camera.position.x - region.center[0], camera.position.z - region.center[1]) - region.radius * 0.5
@@ -358,7 +572,13 @@ function District({ region }: { region: Region }) {
   return (
     <>
       {landmarks.map((l, i) =>
-        near ? (
+        l.lod === 'far' ? (
+          !near && farReady ? (
+            <Suspense key={`${region.id}-${i}`} fallback={null}>
+              <LandmarkModel region={region} l={l} index={region.landmarks.indexOf(l)} />
+            </Suspense>
+          ) : null
+        ) : near ? (
           <Suspense key={`${region.id}-${i}`} fallback={<Impostor region={region} l={l} />}>
             <LandmarkModel region={region} l={l} index={region.landmarks.indexOf(l)} />
           </Suspense>
@@ -401,6 +621,65 @@ function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.M
     return list
   }, [gltf])
 
+  // The model's base footprint (vertices in the bottom 4 cm of the 1 m model): every instance is set down on the
+  // lowest ground under it (corners, edges and centre), a little sunk, so no root flare floats on a slope.
+  const base = useMemo(() => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+    for (const p of parts) {
+      const pos = p.geometry.attributes.position as THREE.BufferAttribute
+      for (let i = 0; i < pos.count; i++) {
+        vtx.fromBufferAttribute(pos, i).applyMatrix4(p.local)
+        if (vtx.y > 0.04) continue
+        x0 = Math.min(x0, vtx.x)
+        x1 = Math.max(x1, vtx.x)
+        z0 = Math.min(z0, vtx.z)
+        z1 = Math.max(z1, vtx.z)
+      }
+    }
+    return x0 > x1 ? null : { xs: [x0, (x0 + x1) / 2, x1], zs: [z0, (z0 + z1) / 2, z1] }
+  }, [parts])
+  const grounded = useMemo(() => {
+    if (!base) return matrices
+    const w = new THREE.Vector3()
+    return matrices.map((m) => {
+      let g = Infinity
+      for (const sx of base.xs)
+        for (const sz of base.zs) {
+          w.set(sx, 0, sz).applyMatrix4(m)
+          g = Math.min(g, heightAt(w.x, w.z))
+        }
+      const out = m.clone()
+      out.elements[13] = g - 0.15
+      return out
+    })
+  }, [base, matrices])
+
+  // For the grounding check.
+  useEffect(() => {
+    if (!base) return
+    const key = `${name}:${matrices.length}:${matrices[0]?.elements[12] ?? 0}`
+    scatterChecks.set(key, () => {
+      const bad: { name: string; region: string; float: number; buried: number }[] = []
+      const w = new THREE.Vector3()
+      for (const m of grounded) {
+        const baseY = w.set(base.xs[1], 0, base.zs[1]).applyMatrix4(m).y
+        let float = -Infinity, buried = -Infinity
+        for (const sx of base.xs)
+          for (const sz of base.zs) {
+            w.set(sx, 0, sz).applyMatrix4(m)
+            const g = heightAt(w.x, w.z)
+            float = Math.max(float, baseY - g)
+            buried = Math.max(buried, g - baseY)
+          }
+        if (float > 0.15 || buried > 1) bad.push({ name, region: `scatter@${m.elements[12].toFixed(0)},${m.elements[14].toFixed(0)}`, float: +float.toFixed(2), buried: +buried.toFixed(2) })
+      }
+      return { checked: grounded.length, bad }
+    })
+    return () => {
+      scatterChecks.delete(key)
+    }
+  }, [base, grounded, name, matrices])
+
   // Trunk/base radius as a fraction of height, from the vertices in the bottom tenth of the model.
   useEffect(() => {
     let r = 0
@@ -417,7 +696,7 @@ function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.M
   return (
     <>
       {parts.map((p, i) => (
-        <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={matrices} />
+        <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={grounded} />
       ))}
     </>
   )

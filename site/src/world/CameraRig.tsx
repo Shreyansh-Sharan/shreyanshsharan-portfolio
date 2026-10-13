@@ -12,6 +12,7 @@ import { blocked } from './colliders'
 import { photo } from './minigames'
 import { ride, saddleHeight } from './creatures'
 import { car, ship } from './rides'
+import { clampToRoom, roomAt } from './interiors'
 
 // `?snap` jumps the camera instantly (handy for screenshots and slow machines).
 const SNAP = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('snap')
@@ -105,6 +106,9 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       }
       const floor = heightAt(tmpPos.x, tmpPos.z) + 0.8
       if (tmpPos.y < floor) tmpPos.y = floor
+      // Indoors the camera stays within the walls and under the ceiling.
+      const room = roomAt(player.pos.x, player.pos.y, player.pos.z)
+      if (room) clampToRoom(room, tmpPos)
       // Follow faster as flight speeds up so the camera keeps the player in frame (a slow follow fell
       // so far behind at high speed that the player flew out of view and the screen went to fog/black).
       const follow = 10 + player.fly * 16

@@ -1,7 +1,9 @@
 // What E does here: the nearest thing you can use (a plaque to read, a cabinet, the car, the airship's ladder,
-// the arcade door, the stadium gate). Framework-free; the HUD shows the prompt and runs the action.
+// the arcade door, the keep's great hall, a room's exit, the stadium gate). Framework-free; the HUD shows the
+// prompt and runs the action.
 import type * as THREE from 'three'
-import { arcadeDoor, exhibits, stadiumGate, type Exhibit } from './exhibits'
+import { exhibits, stadiumGate, type Exhibit } from './exhibits'
+import { enterRoom, leaveRoom, roomAt, ROOMS, roomPoint } from './interiors'
 import { AIRSHIP_STOPS } from './regions'
 import { board, car, disembark, enterCar, exitCar, ship, stopAt } from './rides'
 import { world } from './store'
@@ -12,7 +14,7 @@ export interface Interaction {
   run: () => void
 }
 
-type Mover = { pos: THREE.Vector3; yaw: number }
+type Mover = { pos: THREE.Vector3; yaw: number; camYaw?: number }
 
 const near = (x: number, z: number, px: number, pz: number, r: number) => Math.hypot(x - px, z - pz) < r
 
@@ -31,17 +33,28 @@ export function nearestInteraction(x: number, z: number, player: Mover): Interac
   const consider = (d: number, r: number, it: Interaction) => {
     if (d < r && (!best || d < best.d)) best = { d, it }
   }
-  consider(Math.hypot(car.pos.x - x, car.pos.z - z), 3.6, { label: 'Drive the car', run: enterCar })
-  if (!ship.flying) {
-    const m = stopAt(ship.stop)
-    consider(Math.hypot(m.x - x, m.z - z), 6, { label: 'Board the airship', run: board })
+  const y = player.pos.y
+  const room = roomAt(x, y, z)
+  if (room) {
+    // Inside: the glowing door back out, and whatever stands in the room.
+    const [ex, , ez] = roomPoint(room, room.exit[0], room.exit[1])
+    consider(Math.hypot(ex - x, ez - z), 2.8, { label: `Leave ${room.name}`, run: () => leaveRoom(room.id, player) })
+  } else {
+    consider(Math.hypot(car.pos.x - x, car.pos.z - z), 3.6, { label: 'Drive the car', run: enterCar })
+    if (!ship.flying) {
+      const m = stopAt(ship.stop)
+      consider(Math.hypot(m.x - x, m.z - z), 6, { label: 'Board the airship', run: board })
+    }
+    for (const r of Object.values(ROOMS)) {
+      const door = r.door()
+      consider(Math.hypot(door.x - x, door.z - z), 5, { label: r.id === 'arcade' ? 'Enter the Arcade' : 'Enter the great hall', run: () => enterRoom(r.id, player) })
+    }
+    const gate = stadiumGate()
+    consider(Math.hypot(gate.x - x, gate.z - z), gate.r, { label: 'Enter the Sports Complex', run: () => world.set({ scene: 'sports' }) })
   }
-  const door = arcadeDoor()
-  consider(Math.hypot(door.x - x, door.z - z), door.r, { label: 'Enter the Arcade', run: () => openHub(null) })
-  const gate = stadiumGate()
-  consider(Math.hypot(gate.x - x, gate.z - z), gate.r, { label: 'Enter the Sports Complex', run: () => world.set({ scene: 'sports' }) })
   for (const e of exhibits()) {
-    if (!near(e.x, e.z, x, z, 4.2)) continue
+    // Exhibits on other floors (the arcade's cabinets hang over the countryside) are out of reach.
+    if (!near(e.x, e.z, x, z, 4.2) || Math.abs(e.y - y) > 5) continue
     const d = Math.hypot(e.x - x, e.z - z)
     if (e.kind === 'cabinet') consider(d, 3, { label: `Play ${e.title}`, run: () => openHub(e.tile ?? null) })
     else if (e.kind === 'sign') consider(d, 4.2, { label: 'Read the skills signpost', run: () => readSign() })
