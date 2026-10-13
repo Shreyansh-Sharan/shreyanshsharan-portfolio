@@ -132,6 +132,8 @@ export interface Landmark {
   lift?: number
   /** Nothing solid at all (the airship dock, a hovering drone). */
   ghost?: boolean
+  /** Multiply the model's colours (a chalk-white arena toned down to concrete). */
+  tint?: string
 }
 
 export interface Scatter {
@@ -320,7 +322,7 @@ export const REGIONS: Region[] = [
     radius: 120,
     accent: '#f97316',
     landmarks: [
-      { model: 'eden-arena', at: [0, -96], height: 22, rot: 0, pad: 84, set: true, foot: [122, 163] },
+      { model: 'eden-arena', at: [0, -96], height: 22, rot: 0, pad: 84, set: true, foot: [122, 163], tint: '#8e9199' },
       { model: 'stadium-seats', at: [-86, 10], height: 16, rot: 90, pad: 8, set: true, foot: [51, 12] },
       { model: 'podium', at: [30, 60], height: 4, rot: 90, pad: 5 },
       { model: 'metro-headhouse', at: [-26, 62], height: 5, rot: 180, pad: 5 },
@@ -541,7 +543,7 @@ export const WATER_LEVEL = 0
  */
 export const ROADS: [number, number][][] = [
   // Harbour → plaza → Neon City
-  [[0, 300], [0, 215], [-60, 170], [-170, 150], [-240, 130]],
+  [[0, 300], [0, 215], [-60, 170], [-170, 150], [-218, 140]],
   // Plaza → stadium
   [[-60, 170], [-120, 60], [-190, -40], [-240, -80]],
   // Plaza → canyon → up the ramp to the keep gate
@@ -552,8 +554,8 @@ export const ROADS: [number, number][][] = [
   [[260, -60], [320, 10], [340, 60], [330, 160], [300, 230], [230, 300], [120, 330], [60, 330]],
   // Harbour → cove
   [[-40, 330], [-120, 350], [-190, 340]],
-  // Neon City → stadium
-  [[-240, 130], [-300, 20], [-280, -70]],
+  // Neon City → stadium (round the east side of the city block)
+  [[-218, 140], [-205, 60], [-215, -30], [-250, -90]],
 ]
 
 /** Where the airship stops: one mooring per district, in flight order. */

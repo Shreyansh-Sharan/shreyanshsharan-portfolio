@@ -223,6 +223,20 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
   const ref = useRef<THREE.Group>(null)
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
   const y = heightAt(x, z) + (l.lift ?? 0)
+  useEffect(() => {
+    if (!l.tint) return
+    const tint = new THREE.Color(l.tint)
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        const sm = mat as THREE.MeshStandardMaterial & { tinted?: boolean }
+        if (sm.tinted || !sm.color) continue
+        sm.tinted = true
+        sm.color.multiply(tint)
+      }
+    })
+  }, [obj, l.tint])
   const footprint = useMemo(() => (l.set || l.ghost ? null : baseFootprint(obj, Math.min(2.5, l.height * 0.35))), [obj, l.height, l.set, l.ghost])
   useEffect(() => {
     loadedModels.add(l.model)
