@@ -154,19 +154,20 @@ const SPELL_SPEED = 1.6
 
 /**
  * The rig has no flying clip (the old fall clip read as plummeting), so flight is a pose laid over the hover
- * clip after the mixer runs: both arms stretched out ahead, legs together with the toes pointed, head lifted
- * to look where it is going (the whole body pitches nose-down at speed, see the tilt group). Local Euler angles per bone; `?snap` exposes the
+ * clip after the mixer runs: the classic superhero line (lead fist ahead, trailing arm tucked, legs trailing with
+ * one knee bent, toes pointed), back arched and head lifted to look where it is going (the whole body pitches nose-down at speed, see the tilt group). Local Euler angles per bone; `?snap` exposes the
  * table as `__world.flyPose` for tuning.
  */
 export const flyPose: Record<string, [number, number, number]> = {
-  LeftArm: [1.15, 0.0, 0.3],
-  RightArm: [1.15, 0.0, -0.3],
-  LeftForeArm: [0.0, 0.0, 0.0],
+  // Lead fist punched ahead, the other arm bent in at the waist; one leg straight, the other knee bent.
+  RightArm: [1.35, 0.0, -0.15],
   RightForeArm: [0.0, 0.0, 0.0],
-  LeftUpLeg: [0.18, 0.0, 0.0],
-  RightUpLeg: [0.18, 0.0, 0.0],
-  LeftLeg: [0.35, 0.0, 0.0],
-  RightLeg: [0.35, 0.0, 0.0],
+  LeftArm: [0.25, 0.0, 0.35],
+  LeftForeArm: [0.0, 1.6, 0.0],
+  LeftUpLeg: [0.12, 0.0, 0.0],
+  LeftLeg: [0.15, 0.0, 0.0],
+  RightUpLeg: [0.3, 0.0, 0.0],
+  RightLeg: [0.95, 0.0, 0.0],
   LeftFoot: [0.7, 0.0, 0.0],
   RightFoot: [0.7, 0.0, 0.0],
   Spine01: [-0.12, 0.0, 0.0],
