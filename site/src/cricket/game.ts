@@ -260,7 +260,7 @@ export class Game {
     this.scene.add(this.stadium.group)
     this.scene.fog = new THREE.Fog(opts.setup.time === 'night' ? '#0a1020' : opts.setup.time === 'dusk' ? '#e9b38a' : '#cfe3f2', 160, 520)
 
-    this.kits = new Kits(opts.assets, this.quality.tier === 'low' ? 256 : 512)
+    this.kits = new Kits(this.quality.tier === 'low' ? 256 : 512)
     this.prewarmKits()
     this.ball = makeBall(opts.assets)
     this.ball.visible = false
@@ -490,23 +490,21 @@ export class Game {
 
   /* ---------------- players ---------------- */
 
-  /** Paints and uploads every kit the match can need (both squads, both handednesses) before the first frame. */
+  /** Paints and uploads every shirt decal the match can need (both squads, both handednesses) before the first
+   *  frame (the kit colours themselves are shader uniforms). */
   private prewarmKits() {
     const teams = this.opts.setup.teams
     for (const t of teams) {
-      this.kits.trousers(t.kit === 'whites' ? '#eeebe2' : t.trousers, t.kit === 'whites' ? '#d6d3cb' : t.secondary)
       t.players.forEach((p, i) => {
-        for (const left of new Set([p.leftBat, p.leftArm])) this.kits.shirt(this.shirtSpec(t, p, i + 1, left))
+        for (const left of new Set([p.leftBat, p.leftArm])) this.kits.decal(this.shirtSpec(t, p, i + 1, left))
       })
     }
-    this.kits.shirt({ primary: '#f1f1ee', trim: '#1f2937', chest: '', back: '', number: '', ink: '#1f2937' })
-    this.kits.trousers('#202634', '#2d3446')
     this.kits.upload(this.renderer)
   }
 
   private shirtSpec(t: Team, p: Player | null, number: number, left: boolean) {
     const whites = t.kit === 'whites'
-    return { primary: whites ? '#f3f1ea' : t.primary, trim: whites ? t.primary : t.secondary, chest: t.name, back: p ? surname(p) : '', number: String(number), ink: whites ? t.primary : t.secondary, mirror: left }
+    return { chest: t.name, back: p ? surname(p) : '', number: String(number), ink: whites ? t.primary : t.secondary, mirror: left }
   }
 
   /** Rebuilds the bodies with the right kits at the start of each innings. */
@@ -694,7 +692,11 @@ export class Game {
     }
     const pose = procPose(this.poseCtx(a, c, ballView, view, dt))
     c.update(dt, pose, view.key, view.fade)
-    if (this.quality.lodDistance >= 0 && a.kind !== 'striker' && a.index > NONSTRIKER) c.setLod(this.quality.lodDistance === 0 || p.distanceTo(camPos) > this.quality.lodDistance)
+    // Distant fielders: the low-detail body; shirt decals (names and numbers) only where they can be read.
+    if (a.kind !== 'striker' && a.index > NONSTRIKER) {
+      const dist = p.distanceTo(camPos)
+      c.setLod(this.quality.lodDistance === 0 || dist > this.quality.lodDistance, dist > Math.max(30, this.quality.lodDistance))
+    }
   }
 
   /* ---------------- ball, marker ---------------- */

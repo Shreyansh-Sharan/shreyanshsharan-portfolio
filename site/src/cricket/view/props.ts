@@ -1,14 +1,12 @@
-// Match objects built from the downloaded models (ball, stumps and bails that fly) plus the small procedural kit
-// (pads, gloves, caps) and the bowler's landing marker.
+// Match objects built from the models (ball, stumps and bails that fly) and the bowler's landing marker.
 import * as THREE from 'three'
 import { Geo, stumpsZ } from '../sim/geo'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { CricketAssets } from '../assets'
 
-/** The photoscanned ball, lifted a touch so it never goes black under lights (its line must stay readable). */
+/** The ball, lifted a touch so it never goes black under lights (its line must stay readable). */
 export function makeBall(assets: CricketAssets) {
   const src = assets.ball.material as THREE.MeshStandardMaterial
-  const mat = new THREE.MeshStandardMaterial({ map: src.map, normalMap: src.normalMap, roughness: 0.5, metalness: 0, emissive: '#ff3b30', emissiveIntensity: 0.16 })
+  const mat = new THREE.MeshStandardMaterial({ map: src.map, normalMap: src.normalMap, roughness: 0.45, metalness: 0, emissive: '#ff3b30', emissiveIntensity: 0.16 })
   if (mat.map) mat.map.anisotropy = 4
   const m = new THREE.Mesh(assets.ball.geometry, mat)
   m.castShadow = true
@@ -23,7 +21,8 @@ interface FlyingBail {
   flying: boolean
 }
 
-/** One set of stumps and bails (in view coordinates), from the stump model: three upright stumps, two bails. */
+/** One set of stumps and bails (in view coordinates), from the stump model: three upright stumps, two bails (the bail
+ *  model is the turned middle of a bail; its spigots stay modelled on the stump tops). */
 export class Wicket {
   group = new THREE.Group()
   stumps: THREE.Mesh[] = []
@@ -34,18 +33,20 @@ export class Wicket {
 
   constructor(end: number, assets: CricketAssets) {
     this.end = end
-    const wood = new THREE.MeshStandardMaterial({ color: '#f3ead7', roughness: 0.5 })
+    const src = assets.stump.material as THREE.MeshStandardMaterial
+    const wood = new THREE.MeshStandardMaterial({ map: src.map, roughness: 0.45, metalness: 0 })
     const z = stumpsZ(end)
     for (let i = -1; i <= 1; i++) {
-      const s = new THREE.Mesh(assets.stump, wood)
+      const s = new THREE.Mesh(assets.stump.geometry, wood)
       s.position.set(i * (Geo.StumpsHalfWidth - Geo.StumpRadius), 0, z)
       s.castShadow = true
       this.group.add(s)
       this.stumps.push(s)
     }
     for (let i = 0; i < 2; i++) {
-      const b = new THREE.Mesh(assets.bail, wood)
-      const home = new THREE.Vector3((i - 0.5) * 0.112, Geo.StumpHeight + 0.0075, z)
+      const b = new THREE.Mesh(assets.bail.geometry, wood)
+      // Centred between two stumps.
+      const home = new THREE.Vector3((i - 0.5) * (Geo.StumpsHalfWidth - Geo.StumpRadius), Geo.StumpHeight + 0.0075, z)
       b.position.copy(home)
       b.castShadow = true
       this.group.add(b)
@@ -115,54 +116,4 @@ export function makeMarker() {
   g.add(ring, dot)
   g.position.y = 0.02
   return g
-}
-
-/** Pads, gloves and caps, authored in the body's bind pose (model space, metres, facing +Z). */
-export const KitGeometry = {
-  pad(side: 1 | -1) {
-    // A shin pad with knee roll: vertical box with three rolls.
-    const parts: THREE.BufferGeometry[] = []
-    const body = new THREE.BoxGeometry(0.15, 0.56, 0.06)
-    body.translate(0, 0.33, 0.07)
-    parts.push(body)
-    for (let i = 0; i < 3; i++) {
-      const roll = new THREE.CylinderGeometry(0.028, 0.028, 0.5, 6)
-      roll.translate((i - 1) * 0.048, 0.33, 0.1)
-      parts.push(roll)
-    }
-    const knee = new THREE.BoxGeometry(0.16, 0.13, 0.09)
-    knee.translate(0, 0.63, 0.08)
-    parts.push(knee)
-    const g = mergeGeometries(parts.map((p) => p.toNonIndexed()))!
-    g.translate(side * 0.1, 0, 0)
-    return g
-  },
-  glove() {
-    const g = new THREE.BoxGeometry(0.075, 0.1, 0.085)
-    return g
-  },
-  cap() {
-    const parts: THREE.BufferGeometry[] = []
-    const crown = new THREE.SphereGeometry(0.118, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)
-    crown.scale(1, 0.85, 1.1)
-    parts.push(crown.toNonIndexed())
-    const peak = new THREE.CylinderGeometry(0.1, 0.1, 0.01, 12, 1, false, -Math.PI / 2, Math.PI)
-    peak.scale(1, 1, 0.85)
-    peak.translate(0, 0, 0.1)
-    parts.push(peak.toNonIndexed())
-    return mergeGeometries(parts)!
-  },
-  hat() {
-    const parts: THREE.BufferGeometry[] = []
-    const crown = new THREE.CylinderGeometry(0.1, 0.12, 0.11, 12)
-    crown.translate(0, 0.05, 0)
-    parts.push(crown.toNonIndexed())
-    const brim = new THREE.CylinderGeometry(0.22, 0.22, 0.01, 16)
-    parts.push(brim.toNonIndexed())
-    return mergeGeometries(parts)!
-  },
-  keeperGlove() {
-    const g = new THREE.BoxGeometry(0.1, 0.13, 0.11)
-    return g
-  },
 }
