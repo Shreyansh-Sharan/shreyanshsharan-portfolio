@@ -65,51 +65,64 @@ export interface CharSpec {
 const CANON_CLIPS = { idle: 'idle', walk: 'walk', run: 'run', aim: 'aim', fire: 'fire', fire2: 'fire2', death: 'death' }
 /** The Star Soldier death is a backwards fold at the hips: hold it at 0.2 s and topple the body 55°. */
 const FOLD_DEATH: [number, number] = [0.2, 0.96]
-/** Mixamo rigs: the aim layer owns Spine1 and up (bone names lose their `:` and `.` on load). */
-const MIXAMO_UPPER = /Spine1_|Spine2|Neck_|Head|Shoulder_|Arm_|ForeArm_|Hand|Gun/
+/**
+ * The heroes share one humanoid rig (original models made for this project, rigged by the asset build): the
+ * spine counts down from the chest (Spine → Spine01 → Spine02 → Hips), so Spine02 is the pelvis-side bone that
+ * counter-twists against the legs and the aim layer owns Spine01 and everything above it.
+ */
+const HERO_RIG = {
+  hand: /^RightHand$/,
+  spine: /^Spine02$/,
+  spine1: /^Spine01$/,
+  head: /^Head$/,
+  root: /^Hips$/,
+  upper: /^(Spine01|Spine|neck|Head|head_end|(Left|Right)(Shoulder|Arm|ForeArm|Hand))$/,
+}
 
 export const MANIFEST: Record<string, ModelSpec> = {
-  // Heroes: Sketchfab characters (CC BY, see CREDITS.md) normalised to each hero's height, facing +Z.
+  // Heroes: original models made for this project, normalised to each hero's height, facing +Z. Clips are
+  // retargeted from CC BY sources (see CREDITS.md).
   'char-rook': {
     file: 'char-rook.glb',
     height: 2.1,
-    char: { clips: { ...CANON_CLIPS }, hand: /RightHand_/, spine: /mixamorigSpine_/, spine1: /mixamorigSpine1_/, head: /mixamorigHead_/, root: /mixamorigHips_/, upper: MIXAMO_UPPER, gunOffset: [0.05, -0.05, 0.22], metal: 0.35, deathTopple: FOLD_DEATH },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, ...HERO_RIG, gunOffset: [0.02, -0.04, 0.24], metal: 0.35, deathTopple: FOLD_DEATH, superCut: 0.5 },
   },
   'char-wren': {
     file: 'char-wren.glb',
     height: 2.2,
-    char: { clips: { ...CANON_CLIPS, aim: 'idle', super: 'super' }, hand: /handR_/, spine: /torso_/, head: /Head_/, root: /^root_00/, upper: /torso|shoulder|forearm|hand|GUN|clip|Head|jet/, ownGun: /GUN_/, metal: 0.2, deathTopple: FOLD_DEATH },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, ...HERO_RIG, gunOffset: [0.03, -0.03, 0.3], metal: 0.3, deathTopple: FOLD_DEATH },
   },
   'char-furnace': {
     file: 'char-furnace.glb',
     height: 2.7,
-    yaw: -Math.PI / 2,
-    char: { clips: { ...CANON_CLIPS, run: 'walk', super: 'super' }, hand: /handr_/, spine: /^Bone_04/, spine1: /^Bone001_05/, head: /^Bone003_031/, root: /^Bone007_01/, upper: /^Bone001_|arm|hand|^Bone00[2-69]|^Bone01[0-7]/, gunOffset: [0, 0.1, 0.45], metal: 0.4, deathSpeed: 2.8, superCut: 1.6 },
+    char: { clips: { ...CANON_CLIPS, run: 'walk', super: 'super' }, ...HERO_RIG, gunOffset: [0.02, 0.0, 0.32], metal: 0.4, deathSpeed: 2.8, superCut: 1.6 },
   },
   'char-flick': {
     file: 'char-flick.glb',
     height: 2.0,
-    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /handr_/, spine: /spine_01x/, spine1: /spine_02x/, head: /headx_/, root: /^rootx_00/, upper: /spine_02|spine_03|neck|head|shoulder|arm_stretch|forearm|hand/, gunOffset: [0.04, 0, 0.2], metal: 0.35, deathTopple: FOLD_DEATH },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, ...HERO_RIG, gunOffset: [0.03, -0.02, 0.18], metal: 0.35, deathTopple: FOLD_DEATH },
   },
   'char-pike': {
     file: 'char-pike.glb',
     height: 2.05,
-    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /RightHand_/, spine: /mixamorigSpine_/, spine1: /mixamorigSpine1_/, head: /mixamorigHead_/, root: /mixamorigHips_/, upper: MIXAMO_UPPER, gunOffset: [0.04, -0.02, 0.22], metal: 0.2, superCut: 1.8, deathTopple: FOLD_DEATH },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, ...HERO_RIG, gunOffset: [0.03, -0.03, 0.24], metal: 0.3, superCut: 1.8, deathTopple: FOLD_DEATH },
   },
   'char-salve': {
     file: 'char-salve.glb',
     height: 1.95,
-    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /armLoweR_/, spine: /waistL_/, spine1: /chest_/, head: /headR_/, root: /^caderaL_00/, upper: /chest|shoulder|armUpper|armLowe|neck|head/, gunOffset: [0.02, -0.12, 0.34], metal: 0.3, deathTopple: FOLD_DEATH },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, ...HERO_RIG, gunOffset: [0.02, -0.03, 0.18], metal: 0.3, deathTopple: FOLD_DEATH },
   },
-  'gun-rook': { file: 'gun-rook.glb', width: 0.9 },
-  'gun-wren': { file: 'gun-wren.glb', width: 1.25 },
-  'gun-furnace': { file: 'gun-furnace.glb', width: 1.0 },
-  'gun-flick': { file: 'gun-flick.glb', width: 0.75 },
-  'gun-pike': { file: 'gun-pike.glb', width: 1.0 },
-  'gun-salve': { file: 'gun-salve.glb', width: 0.7 },
+  // Blasters (original models; barrel along -Z, the fighter turns them to face its aim).
+  'gun-rook': { file: 'gun-rook.glb', width: 0.9, pbr: true },
+  'gun-wren': { file: 'gun-wren.glb', width: 1.25, pbr: true },
+  'gun-furnace': { file: 'gun-furnace.glb', width: 1.0, pbr: true },
+  'gun-flick': { file: 'gun-flick.glb', width: 0.75, pbr: true },
+  'gun-pike': { file: 'gun-pike.glb', width: 1.0, pbr: true },
+  'gun-salve': { file: 'gun-salve.glb', width: 0.7, pbr: true },
   grenade: { file: 'grenade.glb', height: 0.35 },
-  // Arena pieces (Sketchfab, CC BY: see CREDITS.md). `width` is the largest horizontal extent after the yaw.
-  'env-shutter': { file: 'env-shutter.glb', width: 8.2, yaw: -Math.PI / 2, pbr: true },
+  // Arena pieces: original models made for this project, except the few CC BY pieces listed in CREDITS.md.
+  // `width` is the largest horizontal extent after the yaw. Neon parts carry emissive masks.
+  'env-shutter': { file: 'env-shutter.glb', width: 8.2, pbr: true },
   'env-shop-a': { file: 'env-shop-a.glb', width: 6.2, pbr: true },
   'env-building-1': { file: 'env-building-1.glb', height: 14, pbr: true },
   'env-building-2': { file: 'env-building-2.glb', height: 17, pbr: true },
@@ -119,7 +132,7 @@ export const MANIFEST: Record<string, ModelSpec> = {
   'env-building-6': { file: 'env-building-6.glb', height: 19, pbr: true },
   'env-hk-alley': { file: 'env-hk-alley.glb', height: 34, pbr: true },
   'env-city': { file: 'env-city.glb', width: 110, pbr: true },
-  'env-neon-blade': { file: 'env-neon-blade.glb', height: 3, pbr: true, glow: '#f0abfc', glowIntensity: 0.9 },
+  'env-neon-blade': { file: 'env-neon-blade.glb', height: 3, pbr: true },
   'env-skybox': { file: 'env-skybox.glb', width: 900, unlit: true },
   'env-crate-yellow': { file: 'env-crate-yellow.glb', width: 1.7, pbr: true },
   'env-crate-military': { file: 'env-crate-military.glb', width: 1.8, pbr: true },
@@ -129,7 +142,7 @@ export const MANIFEST: Record<string, ModelSpec> = {
   'env-loot-chest': { file: 'env-loot-chest.glb', width: 1.5, pbr: true },
   'env-terminal': { file: 'env-terminal.glb', height: 2.3, pbr: true },
   'env-rails': { file: 'env-rails.glb', width: 2, pbr: true },
-  'env-vent': { file: 'env-vent.glb', height: 2.4, pbr: true },
+  'env-vent': { file: 'env-vent.glb', width: 2.0, pbr: true },
   'env-vent-tall': { file: 'env-vent-tall.glb', height: 4.5, pbr: true },
   'env-dish': { file: 'env-dish.glb', height: 3.6, pbr: true },
   'env-bridge': { file: 'env-bridge.glb', width: 12, pbr: true },
@@ -139,12 +152,13 @@ export const MANIFEST: Record<string, ModelSpec> = {
   'env-hover-car': { file: 'env-hover-car.glb', width: 3.9, pbr: true },
   'env-car-1': { file: 'env-car-1.glb', width: 3.4, pbr: true },
   'env-car-2': { file: 'env-car-2.glb', width: 3.4, pbr: true },
-  'env-drone': { file: 'env-drone.glb', height: 1.1, pbr: true, char: { clips: { idle: 'Scene', run: 'Scene' }, hand: /none/, spine: /none/ } },
-  // Licensed low-poly props kept from the site owner's library.
-  'led-streetlight': { file: 'led-streetlight.glb', height: 5.2 },
+  // WREN's Sentry Pod: static, the view bobs it and turns it towards its target (eye on +Z).
+  'env-drone': { file: 'env-drone.glb', height: 1.1, pbr: true },
+  'giant-billboard': { file: 'giant-billboard.glb', height: 8, pbr: true },
+  'box-truck': { file: 'box-truck.glb', width: 3.95, yaw: Math.PI / 2, pbr: true },
+  'led-streetlight': { file: 'led-streetlight.glb', height: 5.2, pbr: true },
+  // Licensed low-poly prop kept from the site owner's library.
   'media-facade': { file: 'media-facade.glb', width: 7.2, glow: '#22d3ee' },
-  'giant-billboard': { file: 'giant-billboard.glb', height: 8 },
-  'box-truck': { file: 'box-truck.glb', width: 3.95, yaw: Math.PI / 2 },
 }
 
 export interface SiegeAssets {
