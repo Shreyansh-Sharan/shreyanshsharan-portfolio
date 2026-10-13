@@ -9,7 +9,7 @@ import { DELIVERIES, deliveriesFor, isSpinStyle, type DeliveryType } from './sim
 import { PRESET_ORDER, type FieldPreset } from './sim/fields'
 import { Geo, inward, stumpsZ } from './sim/geo'
 import { ballSymbol, oversText, runRate, scoreText, type MatchSetup } from './sim/match'
-import type { Footwork, ShotType } from './sim/shots'
+import { PERFECT, shotSpec, type Footwork, type ShotType, type Timing } from './sim/shots'
 import { bat01, styleName, surname, type Team } from './sim/teams'
 import { V3 } from './sim/vec'
 import { toView, yawToView } from './view/coords'
@@ -18,6 +18,7 @@ import { makeBall, makeMarker, Wicket } from './view/props'
 import { Cricketer, type ClipName, type KitKind } from './view/rig'
 import { Stadium } from './view/stadium'
 import { Hawkeye } from './view/hawkeye'
+import { Guides, lengthWords, type ShotColour } from './view/guides'
 import type { Post } from './view/post'
 
 export interface GameOptions {
@@ -78,6 +79,7 @@ export interface HudState {
   matchEnd: { result: string; winner: number } | null
   replay: boolean
   banner: string
+  bannerSub: string
   bannerTime: number
   camera: string
   paused: boolean
@@ -85,6 +87,19 @@ export interface HudState {
   running: boolean
   quality: QualityTier
   reviewsLeft: number
+  /** The delivery just bowled (shown as a card for a few seconds after release). */
+  card: { bowler: string; kmh: number; type: string; spin: boolean; words: string; age: number } | null
+  /** Timing of the last six shots (newest last). */
+  timings: Timing[]
+  nets: boolean
+  difficulty: number
+  /** The bowler's marker in words ("Good length, outside off"). */
+  markerWords: string
+  /** The batter's held aim in degrees (null when none) and the last shot type pressed. */
+  aimDeg: number | null
+  shotKind: ShotColour
+  /** Seconds until the bat should meet the ball (negative once it has passed), -1 when no ball is in flight. */
+  toContact: number
 }
 
 interface FrameRec {
@@ -98,7 +113,13 @@ const POSES: Pose[] = ['hidden', 'idle', 'walk', 'run', 'stance', 'shot', 'slide
 
 const v3 = (a: number[] | V3) => toView(a as V3)
 
-type CamMode = 'broadcast' | 'follow' | 'orbit' | 'replay' | 'hawk' | 'high'
+type CamMode = 'broadcast' | 'batter' | 'follow' | 'orbit' | 'replay' | 'hawk' | 'high'
+type UserCam = 'batter' | 'broadcast' | 'high'
+const BAT_CAMS: UserCam[] = ['batter', 'broadcast', 'high']
+const FIELD_CAMS: UserCam[] = ['broadcast', 'high']
+const TIMING_NAMES: Timing[] = ['noshot', 'veryearly', 'early', 'perfect', 'late', 'verylate']
+/** Seconds before contact at which to press the shot (the stroke's lead time). */
+const SHOT_LEAD = shotSpec('drive').lead
 
 export class Game {
   container: HTMLElement
@@ -119,15 +140,26 @@ export class Game {
   private trailPts: THREE.Vector3[] = []
   private wickets: Wicket[]
   private marker: THREE.Group
+  private guides = new Guides()
+  private zonesFor = ''
+  private ghostPts: THREE.Vector3[] = []
+  private timingFlash = 0
+  private shotKind: ShotColour = 'none'
+  private card: HudState['card'] = null
+  private timings: Timing[] = []
   private camMode: CamMode = 'orbit'
   private camPos = new THREE.Vector3(0, 30, -90)
   private camLook = new THREE.Vector3(0, 0, 0)
   private camFov = 30
-  private userCam: 'broadcast' | 'high' = 'broadcast'
+  /** The player's camera choice while batting and while bowling or watching (C cycles the relevant one). */
+  private batCam: UserCam = 'batter'
+  private fieldCam: UserCam = 'broadcast'
   private raf = 0
   private last = 0
   private time = 0
   private paused = false
+  /** Frozen behind an overlay (the how-to-play card): like paused, but without the pause menu. */
+  private hold = false
   private ro: ResizeObserver
   private keys = new Set<string>()
   private hudT = 0
@@ -192,6 +224,7 @@ export class Game {
     this.marker = makeMarker()
     this.marker.visible = false
     this.scene.add(this.marker)
+    this.scene.add(this.guides.group)
     this.hawk = new Hawkeye()
     this.scene.add(this.hawk.group)
 
@@ -228,6 +261,7 @@ export class Game {
     this.audio.close()
     this.postToken++
     this.post?.dispose()
+    this.guides.dispose()
     this.stadium.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
@@ -292,6 +326,17 @@ export class Game {
     this.pushHud()
   }
 
+  /** Freezes the match behind an overlay (no pause menu, keys ignored). */
+  setHold(h: boolean) {
+    this.hold = h
+    this.keys.clear()
+    this.pushHud()
+  }
+
+  get isHeld() {
+    return this.hold
+  }
+
   setQuality(q: QualityTier) {
     // Resolution and shadows change live; the crowd and stadium detail apply to the next match.
     this.quality = QUALITY[q]
@@ -316,7 +361,8 @@ export class Game {
 
   private frame(dt: number, render: boolean) {
     const d = this.director
-    if (!this.paused) {
+    const frozen = this.paused || this.hold
+    if (!frozen) {
       this.time += dt
       this.handleHeldInput(dt)
       if (!this.opts.mirror) d.update(dt)
@@ -328,14 +374,16 @@ export class Game {
       this.stadium.update(dt)
       this.audio.update(dt)
       for (const w of this.wickets) w.update(dt)
+      this.timingFlash = Math.max(0, this.timingFlash - dt * 2.5)
     }
     this.syncKits()
     if (this.replaying) this.applyReplayFrame(dt)
-    else this.updatePeople(this.paused ? 0 : dt)
+    else this.updatePeople(frozen ? 0 : dt)
     this.updateMarker()
-    this.updateCamera(this.paused ? 0 : dt)
+    this.updateCamera(frozen ? 0 : dt)
     this.updateBall()
-    this.hawk.update(d, this.paused ? 0 : dt)
+    this.updateGuides()
+    this.hawk.update(d, frozen ? 0 : dt)
     this.hudT -= dt
     if (this.hudT <= 0 || dt === 0) {
       this.hudT = 0.1
@@ -353,6 +401,7 @@ export class Game {
       this.lastBallId = d.ballId
       this.sinceRelease = 0
       this.trailPts = []
+      this.ghostPts = []
       this.followSince = 0
     } else if (this.sinceRelease >= 0) this.sinceRelease += dt
     if (d.phase === 'predelivery' || d.phase === 'runup') {
@@ -496,19 +545,33 @@ export class Game {
     this.ballShadow.visible = vis && pos.y < 30
     if (!vis) {
       this.trail.visible = false
+      this.guides.setGlow(null, 0)
+      this.guides.setGhosts([], 1)
       return
     }
     this.ball.position.copy(pos)
     this.ball.rotation.x += 0.4
     // Keep the ball readable at broadcast distance (it is tiny on screen otherwise).
     const camDist = this.camera.position.distanceTo(pos)
-    this.ball.scale.setScalar(THREE.MathUtils.clamp(camDist / 12, 1, 2.2))
+    const scale = THREE.MathUtils.clamp(camDist / 10, 1.15, 2.6)
+    this.ball.scale.setScalar(scale)
     this.ballShadow.position.set(pos.x, 0.012, pos.z)
-    const s = 1 + Math.min(3, pos.y * 0.15)
+    const s = (1 + Math.min(3, pos.y * 0.15)) * Math.max(1, scale * 0.8)
     this.ballShadow.scale.setScalar(s)
-    ;(this.ballShadow.material as THREE.MeshBasicMaterial).opacity = Math.max(0.08, 0.4 / s)
-    // A faint tracer behind the ball once it's hit, so it's easy to follow.
+    ;(this.ballShadow.material as THREE.MeshBasicMaterial).opacity = Math.max(0.1, 0.5 / s)
+    const flight = d.phase === 'flight' || d.phase === 'runup'
     const live = d.phase === 'live' || d.phase === 'dead'
+    // A glow and a few fading ghosts behind the ball while it is in the air, so its line is easy to read.
+    const moving = (flight || (live && !d.heldBy)) && !this.replaying
+    this.guides.setGlow(moving && !d.heldBy ? pos : null, 0.16 * scale + Math.min(0.3, camDist * 0.008))
+    if (moving) {
+      if (!this.ghostPts.length || this.ghostPts[0].distanceToSquared(pos) > 0.08) {
+        this.ghostPts.unshift(pos.clone())
+        if (this.ghostPts.length > 6) this.ghostPts.pop()
+      }
+    } else this.ghostPts = []
+    this.guides.setGhosts(this.replaying ? [] : this.ghostPts, scale)
+    // A faint tracer behind the ball once it's hit, so it's easy to follow.
     if (live && !d.heldBy && !this.replaying) {
       this.trailPts.push(pos.clone())
       if (this.trailPts.length > 40) this.trailPts.shift()
@@ -528,11 +591,67 @@ export class Game {
     const d = this.director
     const show = !this.opts.autopilot && d.localBowls && (d.phase === 'predelivery' || (d.phase === 'runup' && !d.ballReleased))
     this.marker.visible = show
+    this.guides.setZonesVisible(show)
     if (show) {
       this.marker.position.copy(v3(d.marker)).setY(0.02)
       const s = 1 + Math.sin(this.time * 6) * 0.08
       this.marker.scale.setScalar(s)
+      // The length bands in front of the striker's stumps, labelled on the batter's off side (screen-left from
+      // behind a right-arm bowler, clear of the bowling controls on the right).
+      const inn = d.state.current
+      const key = `${inn.strikerEnd}:${d.frame.off.x}`
+      if (this.zonesFor !== key) {
+        this.zonesFor = key
+        const dirZ = inward(inn.strikerEnd)
+        this.guides.buildZones(stumpsZ(inn.strikerEnd), dirZ, Math.sign(toView(d.frame.off).x || 1))
+      }
     }
+  }
+
+  /** The batter's guides: the landing marker, the timing ring and the aim wedge. */
+  private updateGuides() {
+    const d = this.director
+    const g = this.guides
+    const inn = d.state.current
+    const bats = !this.opts.autopilot && d.localBats && !!inn && !this.replaying
+    const inFlight = d.phase === 'flight' || d.phase === 'runup'
+    const released = d.ballReleased && d.phase === 'flight'
+    // Landing marker from the moment of release: Easy keeps it, Normal fades it as the ball travels, Hard flashes it.
+    const pitched = bats && released && d.pitched ? v3(d.pitched) : null
+    if (pitched) {
+      const diff = d.nets ? 0 : d.state.setup.difficulty
+      const t = this.sinceRelease
+      const landed = d.ball.bounces > 0
+      let a = 1
+      if (diff === 1) a = landed ? 0.35 : Math.max(0.35, 1 - t * 0.8)
+      else if (diff === 2) a = Math.max(0, 1 - t * 2.2)
+      g.setPitch(pitched, a, landed ? 1 : 1 + Math.sin(this.time * 9) * 0.06)
+      g.setPitchLabel(diff === 0 || d.nets ? lengthWords(d.pitchedLength(), d.frame.offsetOff(d.pitched!)).length : null)
+    } else g.setPitch(null, 0)
+    // Timing ring on the ground at the striker's contact point.
+    const tCross = released ? d.crossTime('auto') : -1
+    if (bats && released && tCross > 0) {
+      const toContact = tCross - d.ball.time - SHOT_LEAD
+      const windowS = PERFECT * d.difficultyWindow * 1.1
+      const at = v3(d.crossPoint('auto'))
+      // Fully open at release, closed on the inner ring at the moment to press.
+      const closing = THREE.MathUtils.clamp(toContact / Math.max(0.15, tCross - SHOT_LEAD), 0, 1)
+      // Once the shot is pressed the ring stops judging: it just closes on the contact point.
+      const judging = !d.shotPending
+      g.setTiming(at, closing, judging && Math.abs(toContact) <= windowS, judging && toContact < -windowS, this.timingFlash)
+    } else if (bats && this.timingFlash > 0 && (d.phase === 'live' || d.phase === 'flight')) {
+      g.setTiming(v3(d.crossPoint('auto')), 0, false, false, this.timingFlash)
+    } else g.setTiming(null, 0, false, false, 0)
+    // Aim wedge while a direction is held (or a shot has been pressed) before the ball arrives.
+    const aim = bats && (inFlight || d.phase === 'predelivery') ? this.aimFromKeys() : null
+    const showAim = aim !== null || (bats && inFlight && d.shotPending)
+    if (showAim && inn) {
+      const deg = aim ?? d.striker.aim
+      const dir = toView(d.frame.direction(deg))
+      const kind: ShotColour = d.shotPending ? this.shotKind : 'none'
+      const len = kind === 'defend' ? 2.2 : kind === 'loft' ? 9 : kind === 'ground' ? 6 : 5
+      g.setAim(v3(d.striker.pos), Math.atan2(dir.x, dir.z), kind, len)
+    } else g.setAim(null, 0, 'none', 1)
   }
 
   /* ---------------- cameras ---------------- */
@@ -561,11 +680,12 @@ export class Game {
     const d = this.director
     const inn = d.state.current
     let mode: CamMode = 'orbit'
+    const userCam = this.userCam
     if (this.replaying) mode = 'replay'
     else if (d.phase === 'review' && d.review.kind === 'lbw') mode = 'hawk'
     else if (d.phase === 'review' && d.review.kind === 'runout') mode = 'hawk'
-    else if (inn && (d.phase === 'predelivery' || d.phase === 'runup' || d.phase === 'flight')) mode = this.userCam
-    else if (inn && (d.phase === 'live' || d.phase === 'dead')) mode = d.liveTime < 0.12 && d.phase === 'live' && !d.heldBy ? this.userCam : 'follow'
+    else if (inn && (d.phase === 'predelivery' || d.phase === 'runup' || d.phase === 'flight')) mode = userCam
+    else if (inn && (d.phase === 'live' || d.phase === 'dead')) mode = d.liveTime < (userCam === 'batter' ? 0.35 : 0.12) && d.phase === 'live' && !d.heldBy ? userCam : 'follow'
     if (mode !== this.camMode) {
       if (mode === 'follow') this.followSince = 0
       this.camMode = mode
@@ -587,6 +707,16 @@ export class Game {
         pos.set(side * 1.1, 6.6, stumpsZ(be) - dirZ * 27)
         look.set(side * 0.25, 0.85, stumpsZ(se) - dirZ * 2.4)
         fov = 13.5
+        if (d.phase === 'predelivery' && d.phaseTime < 0.05) snap = true
+        break
+      }
+      case 'batter': {
+        // Over the striker's shoulder, looking down the pitch at the bowler running in. Off side of the batter so
+        // his body never hides the ball; mirrored for a left-hander.
+        const offSide = Math.sign(toView(d.frame.off).x || 1)
+        pos.set(offSide * 1.9, 4.2, stumpsZ(se) + dirZ * 7.5)
+        look.set(offSide * 0.1, 0.7, stumpsZ(se) - dirZ * 8)
+        fov = 32
         if (d.phase === 'predelivery' && d.phaseTime < 0.05) snap = true
         break
       }
@@ -664,8 +794,16 @@ export class Game {
     return v3(d.ball.pos)
   }
 
+  /** The camera the player chose for what he is doing now (batting gets the over-the-shoulder view by default). */
+  private get userCam(): UserCam {
+    const d = this.director
+    return !this.opts.autopilot && d.localBats ? this.batCam : this.fieldCam
+  }
+
   toggleCamera() {
-    this.userCam = this.userCam === 'broadcast' ? 'high' : 'broadcast'
+    const d = this.director
+    if (!this.opts.autopilot && d.localBats) this.batCam = BAT_CAMS[(BAT_CAMS.indexOf(this.batCam) + 1) % BAT_CAMS.length]
+    else this.fieldCam = FIELD_CAMS[(FIELD_CAMS.indexOf(this.fieldCam) + 1) % FIELD_CAMS.length]
     this.pushHud()
   }
 
@@ -868,13 +1006,19 @@ export class Game {
       case 'bathit':
         this.audio.bat(e.f ?? 0.5)
         if ((e.f ?? 0) > 0.85) this.stadium.crowd.cheer(0.3, 1)
+        this.noteTiming(TIMING_NAMES[e.i ?? 0] ?? 'noshot')
         break
       case 'edge':
         this.audio.bat(0.2, true)
+        this.noteTiming(TIMING_NAMES[e.i ?? 0] ?? 'noshot')
         break
       case 'beaten':
         this.audio.ooh()
         this.stadium.crowd.cheer(0.15, 1)
+        this.noteTiming('noshot')
+        break
+      case 'leave':
+        if (d.localBats) this.noteTiming('noshot')
         break
       case 'pad':
         this.audio.pad()
@@ -917,9 +1061,16 @@ export class Game {
       case 'drop':
         this.audio.ooh()
         break
-      case 'release':
+      case 'release': {
         this.audio.release()
+        const bp = d.bowler
+        if (bp) {
+          const spin = isSpinStyle(bp.bowl)
+          const words = d.pitched ? lengthWords(d.pitchedLength(), d.frame.offsetOff(d.pitched)).text : 'Full toss'
+          this.card = { bowler: surname(bp), kmh: Math.round(e.f ?? d.lastKmh), type: DELIVERIES[(e.text as DeliveryType) ?? d.selectedDelivery]?.name ?? e.text ?? '', spin, words, age: 0 }
+        }
         break
+      }
       case 'runcomplete':
         this.audio.click()
         break
@@ -948,10 +1099,22 @@ export class Game {
         break
       case 'phase':
         if (e.text === 'review') this.hawk.begin(d)
-        if (e.text === 'predelivery') this.hawk.clear()
+        if (e.text === 'predelivery') {
+          this.hawk.clear()
+          this.shotKind = 'none'
+          this.card = null
+        }
         break
     }
     if (e.type === 'release' || e.type === 'wicket' || e.type === 'four' || e.type === 'six' || e.type === 'overend') this.updateScreen()
+  }
+
+  /** Remembers how the local batter timed the last six balls (for the practice strip). */
+  private noteTiming(t: Timing) {
+    if (!this.director.localBats || this.opts.autopilot) return
+    this.timings.push(t)
+    if (this.timings.length > 6) this.timings.shift()
+    this.timingFlash = 1
   }
 
   private updateScreen() {
@@ -975,6 +1138,7 @@ export class Game {
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Tab'].includes(e.key)) e.preventDefault()
+    if (this.hold) return
     this.audio.start()
     if (e.repeat) {
       this.keys.add(k)
@@ -1085,6 +1249,7 @@ export class Game {
         const feet = this.footwork()
         // Online guests time the shot against their own copy of the delivery (what they can see).
         const timing = this.opts.mirror ? d.timingErrorNow(shot, feet) : undefined
+        if (!d.shotPending) this.shotKind = defend ? 'defend' : loft ? 'loft' : 'ground'
         c({ t: 'shot', side, shot, loft, feet, aim, timing })
         return
       }
@@ -1255,6 +1420,7 @@ export class Game {
       matchEnd: d.phase === 'end' ? { result: st.result, winner: st.winner } : null,
       replay: this.replaying,
       banner: d.bannerTime > 0 ? d.banner : '',
+      bannerSub: d.bannerTime > 0 ? d.bannerSub : '',
       bannerTime: d.bannerTime,
       camera: this.userCam,
       paused: this.paused,
@@ -1262,6 +1428,14 @@ export class Game {
       running: d.anyRunning,
       quality: this.quality.tier,
       reviewsLeft: inn ? d.reviewsLeft(localSide) : 0,
+      card: this.card && this.sinceRelease >= 0 && this.sinceRelease < 3.2 && (d.phase === 'flight' || d.phase === 'live') ? { ...this.card, age: this.sinceRelease } : null,
+      timings: this.timings,
+      nets: d.nets,
+      difficulty: st.setup.difficulty,
+      markerWords: d.localBowls && (d.phase === 'predelivery' || d.phase === 'runup') ? lengthWords(d.frame.offsetFwd(d.marker), d.frame.offsetOff(d.marker)).text : '',
+      aimDeg: d.localBats ? this.aimFromKeys() : null,
+      shotKind: this.shotKind,
+      toContact: d.localBats && d.ballReleased && d.phase === 'flight' && d.crossTime('auto') > 0 ? d.crossTime('auto') - d.ball.time - SHOT_LEAD : -1,
     }
   }
 

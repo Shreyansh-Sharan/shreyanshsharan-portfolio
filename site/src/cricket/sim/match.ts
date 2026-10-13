@@ -44,6 +44,10 @@ export function rulesFor(f: MatchFormat): FormatRules {
   }
 }
 export const superOverRules = (): FormatRules => ({ format: 'super', overs: 1, maxOversPerBowler: 1, powerplayOvers: 0, maxOutsidePowerplay: 5, maxOutside: 5, reviews: 1, bouncersPerOver: 1, maxWickets: 2 })
+/** Practice nets: endless overs, any bowler as often as he likes, no reviews. Wickets are shown but never counted. */
+export const netsRules = (): FormatRules => ({ format: 't20', overs: 500, maxOversPerBowler: 500, powerplayOvers: 0, maxOutsidePowerplay: 5, maxOutside: 5, reviews: 0, bouncersPerOver: 6, maxWickets: 10 })
+
+export type NetsBowling = 'pace' | 'spin' | 'mixed'
 
 export interface BatterCard {
   player: number
@@ -196,6 +200,8 @@ export interface MatchSetup {
   seed: number
   teams: [Team, Team]
   online: boolean
+  /** Practice nets: team 0 bats for ever against team 1's attack, no fielders, no toss. */
+  nets?: { bowling: NetsBowling }
 }
 
 export class MatchState {
@@ -211,7 +217,7 @@ export class MatchState {
 
   constructor(setup: MatchSetup) {
     this.setup = setup
-    this.rules = rulesFor(setup.format)
+    this.rules = setup.nets ? netsRules() : rulesFor(setup.format)
   }
 
   get current(): Innings {

@@ -26,6 +26,33 @@ export interface StageProps {
 const DIR_LABELS: Record<string, string> = {
   '0,0': 'Natural',
   '0,1': 'Straight',
+  '-1,1': 'Off drive',
+  '1,1': 'On drive',
+  '-1,0': 'Square (off)',
+  '1,0': 'Square (leg)',
+  '-1,-1': 'Late cut',
+  '1,-1': 'Fine leg',
+  '0,-1': 'Behind',
+}
+
+type HowToMode = 'bat' | 'bowl'
+const HOWTO_KEY: Record<HowToMode, string> = { bat: 'cricket-howto-bat', bowl: 'cricket-howto-bowl' }
+
+function howToSeen(mode: HowToMode) {
+  try {
+    return localStorage.getItem(HOWTO_KEY[mode]) === 'off'
+  } catch {
+    return false
+  }
+}
+
+function rememberHowTo(mode: HowToMode, off: boolean) {
+  try {
+    if (off) localStorage.setItem(HOWTO_KEY[mode], 'off')
+    else localStorage.removeItem(HOWTO_KEY[mode])
+  } catch {
+    // Not remembered.
+  }
 }
 
 export default function CricketStage(p: StageProps) {
@@ -39,6 +66,8 @@ export default function CricketStage(p: StageProps) {
   const [pop, setPop] = useState<{ text: string; kind: string; id: number } | null>(null)
   const [quality, setQualityState] = useState<QualityTier | 'auto'>(savedQuality())
   const [version, setVersion] = useState(0)
+  const [howTo, setHowTo] = useState<HowToMode | null>(null)
+  const howToShown = useRef<Record<HowToMode, boolean>>({ bat: false, bowl: false })
   const popId = useRef(0)
 
   useEffect(() => {
@@ -123,9 +152,31 @@ export default function CricketStage(p: StageProps) {
 
   useEffect(() => {
     if (!pop) return
-    const id = window.setTimeout(() => setPop(null), 1600)
+    const id = window.setTimeout(() => setPop(null), 1800)
     return () => window.clearTimeout(id)
   }, [pop])
+
+  // The one-screen "how to play" before the first ball of a human innings (batting and bowling versions).
+  const phase = hud?.phase
+  const localBats = !!hud?.localBats
+  const localBowls = !!hud?.localBowls
+  useEffect(() => {
+    const game = gameRef.current
+    if (!game || howTo || phase !== 'predelivery') return
+    const q = new URLSearchParams(window.location.search)
+    if ((q.has('snap') || q.has('autopilot')) && !q.has('howto')) return
+    const mode: HowToMode | null = localBats ? 'bat' : localBowls ? 'bowl' : null
+    if (!mode || howToShown.current[mode] || howToSeen(mode)) return
+    howToShown.current[mode] = true
+    game.setHold(true)
+    setHowTo(mode)
+  }, [phase, localBats, localBowls, howTo])
+
+  const closeHowTo = (off: boolean) => {
+    if (howTo) rememberHowTo(howTo, off)
+    setHowTo(null)
+    gameRef.current?.setHold(false)
+  }
 
   const g = gameRef.current
   const side = p.localSide
@@ -177,12 +228,13 @@ export default function CricketStage(p: StageProps) {
               Scorecard
             </button>
             <button className="pill" onClick={() => g?.toggleCamera()}>
-              Camera: {h.camera === 'broadcast' ? 'Broadcast' : 'High'}
+              Camera: {h.camera === 'batter' ? 'Batter' : h.camera === 'broadcast' ? 'Broadcast' : 'High'}
             </button>
             <QualityToggle value={quality} actual={h.quality} onChange={setQuality} />
           </div>
           <Commentary lines={lines} />
-          {h.banner && <Banner text={h.banner} />}
+          {h.card && <DeliveryCard card={h.card} />}
+          {h.banner && <Banner text={h.banner} sub={h.bannerSub} />}
           {pop && (
             <div key={pop.id} className={`ck-pop ck-pop-${pop.kind}`}>
               {pop.text}
@@ -190,6 +242,7 @@ export default function CricketStage(p: StageProps) {
           )}
           {h.localBats && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'flight' || h.phase === 'live' || h.phase === 'dead') && <BattingHud h={h} game={g} />}
           {h.localBowls && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'live') && <BowlingHud h={h} game={g} />}
+          {howTo && <HowTo mode={howTo} onClose={closeHowTo} />}
           {h.toss && <TossPanel h={h} send={send} side={side} />}
           {h.chooseBowler && (
             <div className="ck-panel ck-center">
@@ -263,7 +316,7 @@ export default function CricketStage(p: StageProps) {
               <Scorecard key={version} state={g.director.state} onClose={() => setShowCard(false)} />
             </div>
           )}
-          {h.paused && (
+          {h.paused && !howTo && (
             <div className="ck-overlay">
               <div className="ck-panel ck-center">
                 <h3>Paused</h3>
@@ -293,8 +346,9 @@ function Scorebug({ h }: { h: HudState }) {
         <span className="ck-bug-score">{h.score}</span>
         <span className="ck-bug-overs">
           {h.overs}
-          <small>/{h.maxOvers}</small>
+          {!h.nets && <small>/{h.maxOvers}</small>}
         </span>
+        {h.nets && <span className="ck-chip">NETS</span>}
         {h.powerplay && <span className="ck-chip">P</span>}
         {h.superOver && <span className="ck-chip ck-chip-hot">SUPER OVER</span>}
         {h.freeHit && <span className="ck-chip ck-chip-hot">FREE HIT</span>}
@@ -329,11 +383,152 @@ function Scorebug({ h }: { h: HudState }) {
   )
 }
 
-function Banner({ text }: { text: string }) {
-  const kind = /SIX/.test(text) ? 'six' : /FOUR/.test(text) ? 'four' : /OUT|BOWLED/.test(text) ? 'out' : 'info'
+function Banner({ text, sub }: { text: string; sub: string }) {
+  const kind = /SIX/.test(text)
+    ? 'six'
+    : /FOUR/.test(text)
+      ? 'four'
+      : /NOT OUT/.test(text)
+        ? 'info'
+        : /OUT|BOWLED|CAUGHT|LBW|STUMPED|HIT WICKET/.test(text)
+          ? 'out'
+          : /DOT BALL|RUNS?\b|WIDE|NO BALL/.test(text)
+            ? 'result'
+            : 'info'
   return (
     <div key={text} className={`ck-banner ck-banner-${kind}`}>
-      {text}
+      <span className="ck-banner-text">{text}</span>
+      {sub && <span className="ck-banner-sub">{sub}</span>}
+    </div>
+  )
+}
+
+/** What was just bowled: name, speed, type and where it will land, shown for a few seconds after release. */
+function DeliveryCard({ card }: { card: NonNullable<HudState['card']> }) {
+  return (
+    <div className={`ck-card-delivery ${card.age > 2.6 ? 'is-fading' : ''}`}>
+      <span className="ck-card-bowler">{card.bowler}</span>
+      <span className="ck-card-kmh">
+        {card.kmh}
+        <small> km/h</small>
+      </span>
+      <span className={`ck-card-type ${card.spin ? 'is-spin' : ''}`}>{card.type}</span>
+      <span className="ck-card-words">{card.words}</span>
+    </div>
+  )
+}
+
+const TIMING_LABEL: Record<string, string> = { noshot: 'Miss', veryearly: 'V.early', early: 'Early', perfect: 'Perfect', late: 'Late', verylate: 'V.late' }
+
+/** The last six balls' timing, newest on the right. */
+function TimingStrip({ timings }: { timings: string[] }) {
+  const cells = [...timings]
+  while (cells.length < 6) cells.unshift('')
+  return (
+    <div className="ck-strip" aria-label="Timing of the last six balls">
+      <span className="ck-strip-label">Last 6</span>
+      {cells.map((t, i) => (
+        <span key={i} className={`ck-strip-cell ${t ? `is-${t}` : ''}`} title={t ? TIMING_LABEL[t] : 'No ball yet'}>
+          {t ? TIMING_LABEL[t] : '·'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** One-screen guide, shown before the first ball of a human innings. Any key dismisses it. */
+function HowTo({ mode, onClose }: { mode: HowToMode; onClose: (off: boolean) => void }) {
+  const [off, setOff] = useState(false)
+  const offRef = useRef(false)
+  useEffect(() => {
+    offRef.current = off
+  }, [off])
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' || e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      onClose(offRef.current)
+    }
+    window.addEventListener('keydown', down, { capture: true })
+    return () => window.removeEventListener('keydown', down, { capture: true })
+  }, [onClose])
+  return (
+    <div className="ck-overlay ck-howto-wrap">
+      <div className="ck-panel ck-howto" role="dialog" aria-label="How to play">
+        <p className="ck-howto-eyebrow">How to play</p>
+        <h3>{mode === 'bat' ? "You're batting" : "You're bowling"}</h3>
+        {mode === 'bat' ? (
+          <ol className="ck-howto-steps">
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-marker" />
+              <div>
+                <strong>Watch the marker.</strong> The cyan ring on the pitch is where the ball will land, with its length written under it.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-aim" />
+              <div>
+                <strong>Hold a direction</strong> with <kbd>W</kbd>
+                <kbd>A</kbd>
+                <kbd>S</kbd>
+                <kbd>D</kbd> or the arrows: the wedge on the ground shows where the shot will go. No direction plays the natural shot.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-ring" />
+              <div>
+                <strong>Press as the ring closes.</strong> The yellow ring shrinks onto the white one as the ball arrives: press <kbd>J</kbd> defend,{' '}
+                <kbd>K</kbd> along the ground or <kbd>L</kbd> lofted when it turns green.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip" />
+              <div>
+                Hold <kbd>Shift</kbd> for the front foot, <kbd>Space</kbd> for the back foot. Then <kbd>R</kbd> runs and <kbd>F</kbd> sends him back.
+              </div>
+            </li>
+          </ol>
+        ) : (
+          <ol className="ck-howto-steps">
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-marker" />
+              <div>
+                <strong>Pick a delivery</strong> with <kbd>1</kbd>–<kbd>6</kbd> (or <kbd>Q</kbd>/<kbd>E</kbd>). Its name shows big on the right.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-aim" />
+              <div>
+                <strong>Place the yellow marker</strong> with <kbd>W</kbd>
+                <kbd>A</kbd>
+                <kbd>S</kbd>
+                <kbd>D</kbd>. The bands on the pitch are the lengths: yorker, full, good, short.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip ck-howto-pip-ring" />
+              <div>
+                <strong>Run in and release.</strong> <kbd>Space</kbd> starts the run-up; press <kbd>Space</kbd> again when the needle is in the green. Too
+                late and it is a no-ball.
+              </div>
+            </li>
+            <li>
+              <span className="ck-howto-pip" />
+              <div>
+                <kbd>F</kbd> changes the field, <kbd>V</kbd> goes round the wicket. While they run, <kbd>J</kbd> throws to the keeper and <kbd>L</kbd> to
+                the bowler.
+              </div>
+            </li>
+          </ol>
+        )}
+        <label className="ck-howto-check">
+          <input type="checkbox" checked={off} onChange={(e) => setOff(e.target.checked)} /> Don't show this again
+        </label>
+        <button className="btn btn-primary" onClick={() => onClose(off)}>
+          Got it — press any key
+        </button>
+      </div>
     </div>
   )
 }
@@ -367,7 +562,11 @@ function QualityToggle({ value, actual, onChange }: { value: QualityTier | 'auto
 /** The 8-way direction compass, footwork and timing feedback, the confidence meter and running controls. */
 function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
   const { x, y, feet } = h.aim
-  const label = DIR_LABELS[`${x},${y}`] ?? ''
+  // Direction names are from the batter's point of view: on screen the off side flips for a left-hander, so the
+  // sim's aim angle decides the word.
+  const deg = h.aimDeg
+  const label = deg === null ? '' : deg === 0 ? 'Straight' : deg > 0 ? (deg < 60 ? 'Off drive' : deg < 120 ? 'Square (off)' : 'Late cut') : deg > -60 ? 'On drive' : deg > -120 ? 'Square (leg)' : 'Fine leg'
+  const hint = h.phase === 'flight' || h.phase === 'runup' ? (h.toContact > 0.6 || h.toContact < 0 ? 'Wait for the ring…' : h.toContact > 0.12 ? 'Get ready' : 'PLAY NOW') : h.phase === 'predelivery' ? 'Hold a direction, then time the shot' : ''
   return (
     <div className="ck-bat">
       <div className="ck-compass" aria-label="Shot direction">
@@ -376,7 +575,7 @@ function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
             <span key={`${xx},${yy}`} className={`ck-cell ${x === xx && y === -yy ? 'is-on' : ''} ${xx === 0 && yy === 0 ? 'ck-cell-mid' : ''}`} />
           )),
         )}
-        <span className="ck-compass-label">{label || 'Aimed'}</span>
+        <span className="ck-compass-label">{label || DIR_LABELS[`${x},${y}`] || 'Natural'}</span>
       </div>
       <div className="ck-bat-info">
         <div className="ck-feet">
@@ -388,7 +587,8 @@ function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
             <div style={{ width: `${Math.round(h.confidence * 100)}%` }} />
           </div>
         </div>
-        {h.timing && <div className={`ck-timing ck-timing-${h.timing.split(' ')[0].toLowerCase()}`}>{h.timing}</div>}
+        {h.timing ? <div className={`ck-timing ck-timing-${h.timing.split(' ')[0].toLowerCase()}`}>{h.timing}</div> : hint && <div className={`ck-timing-hint ${hint === 'PLAY NOW' ? 'is-now' : ''}`}>{hint}</div>}
+        {(h.nets || h.timings.length > 0) && <TimingStrip timings={h.timings} />}
       </div>
       <div className="ck-keys">
         {h.live ? (
@@ -420,8 +620,16 @@ function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
 
 function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
   const m = h.meter
+  const selected = h.delivery?.options.find((o) => o.type === h.delivery!.selected)
+  const inGreen = !!m && Math.abs(m.value - m.green) <= m.half
   return (
     <div className="ck-bowl">
+      {selected && (h.phase === 'predelivery' || h.phase === 'runup') && (
+        <div key={selected.type} className="ck-dl-big">
+          <span className="ck-dl-big-name">{selected.name}</span>
+          <span className="ck-dl-big-words">{h.markerWords}</span>
+        </div>
+      )}
       {h.delivery && (
         <div className="ck-deliveries">
           {h.delivery.options.map((o) => (
@@ -450,20 +658,40 @@ function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
         )}
       </div>
       {m && (
-        <div className="ck-power" aria-label="Release meter">
-          <div className="ck-power-zone" style={{ left: `${(m.green - m.half) * 100}%`, width: `${m.half * 200}%` }} />
-          <div className="ck-power-over" style={{ left: `${(m.green + m.half * 1.15) * 100}%` }} />
-          <div className="ck-power-needle" style={{ left: `${m.value * 100}%` }} />
+        <div className={`ck-power-wrap ${m.running ? 'is-running' : ''} ${inGreen && m.running ? 'is-green' : ''}`}>
+          <div className="ck-power-title">
+            {m.running ? (
+              <>
+                <strong>RELEASE</strong> — press <kbd>Space</kbd> in the green
+              </>
+            ) : h.phase === 'runup' ? (
+              'Released'
+            ) : (
+              <>
+                Run-up meter · <kbd>Space</kbd> to run in
+              </>
+            )}
+          </div>
+          <div className="ck-power" aria-label="Release meter">
+            <div className="ck-power-zone" style={{ left: `${(m.green - m.half) * 100}%`, width: `${m.half * 200}%` }} />
+            <div className="ck-power-over" style={{ left: `${(m.green + m.half * 1.15) * 100}%` }} />
+            <div className="ck-power-needle" style={{ left: `${m.value * 100}%` }} />
+            <span className="ck-power-tag ck-power-tag-early">early = short &amp; slow</span>
+            <span className="ck-power-tag ck-power-tag-green" style={{ left: `${m.green * 100}%` }}>
+              GREEN
+            </span>
+            <span className="ck-power-tag ck-power-tag-late">no ball</span>
+          </div>
         </div>
       )}
       <p className="ck-hint">
         {h.phase === 'predelivery' ? (
           <>
-            <kbd>WASD</kbd>/<kbd>Arrows</kbd> move the marker · <kbd>Space</kbd> run in
+            <kbd>WASD</kbd>/<kbd>Arrows</kbd> move the yellow marker over a length band · <kbd>1</kbd>–<kbd>6</kbd> delivery · <kbd>Space</kbd> run in
           </>
         ) : h.phase === 'runup' ? (
           <>
-            <kbd>Space</kbd> in the green to release · late = no-ball
+            Wait for the needle, then <kbd>Space</kbd> in the green · late = no-ball, early = loose
           </>
         ) : (
           <>
@@ -563,9 +791,10 @@ export function Help() {
       <div>
         <h4>Batting</h4>
         <p>
-          Hold a direction with <kbd>WASD</kbd> or the arrows (8 ways; none plays the natural shot), then time the stroke as the ball arrives: <kbd>J</kbd>{' '}
-          defend, <kbd>K</kbd> along the ground, <kbd>L</kbd> lofted (also <kbd>Z</kbd>/<kbd>X</kbd>/<kbd>C</kbd>). Hold <kbd>Shift</kbd> for the front foot or{' '}
-          <kbd>Space</kbd> for the back foot. <kbd>T</kbd> charges a spinner. Run with <kbd>R</kbd>, stay or turn back with <kbd>F</kbd>.
+          The cyan ring on the pitch is where the ball will land. Hold a direction with <kbd>WASD</kbd> or the arrows (8 ways; none plays the natural shot)
+          and the wedge on the ground shows where the shot goes. Press as the timing ring closes and turns green: <kbd>J</kbd> defend, <kbd>K</kbd> along
+          the ground, <kbd>L</kbd> lofted (also <kbd>Z</kbd>/<kbd>X</kbd>/<kbd>C</kbd>). Hold <kbd>Shift</kbd> for the front foot or <kbd>Space</kbd> for the
+          back foot. <kbd>T</kbd> charges a spinner. Run with <kbd>R</kbd>, stay or turn back with <kbd>F</kbd>.
         </p>
       </div>
       <div>
