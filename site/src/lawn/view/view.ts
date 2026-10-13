@@ -1,6 +1,8 @@
-// The renderer: sky, sun and fog per street and time of day, the world (street + houses), characters, the
-// first-person arms, projectiles, traps, zones, ladders, weather, chaos props (seagulls, the ice-cream truck),
-// particles and the first-person camera with bob, shake, hit-stop, KO tumble and a cinematic override.
+// The renderer: a lighting mood per street and time of day (sky dome, image-based light baked from it, a key sun
+// whose shadow box follows the camera, hemisphere fill, fog, exposure and the post grade), the world (street +
+// houses), characters, the first-person arms, projectiles, traps, zones, ladders, weather, chaos props (seagulls,
+// the ice-cream truck), particles and the first-person camera with bob, shake, hit-stop, KO tumble and a cinematic
+// override.
 import * as THREE from 'three'
 import { findClip, instance, type LawnAssets } from '../engine/assets'
 import { THROWABLES } from '../engine/gear'
@@ -13,7 +15,10 @@ import { CHAOS_KINDS, PF, PROJ_KINDS, TOOL_KINDS, TRAP_KINDS, ZONE_KINDS, type S
 import type { HouseTheme } from '../engine/progress'
 import { Actor, FirstPerson, teamColour, type ActorMeta } from './actors'
 import { Fx } from './fx'
-import { dot, skyStrip } from './textures'
+import { applySky, bakeEnvironment, makePost, skyMaterial, sunDirection, type Post } from './atmosphere'
+import { indoorAmbient } from './housemats'
+import { MOODS, moodFor, type Mood } from './moods'
+import { dot } from './textures'
 import { World } from './world'
 
 export interface ViewOptions {
@@ -37,7 +42,13 @@ export class LawnView {
   private container: HTMLElement
   private sun: THREE.DirectionalLight
   private hemi: THREE.HemisphereLight
-  private sky: THREE.Mesh
+  private sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>
+  private sunDir = new THREE.Vector3(0, 1, 0)
+  private env: THREE.Texture | null = null
+  private post: Post | null = null
+  /** Resolves once the post stack (medium and high quality) is ready. */
+  readonly ready: Promise<void>
+  mood: Mood = MOODS.sunny
   private actors = new Map<number, Actor>()
   private meta = new Map<number, ActorMeta>()
   private meId = 0
@@ -52,7 +63,6 @@ export class LawnView {
   private seagullMixers: THREE.AnimationMixer[] = []
   private truck: THREE.Object3D | null = null
   private mowerRide: THREE.Object3D | null = null
-  private night = false
   private snowy = false
   private time = 0
   private koTilt = 0
@@ -77,32 +87,49 @@ export class LawnView {
     this.assets = assets
     this.quality = quality
     this.fovBase = opts.fov
-    this.renderer = new THREE.WebGLRenderer({ antialias: quality.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: !!opts.preserve })
+    this.renderer = new THREE.WebGLRenderer({ antialias: quality.antialias && !quality.post, powerPreference: 'high-performance', preserveDrawingBuffer: !!opts.preserve, stencil: false })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.dpr))
     this.renderer.shadowMap.enabled = quality.shadows
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.05
+    this.renderer.toneMappingExposure = 1
     this.renderer.domElement.className = 'lawn-canvas'
     container.appendChild(this.renderer.domElement)
-    this.camera = new THREE.PerspectiveCamera(opts.fov, 1, 0.08, 400)
+    this.camera = new THREE.PerspectiveCamera(opts.fov, 1, 0.05, 400)
     this.scene.add(this.camera)
-    this.sun = new THREE.DirectionalLight('#fff2cc', 2.2)
+    this.sun = new THREE.DirectionalLight('#fff2cc', 3)
     this.sun.castShadow = quality.shadows
     this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize)
     this.sun.shadow.camera.near = 1
-    this.sun.shadow.camera.far = 140
-    this.sun.shadow.bias = -0.0008
-    this.sun.shadow.normalBias = 0.03
+    this.sun.shadow.camera.far = 220
+    this.sun.shadow.bias = -0.0004
+    this.sun.shadow.normalBias = 0.025
+    this.sun.shadow.radius = quality.shadowRadius
+    const sc = this.sun.shadow.camera
+    sc.left = sc.bottom = -quality.shadowExtent
+    sc.right = sc.top = quality.shadowExtent
+    sc.updateProjectionMatrix()
     this.scene.add(this.sun, this.sun.target)
-    this.hemi = new THREE.HemisphereLight('#e6f2ff', '#b8a98a', 1.0)
+    this.hemi = new THREE.HemisphereLight('#e6f2ff', '#b8a98a', 0.4)
     this.scene.add(this.hemi)
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 24, 12), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false }))
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), skyMaterial())
     this.sky.renderOrder = -10
+    this.sky.frustumCulled = false
     this.scene.add(this.sky)
     this.fx = new Fx(quality.particles, quality.chunks * 14, (x, z, y) => this.floorAt(x, z, y))
     this.scene.add(this.fx.group)
+    this.ready = quality.post
+      ? makePost(this.renderer, this.scene, this.camera, this.mood, { msaa: quality.msaa, ao: quality.aoSamples > 0, aoSamples: Math.max(4, quality.aoSamples) })
+          .then((post) => {
+            this.post = post
+            post.setMood(this.mood)
+            this.resize()
+          })
+          .catch(() => {
+            // No post stack: plain tone-mapped rendering.
+          })
+      : Promise.resolve()
     this.resize()
   }
 
@@ -117,46 +144,29 @@ export class LawnView {
     const w = this.container.clientWidth || window.innerWidth
     const h = this.container.clientHeight || window.innerHeight
     this.renderer.setSize(w, h, false)
+    this.post?.setSize(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
   }
 
   /* ---------- world ---------- */
 
-  setWorld(mapId: MapId, time: TimeOfDay, pieces: Piece[], houseThemes: [HouseTheme, HouseTheme], floorAt: (x: number, z: number, y: number) => number) {
+  setWorld(mapId: MapId, time: TimeOfDay, pieces: Piece[], houseThemes: [HouseTheme, HouseTheme], floorAt: (x: number, z: number, y: number) => number, mood?: Mood) {
     this.mapId = mapId
     const map = MAPS[mapId]
     const theme = map.theme[time]
-    this.night = time === 'night'
+    const m = mood ?? moodFor(mapId, time, 0)
+    this.mood = m
     this.snowy = theme.snow
     ;(this.fx as unknown as { floorAt: typeof floorAt }).floorAt = floorAt
     if (this.world) {
       this.scene.remove(this.world.group)
       this.world.dispose()
     }
-    this.world = new World(this.assets, map, theme, houseThemes, this.night, this.quality.shadows)
+    this.world = new World(this.assets, map, theme, houseThemes, m, this.quality)
     this.world.addPieces(pieces)
     this.scene.add(this.world.group)
-    // Lighting per time of day.
-    ;(this.sky.material as THREE.MeshBasicMaterial).map = skyStrip(theme.sky, theme.horizon)
-    ;(this.sky.material as THREE.MeshBasicMaterial).needsUpdate = true
-    this.scene.fog = new THREE.Fog(theme.fog, this.night ? 30 : 60, this.night ? 130 : 220)
-    this.scene.background = new THREE.Color(theme.fog)
-    this.sun.color.set(theme.sun)
-    this.sun.intensity = this.night ? 0.35 : 2.0
-    this.sun.position.set(map.w / 2 + 30, 60, map.h / 2 - 25)
-    this.sun.target.position.set(map.w / 2, 0, map.h / 2)
-    const sc = this.sun.shadow.camera
-    sc.left = -45
-    sc.right = 45
-    sc.top = 45
-    sc.bottom = -45
-    sc.updateProjectionMatrix()
-    this.hemi.intensity = this.night ? 0.35 : 1.1
-    this.hemi.color.set(this.night ? '#6a7ab8' : '#eaf4ff')
-    this.hemi.groundColor.set(this.night ? '#2a2a3a' : this.snowy ? '#dfe6ee' : '#d8ccb8')
-    void theme.ambient
-    this.renderer.toneMappingExposure = this.night ? 0.95 : 1.15
+    this.applyMood(m)
     this.setWeather(this.snowy ? 'snow' : 'none')
     for (const a of this.actors.values()) a.dispose()
     this.actors.clear()
@@ -166,6 +176,53 @@ export class LawnView {
     this.traps.clear()
     for (const z of this.zones.values()) this.scene.remove(z.obj)
     this.zones.clear()
+  }
+
+  /** Sky, image-based light, sun, fill, fog, exposure and grade for a mood. */
+  private applyMood(m: Mood) {
+    applySky(this.sky.material, m)
+    this.env?.dispose()
+    this.env = bakeEnvironment(this.renderer, m, m.snow ? '#dfe7ef' : '#6c7858')
+    this.scene.environment = this.env
+    this.scene.environmentIntensity = m.envIntensity
+    this.scene.fog = new THREE.Fog(m.fog, m.fogNear, m.fogFar)
+    this.scene.background = new THREE.Color(m.fog)
+    this.sunDir.copy(sunDirection(m))
+    this.sun.color.set(m.sunColour)
+    this.sun.intensity = m.sunIntensity
+    this.hemi.color.set(m.hemiSky)
+    this.hemi.groundColor.set(m.hemiGround)
+    this.hemi.intensity = m.hemiIntensity
+    // Without interior lamps (low quality by day) rooms take more of the sky light so they never go murky.
+    indoorAmbient.value = this.quality.lamps > 0 ? m.indoor : Math.max(m.indoor, 0.9)
+    this.renderer.toneMappingExposure = this.post ? 1 : m.exposure
+    this.post?.setMood(m)
+    this.placeSun()
+  }
+
+  /** Keep the sun's shadow box centred a little ahead of the camera, snapped to shadow texels so edges do not crawl. */
+  private placeSun() {
+    const cam = this.camera
+    const ext = this.quality.shadowExtent
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion)
+    fwd.y = 0
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1)
+    fwd.normalize()
+    const map = MAPS[this.mapId]
+    const focus = new THREE.Vector3(cam.position.x + fwd.x * ext * 0.45, 0, cam.position.z + fwd.z * ext * 0.45)
+    focus.x = Math.max(-10, Math.min(map.w + 10, focus.x))
+    focus.z = Math.max(-10, Math.min(map.h + 10, focus.z))
+    const d = this.sunDir
+    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), d).normalize()
+    const up = new THREE.Vector3().crossVectors(d, right)
+    const texel = (2 * ext) / this.quality.shadowMapSize
+    const r = Math.round(focus.dot(right) / texel) * texel
+    const u = Math.round(focus.dot(up) / texel) * texel
+    const along = focus.dot(d)
+    focus.copy(right).multiplyScalar(r).addScaledVector(up, u).addScaledVector(d, along)
+    this.sun.target.position.copy(focus)
+    this.sun.position.copy(focus).addScaledVector(d, 110)
+    this.sun.target.updateMatrixWorld()
   }
 
   setRoster(meta: Map<number, ActorMeta>, meId: number, myTeam: number) {
@@ -222,6 +279,7 @@ export class LawnView {
     const cz = this.camera.position.z
     const n = this.weatherVel.length
     const drift = this.snowy ? Math.sin(this.time * 0.5) * 0.4 : 0.2
+    const houses = MAPS[this.mapId].houses
     for (let i = 0; i < n; i++) {
       arr[i * 3 + 1] -= this.weatherVel[i] * dt
       arr[i * 3] += drift * dt
@@ -232,6 +290,16 @@ export class LawnView {
       }
       if (Math.abs(arr[i * 3] - cx) > 22) arr[i * 3] = cx + (Math.random() - 0.5) * 40
       if (Math.abs(arr[i * 3 + 2] - cz) > 22) arr[i * 3 + 2] = cz + (Math.random() - 0.5) * 40
+      // No snow or rain indoors: flakes that drift under a roof start again up in the sky.
+      if (arr[i * 3 + 1] < 9.8)
+        for (const h of houses) {
+          const lx = (arr[i * 3] - h.ox) * h.dir
+          const lz = (arr[i * 3 + 2] - h.oz) * h.dir
+          if (lx > -6.6 && lx < 10.6 && lz > -5.2 && lz < 5.2 && (lx < 6.2 || arr[i * 3 + 1] < 4.8)) {
+            arr[i * 3 + 1] = 18 + Math.random() * 4
+            break
+          }
+        }
     }
     pos.needsUpdate = true
   }
@@ -248,7 +316,7 @@ export class LawnView {
     this.syncZones(snap, dt)
     this.syncChaos(snap, dt)
     this.fx.update(dt)
-    this.fp?.update(dt, hud.moving, hud.sprinting, hud.blocking, hud.drawing)
+    this.fp?.update(dt, hud.moving, hud.sprinting, hud.blocking, hud.drawing, hud.ladder)
     if (this.fp) this.fp.group.visible = hud.alive && !this.cine && !hud.riding
     this.updateWeather(dt)
     if (this.blowerUntil > this.time) {
@@ -256,7 +324,11 @@ export class LawnView {
       for (let i = 0; i < 2; i++) this.fx.wind(this.blowerPos.x + dir.x * (1 + Math.random() * 2), this.blowerPos.y + 1 + Math.random(), this.blowerPos.z + dir.z * (1 + Math.random() * 2), dir)
     }
     this.placeCamera(hud, dt)
-    this.renderer.render(this.scene, this.camera)
+    this.placeSun()
+    this.sky.position.copy(this.camera.position)
+    this.sky.material.uniforms.uTime.value = this.time
+    if (this.post) this.post.render(dt)
+    else this.renderer.render(this.scene, this.camera)
   }
 
   private placeCamera(hud: Parameters<LawnView['render']>[3], dt: number) {
@@ -847,6 +919,8 @@ export class LawnView {
     this.fp?.dispose()
     this.fx.dispose()
     this.world?.dispose()
+    this.post?.dispose()
+    this.env?.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }

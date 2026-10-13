@@ -1,14 +1,22 @@
-// The street and the houses: textured ground, road and sidewalks, then one mesh per sim piece. Plain wall panels
-// are boxes with tiling siding outside and wallpaper inside (world-space UVs, so boards line up across panels) plus
-// a brick plinth and corner boards; windows, doors, the garage door, the balcony, the stairs, the gable roof and
-// the front portico are the generated house-kit models fitted to their panels and tinted per house theme. Pieces
-// are keyed by id so chips (crack overlays), barricades, moves and breaks update in place.
+// The street and the houses: textured ground, road and sidewalks, the unbreakable house shell (roof, trims,
+// gables, ceilings, lamps; see shell.ts) and one mesh group per sim piece. Wall panels are lap siding or brick
+// outside and wallpaper inside (world-space UVs, so boards and courses line up across panels); windows are cased,
+// silled and shuttered double-hung sashes; doors, the garage door and the stairs are the generated kit models;
+// the porch, its posts, the balcony railings and the chimney are built to size. Each piece merges into a few
+// meshes (one per material) and is keyed by id so chips, barricades, moves and breaks update in place.
 import * as THREE from 'three'
 import { instance, type LawnAssets } from '../engine/assets'
+import { FLOOR_H, GARAGE, HEAD_H, HX, PORCH, ROOMS, SILL_H, STAIR, houseStyle, roomAt, type HouseStyle } from '../engine/houses'
 import { HOUSE_THEMES, type HouseTheme } from '../engine/progress'
 import type { MapInfo, MapTheme } from '../engine/maps'
 import type { Piece } from '../engine/pieces'
-import { cracks, neon, planks, rug } from './textures'
+import type { Quality } from '../engine/quality'
+import { Kit, worldUV, type FaceMats } from './kit'
+import { M, cached, indoorModel, paint } from './housemats'
+import type { Mood } from './moods'
+import { buildShell } from './shell'
+import { art, cracks, neon, planks, rug, stripes } from './textures'
+import { trimSurface } from './surfaces'
 
 interface PieceView {
   piece: Piece
@@ -23,23 +31,18 @@ interface PieceView {
 
 type Theme = (typeof HOUSE_THEMES)[HouseTheme]
 
-const mats = new Map<string, THREE.Material>()
-function mat(key: string, make: () => THREE.Material) {
-  let m = mats.get(key)
-  if (!m) mats.set(key, (m = make()))
-  return m
-}
-const std = (key: string, opts: THREE.MeshStandardMaterialParameters) => mat(key, () => new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, ...opts })) as THREE.MeshStandardMaterial
+const std = (key: string, opts: THREE.MeshStandardMaterialParameters) => cached(key, () => new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, ...opts }))
 
 /* ---------- tiling textures (UVs are in metres; each texture repeats every `tile` metres) ---------- */
 
-const TILE: Record<string, number> = { siding: 1.6, brick: 1.4, shingles: 2.2, oak: 2.2, wallpaper: 1.2, tiles: 2.4, grass: 5, asphalt: 7, sidewalk: 2, snow: 6 }
+const TILE: Record<string, number> = { oak: 2.2, wallpaper: 1.2, tiles: 2.4, grass: 5, asphalt: 7, sidewalk: 2, snow: 6 }
 const texBase = `${import.meta.env.BASE_URL}lawn/textures/`
 const texCache = new Map<string, THREE.Texture>()
 const texPending = new Set<Promise<unknown>>()
 let texLoader: THREE.TextureLoader | null = null
-function tiled(name: keyof typeof TILE | string) {
-  let t = texCache.get(name)
+function tiled(name: string, srgb = true) {
+  const key = `${name}-${srgb}`
+  let t = texCache.get(key)
   if (!t) {
     texLoader ??= new THREE.TextureLoader()
     let done: (v?: unknown) => void = () => {}
@@ -48,11 +51,11 @@ function tiled(name: keyof typeof TILE | string) {
     p.then(() => texPending.delete(p))
     t = texLoader.load(`${texBase}${name}.webp`, done, undefined, done)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
-    t.colorSpace = THREE.SRGBColorSpace
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
     t.anisotropy = 8
     const k = 1 / (TILE[name] ?? 2)
     t.repeat.set(k, k)
-    texCache.set(name, t)
+    texCache.set(key, t)
   }
   return t
 }
@@ -61,51 +64,26 @@ export function texturesSettled(): Promise<void> {
   return Promise.all(Array.from(texPending)).then(() => undefined)
 }
 
-const surf = (name: string, tint = '#ffffff', extra: THREE.MeshStandardMaterialParameters = {}) => std(`tex-${name}-${tint}`, { map: tiled(name), color: tint, roughness: 0.92, ...extra })
-
-/** World-space planar UVs (metres) for an axis-aligned mesh placed at `at`. */
-function worldUV(geo: THREE.BufferGeometry, at: THREE.Vector3) {
-  const pos = geo.attributes.position
-  const nor = geo.attributes.normal
-  const uv = new Float32Array(pos.count * 2)
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i) + at.x
-    const y = pos.getY(i) + at.y
-    const z = pos.getZ(i) + at.z
-    const nx = Math.abs(nor.getX(i))
-    const ny = Math.abs(nor.getY(i))
-    if (ny > 0.5) {
-      uv[i * 2] = x
-      uv[i * 2 + 1] = z
-    } else if (nx > 0.5) {
-      uv[i * 2] = z
-      uv[i * 2 + 1] = y
-    } else {
-      uv[i * 2] = x
-      uv[i * 2 + 1] = y
+/** A tiling ground or interior surface, bump-mapped from its own luminance. */
+const surf = (name: string, tint = '#ffffff', extra: THREE.MeshStandardMaterialParameters = {}, bump = 0) =>
+  std(`tex-${name}-${tint}-${bump}`, { map: tiled(name), color: paint(tint, 0.95), roughness: 0.92, ...(bump ? { bumpMap: tiled(name, false), bumpScale: bump } : {}), ...extra })
+/** Ground cover with a second, much larger sample of its texture multiplied in, so the tiling never reads. */
+const ground = (name: string, tint: string, rough: number, bump: number, contrast: number) =>
+  cached(`ground-${name}-${tint}`, () => {
+    const m = new THREE.MeshStandardMaterial({ map: tiled(name), color: paint(tint, 0.95), roughness: rough, bumpMap: tiled(name, false), bumpScale: bump })
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        vec3 macroA = texture2D(map, vMapUv * 0.113 + vec2(0.31, 0.17)).rgb;
+        vec3 macroB = texture2D(map, vMapUv * 0.031 + vec2(0.63, 0.41)).rgb;
+        float macroL = dot(macroA, vec3(0.33)) * 0.5 + dot(macroB, vec3(0.33)) * 0.5;
+        diffuseColor.rgb *= 1.0 + (macroL - 0.45) * ${contrast.toFixed(2)};`,
+      )
     }
-  }
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  return geo
-}
-
-/** Copy of a (possibly quantised) mesh geometry with its transform relative to `root` baked in, as plain floats. */
-function bakedGeometry(mesh: THREE.Mesh, root: THREE.Object3D) {
-  root.updateMatrixWorld(true)
-  const m = new THREE.Matrix4().copy(root.matrixWorld).invert().multiply(mesh.matrixWorld)
-  const src = mesh.geometry
-  const g = new THREE.BufferGeometry()
-  for (const name of ['position', 'normal', 'uv']) {
-    const a = src.attributes[name] as THREE.BufferAttribute | undefined
-    if (!a) continue
-    const out = new Float32Array(a.count * a.itemSize)
-    for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) out[i * a.itemSize + k] = a.getComponent(i, k)
-    g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize))
-  }
-  if (src.index) g.setIndex(Array.from(src.index.array as ArrayLike<number>))
-  g.applyMatrix4(m)
-  return g
-}
+    m.customProgramCacheKey = () => `ground-${contrast}`
+    return m
+  })
 
 export class World {
   readonly group = new THREE.Group()
@@ -114,21 +92,27 @@ export class World {
   private map: MapInfo
   private theme: MapTheme
   private houseThemes: [HouseTheme, HouseTheme]
+  private mood: Mood
+  private quality: Quality
   private night: boolean
-  private windowMats: THREE.MeshStandardMaterial[] = []
   private box = new THREE.BoxGeometry(1, 1, 1)
   readonly lights: THREE.PointLight[] = []
+  /** Each house's roof group (the roof, gables, upper trims and ceilings), for the lobby's cutaway. */
+  readonly roofs: THREE.Object3D[] = []
   shadows: boolean
 
-  /** `street: false` builds only the pieces (the lobby's house preview brings its own small lawn). */
-  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], night: boolean, shadows: boolean, street = true) {
+  /** `street: false` builds only the houses (the lobby's house preview brings its own small lawn). */
+  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], mood: Mood, quality: Quality, street = true) {
     this.assets = assets
     this.map = map
     this.theme = theme
     this.houseThemes = houseThemes
-    this.night = night
-    this.shadows = shadows
+    this.mood = mood
+    this.quality = quality
+    this.night = mood.night
+    this.shadows = quality.shadows
     if (street) this.buildGround()
+    this.buildShells()
   }
 
   /* ---------- ground ---------- */
@@ -148,50 +132,43 @@ export class World {
   private buildGround() {
     const { w, h } = this.map
     const snowy = this.theme.snow
-    const nightTint = this.night ? '#aab4c8' : '#ffffff'
-    this.flat(w + 80, h + 80, w / 2, 0, h / 2, snowy ? surf('snow', this.night ? '#c4cee0' : '#ffffff', { roughness: 1 }) : surf('grass', this.night ? '#8fa0b4' : '#f2fff0', { roughness: 1 }))
+    this.flat(w + 80, h + 80, w / 2, 0, h / 2, snowy ? ground('snow', '#f1f5fa', 0.95, 1.5, 0.6) : ground('grass', '#dcebc8', 0.97, 2, 1.4))
     const road = this.map.road
-    const roadMat = surf('asphalt', snowy ? (this.night ? '#8a93a3' : '#c3c8cf') : nightTint, { roughness: 0.95 })
+    const roadMat = ground('asphalt', snowy ? '#c9ced6' : '#e8e8ea', 0.86, 0.6, 0.8)
     this.flat(w + 40, road.z1 - road.z0, w / 2, 0.012, (road.z0 + road.z1) / 2, roadMat)
     // Cul-de-sac turnaround at the east end.
     this.flat(0, 0, w - 6, 0.011, (road.z0 + road.z1) / 2, roadMat, 9)
     // Centre line.
     if (!snowy) {
       for (let x = 2; x < w - 8; x += 4) {
-        const dash = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.18), std('line', { color: '#f2e4a0', roughness: 1 }))
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.18), std('line', { color: paint('#f2e4a0', 0.8), roughness: 0.8 }))
         dash.rotation.x = -Math.PI / 2
         dash.position.set(x, 0.02, (road.z0 + road.z1) / 2)
+        dash.receiveShadow = true
         this.group.add(dash)
       }
     }
     // Sidewalks with kerbs, the front paths and the driveways.
-    const walkMat = surf('sidewalk', snowy ? '#e8eef4' : nightTint, { roughness: 1 })
+    const walkMat = surf('sidewalk', snowy ? '#e8eef4' : '#f2efe8', { roughness: 0.95 }, 1)
     for (const z of [road.z0 - 1, road.z1 + 1]) {
       this.flat(w + 40, 2, w / 2, 0.015, z, walkMat)
-      const kerb = new THREE.Mesh(this.box, std('kerb', { color: snowy ? '#dfe5ea' : '#b9b5ad', roughness: 0.9 }))
+      const kerb = new THREE.Mesh(this.box, std('kerb', { color: paint(snowy ? '#dfe5ea' : '#c4c0b8', 0.75), roughness: 0.9 }))
       kerb.scale.set(w + 40, 0.1, 0.16)
       kerb.position.set(w / 2, 0.05, z + (z < road.z0 ? 1 : -1))
       kerb.receiveShadow = true
+      kerb.castShadow = this.shadows
       this.group.add(kerb)
     }
     for (const hs of this.map.houses) {
-      const z0 = hs.oz + hs.dir * 4.5
+      // Front path from the porch steps to the sidewalk, on the door's axis.
+      const z0 = hs.oz + hs.dir * (PORCH.z1 + 0.42)
       const z1 = hs.dir > 0 ? road.z0 - 2 : road.z1 + 2
-      this.flat(1.4, Math.abs(z1 - z0), hs.ox + hs.dir * 0.75, 0.016, (z0 + z1) / 2, walkMat)
+      this.flat(1.4, Math.abs(z1 - z0), hs.ox, 0.016, (z0 + z1) / 2, walkMat)
       // Driveway to the garage.
-      const gx = hs.ox + hs.dir * 8
-      const gz0 = hs.oz + hs.dir * 1.5
-      this.flat(3.4, Math.abs(z1 - gz0), gx, 0.014, (gz0 + z1) / 2, surf('sidewalk', snowy ? '#d9e0e8' : this.night ? '#9aa2b0' : '#e6e0d6', { roughness: 1 }))
+      const gx = hs.ox + hs.dir * 9.75
+      const gz0 = hs.oz + hs.dir * GARAGE.z1
+      this.flat(3.4, Math.abs(z1 - gz0), gx, 0.014, (gz0 + z1) / 2, surf('sidewalk', snowy ? '#d9e0e8' : '#e3ddd2', { roughness: 0.95 }, 1))
     }
-    // Warm interior lights so rooms read even in the sun's shadow (and glow at night).
-    if (this.shadows || this.night)
-      for (const hs of this.map.houses)
-        for (const [lx, lz, ly] of [[-3, 0, 2.6], [4, 0, 2.6], [8, -1.5, 2.6], [-3, 0, 5.8], [4, 0, 5.8]]) {
-          const l = new THREE.PointLight(this.night ? '#ffd9a0' : '#fff4e0', this.night ? 14 : 9, 9, 1.4)
-          l.position.set(hs.ox + hs.dir * lx, ly, hs.oz + hs.dir * lz)
-          this.group.add(l)
-          this.lights.push(l)
-        }
     // Street lamps and distant neighbour houses for depth.
     for (const x of [6, 34, 62]) this.addStreetLamp(x, road.z0 - 1.6)
     const neighbour = instance(this.assets, 'house-small')
@@ -211,6 +188,20 @@ export class World {
     }
   }
 
+  /** The unbreakable parts of each house: roof, trims, ceilings and lamps. */
+  private buildShells() {
+    this.map.houses.forEach((hs, i) => {
+      const id = this.houseThemes[i]
+      const theme = HOUSE_THEMES[id] ?? HOUSE_THEMES.lemon
+      const night = this.mood.night
+      const lamps = this.quality.lamps > 0 ? this.quality.lamps : night ? 2 : 0
+      const shell = buildShell({ style: houseStyle(id), theme, snow: this.theme.snow, shadows: this.shadows, ox: hs.ox, oz: hs.oz, dir: hs.dir, lamps, lampScale: this.mood.lamps, outdoorLamps: this.mood.street })
+      this.group.add(shell.group)
+      this.roofs.push(shell.roof)
+      this.lights.push(...shell.lights)
+    })
+  }
+
   /** Dust a model's upward faces with snow (lodge street). */
   private snowCap(obj: THREE.Object3D) {
     obj.traverse((o) => {
@@ -220,7 +211,7 @@ export class World {
       const c = src.clone()
       c.onBeforeCompile = (sh) => {
         sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vUpN;').replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvUpN = normalize(mat3(modelMatrix) * objectNormal).y;')
-        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vUpN;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 1.0), smoothstep(0.35, 0.7, vUpN));')
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vUpN;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.83, 0.87), smoothstep(0.35, 0.7, vUpN));')
       }
       c.customProgramCacheKey = () => 'snowcap'
       m.material = c
@@ -229,18 +220,28 @@ export class World {
 
   private addStreetLamp(x: number, z: number) {
     const g = new THREE.Group()
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 5, 8), std('lamp-pole', { color: '#3a3f4a', roughness: 0.6 }))
+    const iron = M.metal('#2f343c')
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 5, 10), iron)
     pole.position.y = 2.5
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.08), std('lamp-pole', { color: '#3a3f4a' }))
-    arm.position.set(0.5, 5, 0)
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.3), std('lamp-head', { color: '#f8f1d0', emissive: '#ffe9a8', emissiveIntensity: this.night ? 1.2 : 0 }))
-    head.position.set(1.0, 4.95, 0)
-    g.add(pole, arm, head)
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.5, 10), iron)
+    base.position.y = 0.25
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.07, 0.07), iron)
+    arm.position.set(0.5, 4.95, 0)
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.3, 0.22, 12), iron)
+    head.position.set(1.0, 4.88, 0)
+    const lit = this.mood.street
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.04, 12), lit ? M.bulb('#ffd796', 4) : std('lamp-lens', { color: '#f2ecd6', roughness: 0.3 }))
+    lens.position.set(1.0, 4.76, 0)
+    for (const m of [pole, base, arm, head]) {
+      m.castShadow = this.shadows
+      m.receiveShadow = true
+    }
+    g.add(pole, base, arm, head, lens)
     g.position.set(x, 0, z)
     this.group.add(g)
-    if (this.night) {
-      const l = new THREE.PointLight('#ffe2a0', 18, 16, 1.6)
-      l.position.set(1.0, 4.7, 0)
+    if (lit) {
+      const l = new THREE.PointLight('#ffd08a', 40, 18, 1.8)
+      l.position.set(1.0, 4.55, 0)
       g.add(l)
       this.lights.push(l)
     }
@@ -254,11 +255,12 @@ export class World {
 
   addPiece(p: Piece) {
     if (this.views.has(p.id) || !p.alive) return
-    const theme = HOUSE_THEMES[(p.house >= 0 ? this.houseThemes[p.house] : 'lemon') as HouseTheme] ?? HOUSE_THEMES.lemon
+    const themeId = (p.house >= 0 ? this.houseThemes[p.house] : 'lemon') as HouseTheme
+    const theme = HOUSE_THEMES[themeId] ?? HOUSE_THEMES.lemon
     const group = new THREE.Group()
     group.position.set(p.x, p.y, p.z)
     const view: PieceView = { piece: p, group, cracks: [], planks: null, colour: theme.siding }
-    const built = this.build(p, theme, view)
+    const built = this.build(p, theme, houseStyle(themeId), view)
     if (built) group.add(built)
     this.group.add(group)
     this.views.set(p.id, view)
@@ -271,27 +273,80 @@ export class World {
   private lodge(theme: Theme) {
     return theme.name.includes('lodge')
   }
-  private sidingMat(theme: Theme) {
-    return surf('siding', theme.siding, { roughness: 0.9 })
+  /** Which room of a house a world point is in (the shared floor plan in houses.ts). */
+  private roomAt(house: number, wx: number, wz: number, upper: boolean) {
+    const hs = this.map.houses[house]
+    if (!hs) return 'hall'
+    return roomAt((wx - hs.ox) * hs.dir, (wz - hs.oz) * hs.dir, upper)
   }
-  private paperMat(house: number) {
-    return surf('wallpaper', house === 0 ? '#fff8ee' : '#e6f0ff', { roughness: 0.95 })
+  /** Wall finish per room: patterned papers in the living room and bedrooms, painted walls elsewhere. */
+  private roomMat(room: string, house: number) {
+    const paintM = (hex: string) => M.paper(hex, trimSurface().map)
+    const alt = house === 1
+    switch (room) {
+      case 'living':
+        return M.paper(alt ? '#f1f4ff' : '#fff3e0', tiled('wallpaper'))
+      case 'dining':
+        return paintM(alt ? '#d7c3a3' : '#b9c9a4')
+      case 'kitchen':
+        return paintM(alt ? '#cfe3ef' : '#f3e2a6')
+      case 'wc':
+        return paintM('#bfe3d6')
+      case 'master':
+        return M.paper(alt ? '#dfe9f6' : '#f6ddd8', alt ? stripes('#dfe9f6', '#c8d8ee') : stripes('#f7e3dc', '#efc9c1'))
+      case 'bed2':
+        return paintM(alt ? '#f3d9a8' : '#b9d6ef')
+      case 'bed3':
+        return paintM(alt ? '#d8cbe8' : '#cfe6c4')
+      case 'bath':
+        return paintM('#a9d8de')
+      case 'study':
+        return paintM(alt ? '#a9b98f' : '#9fb3c9')
+      case 'garage':
+        return paintM('#c1bdb5')
+      default:
+        return paintM(alt ? '#e9e2d6' : '#efe4d0')
+    }
   }
-  private trimMat(theme: Theme) {
-    return std(`trim-${theme.trim}`, { color: theme.trim, roughness: 0.7 })
+  /** The wall finish on the side of a wall piece facing direction `yaw` (kit +z) times `sign`. */
+  private paperOn(p: Piece, yaw: number, sign: number) {
+    const wx = p.x + Math.sin(yaw) * sign * 0.45
+    const wz = p.z + Math.cos(yaw) * sign * 0.45
+    return this.roomMat(this.roomAt(p.house, wx, wz, p.y > FLOOR_H - 0.3), p.house)
   }
-  private roofMat(theme: Theme) {
-    return this.lodge(theme) ? surf('snow', '#ffffff', { roughness: 1 }) : surf('shingles', theme.roof, { roughness: 0.95 })
+  /** A framed picture on a wall face (kit space; the face is the plane z = `face`, facing `sign`). */
+  private hangArt(k: Kit, p: Piece, len: number, face: number, sign: number) {
+    const h = Math.abs(Math.sin(p.x * 12.9898 + p.z * 78.233 + p.y * 3.1)) * 43758.5453
+    const r = h - Math.floor(h)
+    if (r > 0.55 || len < 0.9 || p.h < 2.5) return
+    const room = this.roomAt(p.house, p.x, p.z, p.y > FLOOR_H - 0.3)
+    if (room === 'garage') return
+    const w = r < 0.25 ? 0.55 : 0.42
+    const ht = r < 0.25 ? 0.42 : 0.55
+    const x = (r - 0.27) * 0.6
+    const z0 = face
+    const z1 = face + sign * 0.035
+    const frame = std(r < 0.3 ? 'frame-gold' : 'frame-dark', { color: paint(r < 0.3 ? '#c9a24a' : '#3a2a20', 0.7), roughness: 0.45, metalness: r < 0.3 ? 0.5 : 0 })
+    k.box(x - w / 2 - 0.04, x + w / 2 + 0.04, 1.5 - ht / 2 - 0.04, 1.5 + ht / 2 + 0.04, Math.min(z0, z1), Math.max(z0, z1), frame)
+    const canvas = new THREE.PlaneGeometry(w, ht)
+    if (sign < 0) canvas.rotateY(Math.PI)
+    canvas.translate(x, 1.5, face + sign * 0.038)
+    k.geo(canvas, std(`art-${Math.floor(r * 100) % 6}`, { map: art(Math.floor(r * 100)), roughness: 0.6 }), true)
+  }
+  /** The outside face of a wall piece: brick on the ground storey of brick houses, painted siding elsewhere. */
+  private extMat(p: Piece, theme: Theme, style: HouseStyle) {
+    if (style.brick && p.y < FLOOR_H - 0.5) return M.brick(this.lodge(theme) ? '#d9cfc2' : '#ffffff')
+    return M.siding(theme.siding)
   }
   private floorMat() {
-    return surf('oak', '#ffffff', { roughness: 0.7 })
+    return M.floor(tiled('oak'), '#ffffff', 0.5)
   }
   /** A tinted copy of a kit material, cached per tint. */
-  private kitMat(src: THREE.MeshStandardMaterial, tint: string, extra?: (m: THREE.MeshStandardMaterial) => void) {
-    return mat(`kit-${src.uuid}-${tint}-${extra ? 'x' : ''}`, () => {
+  private kitMat(src: THREE.MeshStandardMaterial, tint: string) {
+    return cached(`kit-${src.uuid}-${tint}`, () => {
       const m = src.clone()
-      m.color.set(tint)
-      extra?.(m)
+      m.color.copy(paint(tint, 0.78))
+      m.roughness = 0.5
       return m
     }) as THREE.MeshStandardMaterial
   }
@@ -303,8 +358,8 @@ export class World {
     if (!hs) return 1
     // The garage block sits beside the house: measure from the centre of whichever block the piece belongs to.
     const lx = (p.x - hs.ox) * hs.dir
-    const cx = lx > 6.05 ? hs.ox + hs.dir * 8 : hs.ox
-    const cz = lx > 6.05 ? hs.oz - hs.dir * 1.5 : hs.oz
+    const cx = lx > HX + 0.05 ? hs.ox + hs.dir * 9.75 : hs.ox
+    const cz = lx > HX + 0.05 ? hs.oz - hs.dir * 2 : hs.oz
     return along ? (p.z >= cz ? 1 : -1) : p.x >= cx ? 1 : -1
   }
 
@@ -314,12 +369,14 @@ export class World {
     const o = this.outward(p)
     return along ? (o > 0 ? 0 : Math.PI) : o > 0 ? Math.PI / 2 : -Math.PI / 2
   }
+  /** Yaw of the household's local frame (front = +z). */
+  private houseYaw(p: Piece) {
+    const hs = this.map.houses[p.house]
+    return hs && hs.dir < 0 ? Math.PI : 0
+  }
 
-  /**
-   * A kit model with only the named parts kept, each tinted. Returns a group in the kit's own metre space
-   * (x across the opening, y up from the floor, +z outside).
-   */
-  private kit(name: string, parts: Record<string, string | null>, night?: boolean) {
+  /** A kit model with only the named parts kept, each tinted. */
+  private kit(name: string, parts: Record<string, string | null>) {
     const obj = instance(this.assets, name)
     if (!obj) return null
     obj.traverse((o) => {
@@ -333,65 +390,28 @@ export class World {
         return
       }
       const tint = parts[key]
-      if (tint) m.material = this.kitMat(src, tint, night ? (mm) => {
-        mm.emissive = new THREE.Color('#ffd27a')
-        mm.emissiveIntensity = 0.75
-      } : undefined)
+      if (tint) m.material = this.kitMat(src, tint)
       m.castShadow = this.shadows
       m.receiveShadow = true
     })
     return obj
   }
 
-  /** A box in a kit group's space (x0..x1, y0..y1, z0..z1). */
-  private kbox(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, material: THREE.Material | THREE.Material[]) {
-    const mesh = new THREE.Mesh(this.box, material)
-    mesh.scale.set(Math.max(0.001, x1 - x0), Math.max(0.001, y1 - y0), Math.max(0.001, z1 - z0))
-    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
-    mesh.castShadow = this.shadows
-    mesh.receiveShadow = true
-    return mesh
-  }
-
-  /** Wallpaper backing and trim jambs around an opening (kit space; the wall is z -0.15..0.15). */
-  private openingLining(g: THREE.Group, half: number, hx: number, hy0: number, hy1: number, top: number, theme: Theme, house: number, yOff: number) {
-    const paper = this.paperMat(house)
-    const trim = this.trimMat(theme)
-    const z0 = -0.15
-    const z1 = 0.0
-    if (hy0 > 0.01) g.add(this.kbox(-half, half, yOff, yOff + hy0, z0, z1, paper))
-    if (top > hy1 + 0.01) g.add(this.kbox(-half, half, yOff + hy1, yOff + top, z0, z1, paper))
-    if (half > hx + 0.01) {
-      g.add(this.kbox(-half, -hx, yOff + hy0, yOff + hy1, z0, z1, paper))
-      g.add(this.kbox(hx, half, yOff + hy0, yOff + hy1, z0, z1, paper))
-    }
-    // Jambs lining the hole through the wall's depth.
-    const t = 0.05
-    g.add(this.kbox(-hx - t, -hx, yOff + hy0, yOff + hy1, -0.16, 0.16, trim))
-    g.add(this.kbox(hx, hx + t, yOff + hy0, yOff + hy1, -0.16, 0.16, trim))
-    g.add(this.kbox(-hx - t, hx + t, yOff + hy1, yOff + hy1 + t, -0.16, 0.16, trim))
-    if (hy0 > 0.01) g.add(this.kbox(-hx - t, hx + t, yOff + hy0 - t, yOff + hy0, -0.16, 0.18, trim))
-  }
-
-  private build(p: Piece, theme: Theme, view: PieceView): THREE.Object3D | null {
+  private build(p: Piece, theme: Theme, style: HouseStyle, view: PieceView): THREE.Object3D | null {
     const m = p.model
     const lodge = this.lodge(theme)
-    const trimMat = this.trimMat(theme)
-    const sidingMat = this.sidingMat(theme)
+    const trim = M.trim(theme.trim)
+    const itrim = M.indoorTrim('#f4efe6')
+    const along = p.w >= p.d
+    const len = along ? p.w : p.d
+    const hw = len / 2
+    const origin = new THREE.Vector3(p.x, p.y, p.z)
+    /** A kit turned so +z faces out of this wall. */
+    const wallKit = () => Kit.at(this.kitYaw(p), origin, this.shadows)
     const box = (w: number, h: number, d: number, material: THREE.Material | THREE.Material[], y = h / 2) => {
       const mesh = new THREE.Mesh(this.box, material)
       mesh.scale.set(w, h, d)
       mesh.position.y = y
-      mesh.castShadow = this.shadows
-      mesh.receiveShadow = true
-      return mesh
-    }
-    /** A box with world-space UVs (for tiling textures), bottom at y=0 of the piece. */
-    const tbox = (w: number, h: number, d: number, material: THREE.Material | THREE.Material[], x = 0, y = h / 2, z = 0) => {
-      const geo = new THREE.BoxGeometry(w, h, d)
-      worldUV(geo, new THREE.Vector3(p.x + x, p.y + y, p.z + z))
-      const mesh = new THREE.Mesh(geo, material)
-      mesh.position.set(x, y, z)
       mesh.castShadow = this.shadows
       mesh.receiveShadow = true
       return mesh
@@ -407,263 +427,236 @@ export class World {
       obj.rotation.y = yaw
       return obj
     }
-    const along = p.w >= p.d
-    const len = along ? p.w : p.d
-    /** A group turned so a kit part's +Z faces out of this wall. */
-    const kitGroup = () => {
-      const g = new THREE.Group()
-      g.rotation.y = this.kitYaw(p)
-      return g
-    }
+    const ext = () => this.extMat(p, theme, style)
+    const inner = () => this.paperOn(p, this.kitYaw(p), -1)
+    /** Wall faces: ends in the outside finish (no seams between panels), top/bottom in trim, siding or brick outside, the room's finish inside. */
+    const wallFaces = (): FaceMats => [ext(), ext(), trim, trim, ext(), inner()]
     switch (true) {
       case m === 'wall': {
-        // Exterior panel: siding outside, wallpaper inside, trim on the cut edges; a brick plinth and corner boards.
-        const materials: THREE.Material[] = [sidingMat, sidingMat, trimMat, trimMat, sidingMat, sidingMat]
-        const o = this.outward(p)
-        if (along) materials[o > 0 ? 5 : 4] = this.paperMat(p.house)
-        else materials[o > 0 ? 1 : 0] = this.paperMat(p.house)
-        const g = new THREE.Group()
-        g.add(tbox(p.w, p.h, p.d, materials))
-        const k = kitGroup()
-        if (p.y < 0.5) k.add(this.kbox(-len / 2, len / 2, 0, 0.42, 0.13, 0.19, surf('brick', lodge ? '#c9c2b8' : '#ffffff')))
-        else k.add(this.kbox(-len / 2, len / 2, -0.05, 0.12, 0.13, 0.19, trimMat))
-        // Corner boards where this panel ends on a corner of the house or the garage.
-        const hs = this.map.houses[p.house]
-        if (hs) {
-          const corners = [[-6, -4.5], [6, -4.5], [-6, 4.5], [6, 4.5], [10, -4.5], [10, 1.5]].map(([x, z]) => [hs.ox + x * hs.dir, hs.oz + z * hs.dir])
-          for (const s of [-1, 1]) {
-            const ex = along ? p.x + (s * p.w) / 2 : p.x
-            const ez = along ? p.z : p.z + (s * p.d) / 2
-            if (corners.some(([cx, cz]) => Math.hypot(cx - ex, cz - ez) < 0.4)) {
-              // In kit space the end at +-len/2 maps to s depending on the yaw; place a post at both candidate ends only if matched.
-              const sx = along ? (o > 0 ? s : -s) : o > 0 ? -s : s
-              k.add(this.kbox(sx * len / 2 - 0.08, sx * len / 2 + 0.08, 0, p.h, 0.1, 0.22, trimMat))
-            }
-          }
-        }
-        g.add(k)
-        view.colour = theme.siding
-        return g
+        const k = wallKit()
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, wallFaces())
+        k.box(-hw, hw, 0, 0.12, -0.17, -0.15, M.skirting())
+        this.hangArt(k, p, len, -0.15, -1)
+        view.colour = style.brick && p.y < 1 ? '#b5523b' : theme.siding
+        return k.build()
       }
       case m === 'sill': {
-        // The window wall: the kit frame (siding, trim, shutters) over the whole opening, wallpaper inside.
-        const g = kitGroup()
-        const sx = len / 2
-        const frame = this.kit('kit-window', { siding: theme.siding, trim: theme.trim, shutters: theme.door })
-        if (frame) {
-          frame.scale.set(sx, 1, 1)
-          g.add(frame)
-        } else g.add(this.kbox(-sx, sx, 0, p.h, -0.15, 0.15, sidingMat))
-        this.openingLining(g, sx, 0.72 * sx, 0.95, 2.15, 3.0, theme, p.house, 0)
-        view.colour = theme.siding
-        return g
+        // The wall under a window, with the exterior sill, apron, casings, shutters and the interior stool.
+        const k = wallKit()
+        k.box(-hw, hw, 0, SILL_H, -0.15, 0.15, wallFaces())
+        k.box(-hw, hw, 0, 0.12, -0.17, -0.15, M.skirting())
+        this.windowSurround(k, len, theme, style, p.y < 1)
+        view.colour = style.brick && p.y < 1 ? '#b5523b' : theme.siding
+        return k.build()
       }
-      case m === 'header:window':
-        return null
+      case m === 'header:window': {
+        const k = wallKit()
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, wallFaces())
+        view.colour = theme.siding
+        return k.build()
+      }
       case m === 'window': {
-        // The glass sash: breaks away and leaves the hole in the kit frame.
-        const g = kitGroup()
-        const glass = this.kit('kit-window', { glass: '#ffffff' }, this.night)
-        if (glass) {
-          glass.scale.set(len / 2, 1, 1)
-          glass.position.y = -0.9
-          g.add(glass)
-          glass.traverse((o) => {
-            const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined
-            if (mm && (o as THREE.Mesh).visible && !this.windowMats.includes(mm)) this.windowMats.push(mm)
-          })
-        } else {
-          const glassMat = std(`glass-${this.night}`, { color: this.night ? '#ffe7a8' : '#9fd8ff', transparent: true, opacity: 0.5, roughness: 0.2, emissive: this.night ? '#ffd27a' : '#000000', emissiveIntensity: this.night ? 0.9 : 0 })
-          g.add(this.kbox(-0.72 * (len / 2), 0.72 * (len / 2), 0.05, 1.25, -0.03, 0.03, glassMat))
-        }
+        // The glass sashes: they break away and leave the cased opening.
+        const k = wallKit()
+        this.sashes(k, len, p.h, theme)
         view.colour = '#c8f2ff'
-        return g
+        return k.build()
       }
       case m === 'door': {
-        const g = kitGroup()
+        const k = wallKit()
         const leaf = this.kit('kit-door', { leaf: theme.door })
         if (leaf) {
-          leaf.scale.set(len, 1, 1)
-          g.add(leaf)
-        } else g.add(this.kbox(-len / 2 + 0.03, len / 2 - 0.03, 0, p.h - 0.03, -0.05, 0.05, std(`door-${theme.door}`, { color: theme.door, roughness: 0.7 })))
-        if (p.flap) g.add(this.kbox(-0.22, 0.22, 0.04, 0.42, -0.19, 0.19, std('flap', { color: '#2a2a2a' })))
-        // Porch light beside the door at night.
-        if (this.night && !p.inside) {
-          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), std('porch', { color: '#fff1c0', emissive: '#ffd27a', emissiveIntensity: 1.5 }))
-          lamp.position.set(0.75 * len, p.h + 0.1, 0.3)
-          g.add(lamp)
-          const l = new THREE.PointLight('#ffd9a0', 10, 9, 1.5)
-          l.position.copy(lamp.position)
-          g.add(l)
-          this.lights.push(l)
-        }
+          leaf.scale.set(len, (HEAD_H - 0.02) / 2.08, 1)
+          k.add(leaf)
+        } else k.box(-hw + 0.03, hw - 0.03, 0, p.h - 0.03, -0.05, 0.05, M.accent(theme.door))
+        if (p.flap) k.box(-0.22, 0.22, 0.04, 0.42, -0.19, 0.19, std('flap', { color: '#2a2a2a', roughness: 0.6 }))
         view.colour = theme.door
-        return g
+        return k.build()
       }
       case m === 'header:door' || m === 'header:frontdoor': {
-        const g = kitGroup()
-        const frame = this.kit('kit-door', { siding: theme.siding, trim: theme.trim })
-        if (frame) {
-          frame.scale.set(len, 1, 1)
-          frame.position.y = -2.1
-          g.add(frame)
-        } else g.add(this.kbox(-len / 2, len / 2, 0, p.h, -0.15, 0.15, sidingMat))
-        this.openingLining(g, len / 2, 0.47 * len, 0, 2.1, 3.0, theme, p.house, -2.1)
-        if (m === 'header:frontdoor') {
-          const porch = this.kit('kit-porch', { posts: theme.trim, roof: lodge ? '#ffffff' : theme.roof })
-          if (porch) {
-            porch.position.set(0, -2.1, 0.17 + 0.8)
-            g.add(porch)
-          }
-        }
+        const k = wallKit()
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, wallFaces())
+        this.doorSurround(k, len, -HEAD_H, theme, m === 'header:frontdoor')
         view.colour = theme.siding
-        return g
+        return k.build()
       }
       case m === 'garagedoor': {
-        const g = kitGroup()
+        const k = wallKit()
         const leaf = this.kit('kit-garage', { leaf: lodge ? '#e8dccb' : '#f4f1ea' })
         if (leaf) {
           leaf.scale.set(len / 3, 1, 1)
-          g.add(leaf)
-        } else g.add(this.kbox(-len / 2, len / 2, 0, p.h, -0.08, 0.08, std('garage', { map: planks('#d9d4c8') })))
+          k.add(leaf)
+        } else k.box(-hw, hw, 0, p.h, -0.08, 0.08, std('garage', { map: planks('#d9d4c8') }))
         view.colour = '#d9d4c8'
-        return g
+        return k.build()
       }
       case m === 'header:garage': {
-        const g = kitGroup()
-        const frame = this.kit('kit-garage', { siding: theme.siding, trim: theme.trim })
-        if (frame) {
-          frame.scale.set(len / 3, 1, 1)
-          frame.position.y = -2.5
-          g.add(frame)
-        } else g.add(this.kbox(-len / 2, len / 2, 0, p.h, -0.15, 0.15, sidingMat))
-        this.openingLining(g, len / 2, len / 2, 0, 2.5, 3.0, theme, p.house, -2.5)
+        const k = wallKit()
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, wallFaces())
+        this.doorSurround(k, len, -2.5, theme, false)
         view.colour = theme.siding
-        return g
+        return k.build()
       }
       case m === 'header:gap': {
-        // An interior doorway: papered lintel with a painted casing.
-        const g = new THREE.Group()
-        g.add(tbox(p.w, p.h, p.d, this.paperMat(p.house)))
-        g.add(box(along ? p.w + 0.12 : p.w + 0.04, 0.1, along ? p.d + 0.04 : p.d + 0.12, trimMat, 0.05))
+        // An interior doorway: papered lintel with painted casings on both faces.
+        const ky = along ? 0 : Math.PI / 2
+        const k = Kit.at(ky, origin, this.shadows)
+        const t = (along ? p.d : p.w) / 2
+        k.box(-hw, hw, 0, p.h, -t, t, [itrim, itrim, itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
+        for (const s of [-1, 1]) {
+          const z0 = s > 0 ? t : -t - 0.02
+          const z1 = s > 0 ? t + 0.02 : -t
+          k.box(-hw - 0.08, hw + 0.08, -0.02, 0.08, z0, z1, itrim)
+          for (const e of [-1, 1]) k.box(e > 0 ? hw : -hw - 0.08, e > 0 ? hw + 0.08 : -hw, -HEAD_H, 0, z0, z1, itrim)
+        }
+        k.box(-hw, -hw + 0.03, -HEAD_H, 0, -t, t, itrim)
+        k.box(hw - 0.03, hw, -HEAD_H, 0, -t, t, itrim)
         view.colour = '#e8dcc5'
-        return g
+        return k.build()
       }
       case m === 'innerwall': {
         view.colour = '#e8dcc5'
-        const g = new THREE.Group()
-        g.add(tbox(p.w, p.h, p.d, this.paperMat(p.house)))
-        // Skirting boards on both faces.
-        g.add(box(along ? p.w : p.w + 0.03, 0.12, along ? p.d + 0.03 : p.d, std('skirting', { color: '#f4efe6', roughness: 0.6 }), 0.06))
-        return g
+        const ky = along ? 0 : Math.PI / 2
+        const k = Kit.at(ky, origin, this.shadows)
+        const t = (along ? p.d : p.w) / 2
+        k.box(-hw, hw, 0, p.h, -t, t, [this.paperOn(p, ky, 1), this.paperOn(p, ky, 1), itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
+        k.box(-hw, hw, 0, 0.12, -t - 0.02, t + 0.02, M.skirting())
+        const side = Math.abs(Math.sin(p.x * 3.7 + p.z * 1.3)) > 0.5 ? 1 : -1
+        this.hangArt(k, p, len, side * t, side)
+        return k.build()
       }
-      case m === 'edge':
+      case m === 'edge' || m === 'roofstep':
         return null
       case m === 'floor' || m === 'garagefloor': {
-        const g = new THREE.Group()
-        const mesh = tbox(p.w, p.h, p.d, m === 'floor' ? this.floorMat() : surf('sidewalk', '#b4b0a8', { roughness: 1 }))
-        mesh.castShadow = false
-        g.add(mesh)
+        const k = new Kit(new THREE.Matrix4(), origin, false)
         if (m === 'floor') {
-          // Kitchen tiles in the kitchen (local x 2..6), mirrored with the house.
-          const hs = this.map.houses[p.house]
-          const dir = hs?.dir ?? 1
-          const tile = new THREE.PlaneGeometry(4, 9)
-          tile.rotateX(-Math.PI / 2)
-          worldUV(tile, new THREE.Vector3(p.x + dir * 4, p.y + p.h + 0.004, p.z))
-          const tm = new THREE.Mesh(tile, surf('tiles', '#ffffff', { roughness: 0.4 }))
-          tm.position.set(dir * 4, p.h + 0.004, 0)
-          tm.receiveShadow = true
-          g.add(tm)
-        }
-        return g
+          k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, this.floorMat())
+          // Tiles in the kitchen and the WC (the rooms' rectangles from the plan), mirrored with the house.
+          const dir = this.map.houses[p.house]?.dir ?? 1
+          for (const r of ROOMS) {
+            if (r.upper || (r.id !== 'kitchen' && r.id !== 'wc')) continue
+            const t = new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0)
+            t.rotateX(-Math.PI / 2)
+            t.translate(dir * (r.x0 + r.x1) / 2, p.h + 0.004, dir * (r.z0 + r.z1) / 2)
+            k.geo(t, M.floor(tiled('tiles'), r.id === 'wc' ? '#dfeaf2' : '#ffffff', 0.3))
+          }
+        } else k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, M.floor(tiled('sidewalk'), '#bdb8b0', 0.85))
+        return k.build()
       }
-      case m === 'slab' || m === 'garageroof': {
-        const top = m === 'garageroof' ? this.roofMat(theme) : this.floorMat()
-        const bottom = std('ceiling', { color: '#f5f1ea' })
-        return tbox(p.w, p.h, p.d, [trimMat, trimMat, top, bottom, trimMat, trimMat])
+      case m === 'slab': {
+        const k = new Kit(new THREE.Matrix4(), origin, this.shadows)
+        k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, [itrim, itrim, this.floorMat(), M.ceiling(), itrim, itrim])
+        return k.build()
+      }
+      case m === 'porch': {
+        const k = Kit.at(this.houseYaw(p), origin, this.shadows)
+        const w = p.w / 2
+        const d = p.d / 2
+        const deck = std(`porchdeck-${lodge}`, { map: tiled('oak'), color: paint(lodge ? '#8f8a84' : '#9fa4a8', 0.62), roughness: 0.7 })
+        k.box(-w, w, p.h - 0.04, p.h, -d, d, deck)
+        k.box(-w, w, 0, p.h - 0.04, d - 0.04, d, trim)
+        for (const s of [-1, 1]) k.box(s > 0 ? w - 0.04 : -w, s > 0 ? w : -w + 0.04, 0, p.h - 0.04, -d, d, trim)
+        // Two shallow steps down to the path.
+        k.box(-0.95, 0.95, 0, 0.09, d, d + 0.34, M.concrete('#c9c3b9'))
+        view.colour = '#b7aa9a'
+        return k.build()
+      }
+      case m === 'porchpost': {
+        const k = new Kit(new THREE.Matrix4(), origin, this.shadows)
+        const h = p.h
+        if (style.columns === 'round') {
+          const shaft = new THREE.CylinderGeometry(0.085, 0.1, h - 0.36, 16)
+          shaft.translate(0, (h - 0.36) / 2 + 0.2, 0)
+          k.geo(shaft, trim)
+          k.box(-0.13, 0.13, 0, 0.2, -0.13, 0.13, trim)
+          k.box(-0.14, 0.14, h - 0.16, h, -0.14, 0.14, trim)
+          k.box(-0.11, 0.11, h - 0.2, h - 0.16, -0.11, 0.11, trim)
+        } else {
+          const shaft = new THREE.CylinderGeometry(0.075, 0.11, h - 0.75, 4)
+          shaft.rotateY(Math.PI / 4)
+          shaft.translate(0, (h - 0.75) / 2 + 0.6, 0)
+          k.geo(shaft, trim)
+          k.box(-0.15, 0.15, 0, 0.6, -0.15, 0.15, style.brick ? M.brick() : trim)
+          k.box(-0.17, 0.17, 0.56, 0.62, -0.17, 0.17, trim)
+          k.box(-0.12, 0.12, h - 0.15, h, -0.12, 0.12, trim)
+        }
+        view.colour = theme.trim
+        return k.build()
       }
       case m === 'balcony': {
-        const k = this.kit('kit-balcony', { balcony: '#ffffff' })
-        if (!k) return tbox(p.w, p.h, p.d, [trimMat, trimMat, this.floorMat(), trimMat, trimMat, trimMat])
-        const g = new THREE.Group()
-        const hs = this.map.houses[p.house]
-        g.rotation.y = hs && p.z < hs.oz ? Math.PI : 0
-        g.add(k)
-        return g
+        // The porch roof: beams and fascia, a beadboard ceiling below and decking on top.
+        const k = Kit.at(this.houseYaw(p), origin, this.shadows)
+        const w = p.w / 2
+        const d = p.d / 2
+        k.box(-w, w, p.h - 0.04, p.h, -d, d, std(`balcony-deck`, { map: tiled('oak'), color: paint('#a7a39c', 0.6), roughness: 0.7 }))
+        k.box(-w, w, -0.3, p.h - 0.04, d - 0.08, d, trim)
+        for (const s of [-1, 1]) k.box(s > 0 ? w - 0.08 : -w, s > 0 ? w : -w + 0.08, -0.3, p.h - 0.04, -d, d, trim)
+        k.box(-w + 0.08, w - 0.08, -0.31, -0.29, -d, d - 0.08, M.beadboard(theme.trim))
+        k.box(-w - 0.02, w + 0.02, p.h - 0.06, p.h - 0.03, d - 0.02, d + 0.04, trim)
+        view.colour = theme.trim
+        return k.build()
       }
-      case m === 'rail':
-        // The balcony kit carries its own railings.
-        return this.assets.models.has('kit-balcony') ? null : this.railing(p, trimMat, sidingMat, false)
-      case m === 'step': {
-        // The whole flight is one kit model, hung off the bottom step; the other steps are collision only.
-        if (p.h > 0.3) return null
-        const k = this.kit('kit-stairs', { stairs: '#ffffff' })
-        if (!k) return box(p.w, p.h, p.d, std('stair', { map: planks('#b98a55') }))
-        const g = new THREE.Group()
-        g.rotation.y = p.yaw
-        k.position.z = 0.15
-        g.add(k)
-        return g
-      }
-      case m === 'roof': {
-        // The flat roof deck over the front rooms: decking (or snow), fascia on the edges.
-        const top = lodge ? surf('snow', '#ffffff', { roughness: 1 }) : surf('oak', '#a99a8a', { roughness: 0.9 })
-        return tbox(p.w, p.h, p.d, [trimMat, trimMat, top, std('ceiling', { color: '#f5f1ea' }), trimMat, trimMat])
-      }
-      case m === 'attic': {
-        // The gable roof kit over the back rooms: tiled shingles on the slopes, painted gables, a brick chimney.
-        const g = new THREE.Group()
-        g.rotation.y = p.yaw
-        const k = instance(this.assets, 'kit-roof')
-        if (k) {
-          k.updateMatrixWorld(true)
-          k.traverse((o) => {
-            const mesh = o as THREE.Mesh
-            if (!mesh.isMesh) return
-            const src = mesh.material as THREE.MeshStandardMaterial
-            const geo = bakedGeometry(mesh, k)
-            geo.scale(p.w, p.h, p.d)
-            let material: THREE.Material
-            if (src.name === 'slopes') {
-              // Shingle UVs in metres: along the ridge, and down the slope.
-              const pos = geo.attributes.position
-              const uv = new Float32Array(pos.count * 2)
-              for (let i = 0; i < pos.count; i++) {
-                uv[i * 2] = pos.getX(i)
-                uv[i * 2 + 1] = pos.getY(i) + Math.abs(pos.getZ(i)) * 0.9
-              }
-              geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-              material = this.roofMat(theme)
-            } else material = this.kitMat(src, lodge ? theme.trim : theme.siding)
-            const out = new THREE.Mesh(geo, material)
-            out.castShadow = this.shadows
-            out.receiveShadow = true
-            g.add(out)
-          })
-        } else {
-          const shape = new THREE.Shape()
-          shape.moveTo(-p.d / 2, 0)
-          shape.lineTo(p.d / 2, 0)
-          shape.lineTo(0, p.h)
-          shape.closePath()
-          const geo = new THREE.ExtrudeGeometry(shape, { depth: p.w, bevelEnabled: false })
-          geo.rotateY(Math.PI / 2)
-          geo.translate(-p.w / 2, 0, 0)
-          g.add(new THREE.Mesh(geo, this.roofMat(theme)))
+      case m === 'rail' || m === 'rail:stair':
+        return this.railing(p, m === 'rail' ? trim : M.indoorTrim('#f4efe6'))
+      case m === 'step':
+        return null
+      case m === 'stair': {
+        // The whole flight, drawn from the bottom step: oak treads with a carpet runner, white risers, a closed
+        // stringer on the open side, balusters and a sloped handrail ending on a newel post. Matches the collision
+        // steps exactly (STAIR in houses.ts).
+        const k = Kit.at(this.houseYaw(p), origin, this.shadows)
+        const R = FLOOR_H / STAIR.risers
+        const n = STAIR.risers - 1
+        const sw = STAIR.x1 - STAIR.x0
+        const t = STAIR.tread
+        const z0 = t / 2
+        const oak = M.floor(tiled('oak'), '#c79a6a', 0.45)
+        const white = M.indoorTrim('#f4efe6')
+        const carpet = std('stair-carpet', { color: paint('#7a2e2a', 0.5), roughness: 1 })
+        for (let i = 0; i < n; i++) {
+          const zf = z0 - t * i
+          const top = R * (i + 1)
+          k.box(-sw / 2, sw / 2, top - 0.035, top, zf - t, zf + 0.025, oak)
+          k.box(-0.42, 0.42, top, top + 0.012, zf - t + 0.02, zf + 0.01, carpet)
+          k.box(-sw / 2, sw / 2, top - R, top - 0.035, zf - 0.02, zf, white)
+          k.box(-sw / 2 - 0.05, -sw / 2, 0, top + 0.05, zf - t, zf, white)
+          // Two balusters a tread.
+          for (const f of [0.25, 0.75]) k.box(-sw / 2 + 0.01, -sw / 2 + 0.05, top, top + 0.9, zf - t * f - 0.02, zf - t * f + 0.02, white)
         }
-        const brick = surf('brick', '#ffffff')
-        const chimney = new THREE.Mesh(this.box, brick)
-        chimney.scale.set(0.75, p.h * 0.75 + 0.9, 0.75)
-        chimney.position.set(-0.34 * p.w, p.h * 0.45 + (p.h * 0.75 + 0.9) / 2, -0.14 * p.d)
-        chimney.castShadow = this.shadows
-        const cap = box(0.95, 0.12, 0.95, std('chimney-cap', { color: '#6e6a66' }))
-        cap.position.set(chimney.position.x, p.h * 0.45 + p.h * 0.75 + 0.9 + 0.06, chimney.position.z)
-        g.add(chimney, cap)
-        return g
+        // Handrail along the rake, newel post at the foot.
+        const rise = R * n
+        const run = t * n
+        const len = Math.hypot(rise, run)
+        const rail = new THREE.BoxGeometry(0.07, 0.06, len)
+        rail.rotateX(Math.atan2(rise, run))
+        rail.translate(-sw / 2 + 0.03, R + 0.93 + rise / 2 - R / 2, z0 - run / 2)
+        k.geo(rail, oak)
+        k.box(-sw / 2 - 0.04, -sw / 2 + 0.1, 0, 1.12, z0 - 0.12, z0 + 0.02, white)
+        k.box(-sw / 2 - 0.06, -sw / 2 + 0.12, 1.12, 1.2, z0 - 0.14, z0 + 0.04, oak)
+        view.colour = '#c79a6a'
+        return k.build()
       }
-      case m === 'parapet':
-        return this.railing(p, trimMat, sidingMat, true)
+      case m === 'chimney': {
+        const k = Kit.at(this.houseYaw(p), origin, this.shadows)
+        const brick = M.brick(lodge ? '#d6cdc0' : '#ffffff')
+        const w = p.w / 2
+        const d = p.d / 2
+        const shoulder = 6.7
+        k.box(-w, w, 0, shoulder, -d, d, brick)
+        // Sloped shoulder, then the narrower stack with a cap and two flue pots.
+        k.box(-w + 0.06, w - 0.02, shoulder, shoulder + 0.25, -d + 0.15, d - 0.15, brick)
+        const sx = 0.26
+        const sz = 0.45
+        k.box(-sx, sx, shoulder + 0.25, p.h - 0.12, -sz, sz, brick)
+        k.box(-sx - 0.06, sx + 0.06, p.h - 0.12, p.h - 0.02, -sz - 0.06, sz + 0.06, M.concrete('#9d978e'))
+        for (const z of [-0.18, 0.18]) {
+          const pot = new THREE.CylinderGeometry(0.08, 0.1, 0.32, 10)
+          pot.translate(0, p.h + 0.14, z)
+          k.geo(pot, std('flue', { color: paint('#a8573a', 0.6), roughness: 0.8 }))
+        }
+        view.colour = '#b5523b'
+        return k.build()
+      }
       case m.startsWith('furniture:'):
         return this.furniture(m.slice(10), p, theme, view)
       case m.startsWith('valuable:'):
@@ -697,52 +690,158 @@ export class World {
     }
   }
 
-  /** Posts and a top rail (the roof parapet also gets a low sided wall). */
-  private railing(p: Piece, trimMat: THREE.Material, sidingMat: THREE.Material, wall: boolean) {
-    const g = new THREE.Group()
+  /** Window casing, sill, apron, through-wall jambs, interior stool and casing, and shutters on single windows. */
+  private windowSurround(k: Kit, w: number, theme: Theme, style: HouseStyle, ground: boolean) {
+    const trim = M.trim(theme.trim)
+    const itrim = M.indoorTrim('#f4efe6')
+    const hw = w / 2
+    const cw = 0.1
+    const S = SILL_H
+    const H = HEAD_H
+    // Exterior sill and apron.
+    k.box(-hw - 0.1, hw + 0.1, S - 0.05, S + 0.01, 0.12, 0.25, trim)
+    k.box(-hw + 0.03, hw - 0.03, S - 0.19, S - 0.05, 0.15, 0.175, trim)
+    // Casing and the head with its drip cap.
+    k.box(-hw - cw, -hw, S, H + cw, 0.15, 0.18, trim)
+    k.box(hw, hw + cw, S, H + cw, 0.15, 0.18, trim)
+    k.box(-hw - cw - 0.03, hw + cw + 0.03, H + cw, H + cw + 0.09, 0.15, 0.2, trim)
+    k.box(-hw - cw - 0.05, hw + cw + 0.05, H + cw + 0.09, H + cw + 0.12, 0.15, 0.22, trim)
+    // Jambs lining the opening through the wall.
+    k.box(-hw, -hw + 0.04, S, H, -0.15, 0.15, trim)
+    k.box(hw - 0.04, hw, S, H, -0.15, 0.15, trim)
+    k.box(-hw, hw, H - 0.04, H, -0.15, 0.15, trim)
+    k.box(-hw, hw, S, S + 0.02, -0.15, 0.15, trim)
+    // Interior stool, apron and casing.
+    k.box(-hw - 0.07, hw + 0.07, S - 0.03, S + 0.01, -0.23, -0.12, itrim)
+    k.box(-hw - 0.02, hw + 0.02, S - 0.15, S - 0.03, -0.17, -0.15, itrim)
+    k.box(-hw - 0.08, -hw, S, H + 0.08, -0.17, -0.15, itrim)
+    k.box(hw, hw + 0.08, S, H + 0.08, -0.17, -0.15, itrim)
+    k.box(-hw - 0.08, hw + 0.08, H, H + 0.08, -0.17, -0.15, itrim)
+    // Louvred shutters beside single windows.
+    if (w <= 1.2 && !(style.brick && ground)) {
+      const sw = Math.min(0.46, w * 0.46)
+      const acc = M.accent(theme.door)
+      for (const s of [-1, 1]) {
+        const x0 = s * (hw + cw + 0.02)
+        const x1 = s * (hw + cw + 0.02 + sw)
+        const a = Math.min(x0, x1)
+        const b = Math.max(x0, x1)
+        const z0 = 0.15
+        k.box(a, a + 0.06, S, H, z0, z0 + 0.04, acc)
+        k.box(b - 0.06, b, S, H, z0, z0 + 0.04, acc)
+        for (const y of [S, (S + H) / 2 - 0.035, H - 0.07]) k.box(a + 0.06, b - 0.06, y, y + 0.07, z0, z0 + 0.04, acc)
+        for (let y = S + 0.09; y < H - 0.08; y += 0.075) {
+          if (Math.abs(y - (S + H) / 2) < 0.06) continue
+          k.box(a + 0.06, b - 0.06, y, y + 0.035, z0 + 0.005, z0 + 0.03, acc)
+        }
+        k.box(a + 0.06, b - 0.06, S + 0.07, H - 0.07, z0, z0 + 0.008, M.concrete('#3a3530'))
+      }
+    }
+  }
+
+  /** Double-hung sashes (two side by side in a wide window) with muntins and glass. Kit y=0 is the sill. */
+  private sashes(k: Kit, w: number, h: number, theme: Theme) {
+    const trim = M.trim(theme.trim)
+    const glass = M.glass(this.mood.windows)
+    const units = w > 1.3 ? 2 : 1
+    const mull = 0.1
+    const clear = w - 0.08
+    const uw = (clear - (units - 1) * mull) / units
+    if (units === 2) k.box(-mull / 2, mull / 2, 0, h, -0.06, 0.15, trim)
+    for (let u = 0; u < units; u++) {
+      const cx = -clear / 2 + uw / 2 + u * (uw + mull)
+      const sash = (y0: number, y1: number, z0: number, z1: number) => {
+        const a = cx - uw / 2
+        const b = cx + uw / 2
+        const f = 0.055
+        k.box(a, a + f, y0, y1, z0, z1, trim)
+        k.box(b - f, b, y0, y1, z0, z1, trim)
+        k.box(a + f, b - f, y0, y0 + 0.065, z0, z1, trim)
+        k.box(a + f, b - f, y1 - f, y1, z0, z1, trim)
+        const zm = (z0 + z1) / 2
+        k.box(cx - 0.012, cx + 0.012, y0 + 0.065, y1 - f, zm - 0.012, zm + 0.016, trim)
+        k.box(a + f, b - f, (y0 + 0.065 + y1 - f) / 2 - 0.012, (y0 + 0.065 + y1 - f) / 2 + 0.012, zm - 0.012, zm + 0.016, trim)
+        k.box(a + f, b - f, y0 + 0.065, y1 - f, zm - 0.003, zm + 0.003, glass)
+      }
+      sash(0.02, h / 2 + 0.03, 0.0, 0.05)
+      sash(h / 2 - 0.03, h - 0.04, 0.055, 0.105)
+    }
+  }
+
+  /** Casing and jambs around a door or garage opening, from a header piece (kit y=0 is the head). */
+  private doorSurround(k: Kit, w: number, bottom: number, theme: Theme, front: boolean) {
+    const trim = M.trim(theme.trim)
+    const itrim = M.indoorTrim('#f4efe6')
+    const hw = w / 2
+    const cw = w > 2 ? 0.12 : 0.11
+    k.box(-hw - cw, -hw, bottom, cw, 0.15, 0.185, trim)
+    k.box(hw, hw + cw, bottom, cw, 0.15, 0.185, trim)
+    k.box(-hw - cw - 0.03, hw + cw + 0.03, cw, cw + 0.09, 0.15, 0.2, trim)
+    k.box(-hw - cw - 0.05, hw + cw + 0.05, cw + 0.09, cw + 0.12, 0.15, 0.22, trim)
+    if (front) {
+      // A cornice over the front door.
+      k.box(-hw - 0.3, hw + 0.3, cw + 0.12, cw + 0.24, 0.15, 0.32, trim)
+      k.box(-hw - 0.34, hw + 0.34, cw + 0.24, cw + 0.28, 0.15, 0.35, trim)
+    }
+    k.box(-hw, -hw + 0.04, bottom, 0, -0.15, 0.15, trim)
+    k.box(hw - 0.04, hw, bottom, 0, -0.15, 0.15, trim)
+    k.box(-hw, hw, -0.04, 0, -0.15, 0.15, trim)
+    if (w < 2) {
+      k.box(-hw - 0.08, -hw, bottom, 0.08, -0.17, -0.15, itrim)
+      k.box(hw, hw + 0.08, bottom, 0.08, -0.17, -0.15, itrim)
+      k.box(-hw - 0.08, hw + 0.08, 0, 0.08, -0.17, -0.15, itrim)
+    }
+  }
+
+  /** Balusters between a bottom and a top rail, with newel posts at the ends. */
+  private railing(p: Piece, trim: THREE.Material) {
     const along = p.w > p.d
     const len = along ? p.w : p.d
-    const bx = (w: number, h: number, d: number, material: THREE.Material, y: number) => {
-      const mesh = new THREE.Mesh(this.box, material)
-      mesh.scale.set(w, h, d)
-      mesh.position.y = y
-      mesh.castShadow = this.shadows
-      mesh.receiveShadow = true
-      return mesh
-    }
-    g.add(bx(along ? len : 0.1, 0.08, along ? 0.1 : len, trimMat, p.h))
-    const n = Math.max(2, Math.round(len / 0.5))
-    for (let i = 0; i <= n; i++) {
-      const post = bx(0.05, p.h, 0.05, trimMat, p.h / 2)
+    const k = Kit.at(along ? 0 : Math.PI / 2, new THREE.Vector3(p.x, p.y, p.z), this.shadows)
+    const h = p.h
+    k.box(-len / 2, len / 2, h - 0.08, h, -0.05, 0.05, trim)
+    k.box(-len / 2, len / 2, 0.08, 0.15, -0.04, 0.04, trim)
+    const n = Math.max(2, Math.round(len / 0.13))
+    for (let i = 1; i < n; i++) {
       const t = -len / 2 + (len / n) * i
-      post.position.set(along ? t : 0, p.h / 2, along ? 0 : t)
-      g.add(post)
+      k.box(t - 0.02, t + 0.02, 0.15, h - 0.08, -0.02, 0.02, trim)
     }
-    if (wall) {
-      const geo = new THREE.BoxGeometry(p.w, p.h, p.d)
-      worldUV(geo, new THREE.Vector3(p.x, p.y + p.h / 2, p.z))
-      const w = new THREE.Mesh(geo, sidingMat)
-      w.position.y = p.h / 2
-      w.castShadow = this.shadows
-      g.add(w)
+    for (const s of [-1, 1]) {
+      k.box(s * len / 2 - 0.06, s * len / 2 + 0.06, 0, h + 0.06, -0.06, 0.06, trim)
+      k.box(s * len / 2 - 0.08, s * len / 2 + 0.08, h + 0.06, h + 0.1, -0.08, 0.08, trim)
     }
-    return g
+    return k.build()
   }
 
   private furniture(kind: string, p: Piece, theme: Theme, view: PieceView): THREE.Object3D | null {
-    const wood = surf('oak', '#9a6a44', { roughness: 0.75 })
-    const fabric = std(`fabric-${p.house}`, { color: p.house === 0 ? '#5a8bd6' : '#d66a5a', roughness: 1 })
-    const box = (w: number, h: number, d: number, material: THREE.Material, y = h / 2, x = 0, z = 0) => {
-      const mesh = new THREE.Mesh(this.box, material)
-      mesh.scale.set(w, h, d)
-      mesh.position.set(x, y, z)
-      mesh.castShadow = this.shadows
-      mesh.receiveShadow = true
-      return mesh
-    }
+    void theme
+    const wood = surf('oak', '#9a6a44', { roughness: 0.6 })
+    const dark = surf('oak', '#5e3d27', { roughness: 0.5 })
+    const pale = surf('oak', '#d9c2a0', { roughness: 0.6 })
+    const fabric = std(`fabric-${p.house}`, { color: paint(p.house === 0 ? '#4f7fc4' : '#c4594d', 0.6), roughness: 1 })
+    const cushion = std(`cushion-${p.house}`, { color: paint(p.house === 0 ? '#f0c75e' : '#7cc0a8', 0.7), roughness: 1 })
+    const white = std('cabinet', { color: paint('#f4f1ea', 0.74), roughness: 0.55 })
+    const porcelain = std('porcelain', { color: paint('#fbfbf8', 0.8), roughness: 0.25 })
+    const brass = M.metal('#c9a86a')
+    const lit = this.mood.lamps > 0
+    // Sizes in the item's own frame (the collision box is axis aligned; the group turns by the yaw).
+    const side = Math.abs(Math.sin(p.yaw)) > 0.5
+    const lw = side ? p.d : p.w
+    const ld = side ? p.w : p.d
     const g = new THREE.Group()
     g.rotation.y = p.yaw
     view.colour = '#8b5e3c'
+    const k = new Kit(new THREE.Matrix4(), new THREE.Vector3(p.x, p.y, p.z), this.shadows)
+    /** Box by centre and size in the item's frame. */
+    const b = (x: number, y: number, z: number, w: number, h: number, d: number, m: THREE.Material) => k.box(x - w / 2, x + w / 2, y, y + h, z - d / 2, z + d / 2, m)
+    const legs = (w: number, d: number, h: number, t: number, m: THREE.Material) => {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b(sx * (w / 2 - t), 0, sz * (d / 2 - t), t, h, t, m)
+    }
+    const cyl = (x: number, y: number, z: number, r0: number, r1: number, h: number, m: THREE.Material, seg = 14) => {
+      const c = new THREE.CylinderGeometry(r1, r0, h, seg)
+      c.translate(x, y + h / 2, z)
+      k.geo(c, m)
+    }
     const model = (name: string) => {
       const obj = instance(this.assets, name)
       if (!obj) return false
@@ -751,45 +850,165 @@ export class World {
       g.add(obj)
       return true
     }
+    const shade = (x: number, y: number, z: number, r0: number, r1: number, h: number) => {
+      cyl(x, y, z, r0, r1, h, lit ? M.bulb('#ffcf8a', 1.6 * this.mood.lamps + 0.3) : std('shade', { color: paint('#f3e6c8', 0.75), roughness: 0.9 }), 16)
+    }
     switch (kind) {
       case 'sofa':
         if (!model('sofa')) {
-          g.add(box(p.w, 0.45, p.d, fabric), box(p.w, 0.5, 0.25, fabric, 0.65, 0, -p.d / 2 + 0.12), box(0.2, 0.3, p.d, fabric, 0.55, -p.w / 2 + 0.1), box(0.2, 0.3, p.d, fabric, 0.55, p.w / 2 - 0.1))
+          b(0, 0.1, 0, lw, 0.35, ld, fabric)
+          b(0, 0.45, -ld / 2 + 0.12, lw, 0.45, 0.24, fabric)
+          for (const s of [-1, 1]) b(s * (lw / 2 - 0.1), 0.45, 0, 0.2, 0.22, ld, fabric)
         }
         view.colour = '#5a8bd6'
         break
-      case 'coffeetable':
-        g.add(box(p.w, 0.05, p.d, wood, 0.42))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.06, 0.4, 0.06, wood, 0.2, (x * p.w) / 2 - x * 0.05, (z * p.d) / 2 - z * 0.05))
+      case 'armchair': {
+        b(0, 0, 0, lw, 0.12, ld, dark)
+        b(0, 0.12, 0.05, lw - 0.3, 0.3, ld - 0.25, cushion)
+        b(0, 0.12, -ld / 2 + 0.12, lw, 0.75, 0.24, fabric)
+        for (const s of [-1, 1]) b(s * (lw / 2 - 0.09), 0.12, 0, 0.18, 0.45, ld, fabric)
+        view.colour = '#5a8bd6'
         break
-      case 'rug': {
-        const r = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.d), std(`rug-${p.house}`, { map: rug(p.house === 0 ? '#b23b3b' : '#2f6b8a') }))
-        r.rotation.x = -Math.PI / 2
-        r.position.y = 0.015
-        r.receiveShadow = true
-        g.add(r)
+      }
+      case 'coffeetable':
+        b(0, 0.4, 0, lw, 0.05, ld, dark)
+        b(0, 0.12, 0, lw - 0.12, 0.03, ld - 0.12, dark)
+        legs(lw, ld, 0.4, 0.06, dark)
+        b(lw * 0.2, 0.45, 0, 0.22, 0.03, 0.3, std('book-a', { color: paint('#b0413e', 0.6), roughness: 0.8 }))
+        cyl(-lw * 0.2, 0.45, 0, 0.06, 0.05, 0.12, porcelain)
+        break
+      case 'rug':
+      case 'runner': {
+        const variant = Math.floor(Math.abs(p.x * 7.13 + p.z * 3.7 + p.y * 1.9)) % 4
+        const cols: [string, string][] = [['#a83a34', '#f0d9a8'], ['#2f6b8a', '#f2e6c8'], ['#6b5a8e', '#e9d8b4'], ['#3f7a52', '#f4e2b8']]
+        const [c0, c1] = kind === 'runner' ? ['#7a2e2a', '#e8cf9a'] : cols[variant]
+        const r = new THREE.PlaneGeometry(lw, ld)
+        r.rotateX(-Math.PI / 2)
+        r.translate(0, 0.012, 0)
+        k.geo(r, std(`rug-${c0}`, { map: rug(c0, c1), roughness: 1 }), true)
         break
       }
       case 'counter': {
-        g.add(box(p.w, p.h, p.d, std('cabinet', { color: '#f1f1ef', roughness: 0.8 })))
-        g.add(box(p.w + 0.05, 0.05, p.d + 0.05, std('worktop', { color: '#444a52', roughness: 0.5 }), p.h))
-        // Tiled splashback against the wall.
-        g.add(box(p.w, 0.6, 0.03, surf('tiles', '#e8f0ff', { roughness: 0.4 }), p.h + 0.33, 0, -p.d / 2 + 0.015))
-        // Hob and sink details.
-        g.add(box(0.6, 0.02, 0.5, std('hob', { color: '#222' }), p.h + 0.04, -p.w * 0.25))
-        g.add(box(0.5, 0.02, 0.4, std('sinkb', { color: '#aab' }), p.h + 0.04, p.w * 0.25))
-        for (let i = 0; i < 4; i++) g.add(box(0.4, 0.05, 0.02, std('handle', { color: '#888' }), p.h * 0.5, -p.w / 2 + 0.45 + i * 0.9, p.d / 2 + 0.01))
+        b(0, 0.1, 0.02, lw, p.h - 0.14, ld - 0.04, white)
+        b(0, 0, 0.06, lw, 0.1, ld - 0.12, std('kick', { color: '#3a3632' }))
+        b(0, p.h - 0.04, 0, lw + 0.04, 0.05, ld + 0.03, std('worktop', { color: paint('#5b6068', 0.5), roughness: 0.3 }))
+        b(0, p.h + 0.01, -ld / 2 + 0.015, lw, 0.6, 0.03, surf('tiles', '#e8f0ff', { roughness: 0.3 }))
+        b(-lw * 0.25, p.h + 0.01, 0, 0.6, 0.02, 0.5, std('hob', { color: '#1e1e1e', roughness: 0.3 }))
+        b(lw * 0.25, p.h - 0.02, 0, 0.5, 0.04, 0.4, M.metal('#b8bcc2'))
+        b(lw * 0.25, p.h + 0.01, -ld / 2 + 0.08, 0.04, 0.3, 0.04, M.metal('#b8bcc2'))
+        const n = Math.max(2, Math.round(lw / 0.6))
+        for (let i = 0; i < n; i++) {
+          const x = -lw / 2 + (lw / n) * (i + 0.5)
+          b(x - lw / n / 2 + 0.01, 0.12, ld / 2 + 0.0, 0.006, p.h - 0.2, 0.01, std('seam', { color: '#9c978e' }))
+          b(x, p.h - 0.22, ld / 2 + 0.01, 0.22, 0.03, 0.03, brass)
+        }
         view.colour = '#f1f1ef'
         break
       }
+      case 'island': {
+        b(0, 0.1, 0, lw - 0.1, p.h - 0.14, ld - 0.1, std(`island-${p.house}`, { color: paint(p.house === 0 ? '#5f8f8a' : '#8a6f9a', 0.55), roughness: 0.55 }))
+        b(0, 0, 0, lw - 0.2, 0.1, ld - 0.2, std('kick', { color: '#3a3632' }))
+        b(0, p.h - 0.04, 0.05, lw + 0.1, 0.05, ld + 0.2, std('worktop-pale', { color: paint('#e9e4dc', 0.72), roughness: 0.25 }))
+        cyl(lw * 0.25, p.h + 0.01, 0, 0.16, 0.12, 0.08, std('bowl', { color: paint('#e37b3f', 0.7), roughness: 0.4 }))
+        for (const s of [-1, 1]) {
+          cyl(s * lw * 0.25, 0, ld / 2 + 0.32, 0.03, 0.03, 0.62, M.metal('#2f2f2f'), 8)
+          cyl(s * lw * 0.25, 0.62, ld / 2 + 0.32, 0.17, 0.17, 0.05, dark, 16)
+        }
+        view.colour = '#5f8f8a'
+        break
+      }
       case 'table':
-        g.add(box(p.w, 0.06, p.d, wood, p.h))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, p.h, 0.07, wood, p.h / 2, (x * p.w) / 2 - x * 0.08, (z * p.d) / 2 - z * 0.08))
+      case 'diningtable': {
+        const top = kind === 'table' ? wood : dark
+        b(0, p.h - 0.05, 0, lw, 0.05, ld, top)
+        b(0, p.h - 0.14, 0, lw - 0.2, 0.09, ld - 0.2, top)
+        legs(lw, ld, p.h - 0.05, 0.07, top)
+        if (kind === 'diningtable') {
+          b(0, p.h, 0, lw * 0.75, 0.005, 0.3, std('tablerunner', { color: paint('#e8dcc0', 0.75), roughness: 1 }))
+          for (const s of [-1, 1]) cyl(s * 0.18, p.h, 0, 0.04, 0.025, 0.22, brass, 8)
+          cyl(0, p.h, 0, 0.09, 0.12, 0.14, std('vase-b', { color: paint('#3f74c9', 0.6), roughness: 0.3 }))
+        } else cyl(0, p.h, 0, 0.12, 0.14, 0.06, std('fruitbowl', { color: paint('#f2efe8', 0.75), roughness: 0.4 }))
         break
+      }
       case 'chair':
-        g.add(box(0.45, 0.05, 0.45, wood, 0.45), box(0.45, 0.45, 0.05, wood, 0.68, 0, -0.2))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.05, 0.45, 0.05, wood, 0.22, x * 0.19, z * 0.19))
+        b(0, 0.42, 0, 0.44, 0.05, 0.44, wood)
+        b(0, 0.47, 0, 0.38, 0.04, 0.38, cushion)
+        b(0, 0.47, -0.2, 0.44, 0.48, 0.04, wood)
+        legs(0.44, 0.44, 0.42, 0.045, wood)
         break
+      case 'floorlamp':
+        cyl(0, 0, 0, 0.16, 0.14, 0.04, brass)
+        cyl(0, 0.04, 0, 0.018, 0.018, 1.3, brass, 8)
+        shade(0, 1.25, 0, 0.22, 0.14, 0.32)
+        break
+      case 'tablelamp':
+        cyl(0, 0, 0, 0.08, 0.06, 0.22, std('lampbase', { color: paint('#3f7f8a', 0.6), roughness: 0.3 }))
+        shade(0, 0.2, 0, 0.15, 0.1, 0.2)
+        break
+      case 'nightstand':
+        b(0, 0.05, 0, lw, p.h - 0.05, ld, wood)
+        b(0, 0, 0, lw - 0.06, 0.05, ld - 0.06, dark)
+        b(0, p.h * 0.55, ld / 2, lw - 0.08, 0.16, 0.01, pale)
+        b(0, p.h * 0.62, ld / 2 + 0.01, 0.1, 0.02, 0.02, brass)
+        break
+      case 'shelf': {
+        b(-lw / 2 + 0.02, 0, 0, 0.04, p.h, ld, dark)
+        b(lw / 2 - 0.02, 0, 0, 0.04, p.h, ld, dark)
+        b(0, 0, -ld / 2 + 0.01, lw, p.h, 0.02, dark)
+        const cols = ['#b0413e', '#3f6fa8', '#e2b345', '#4f8a5b', '#7a4f8e', '#d9d2c2', '#2f3a48']
+        for (let s = 0; s < 5; s++) {
+          const y = s * (p.h / 5)
+          b(0, y, 0, lw - 0.08, 0.03, ld - 0.02, dark)
+          if (s === 4) continue
+          let x = -lw / 2 + 0.06
+          let i = (s * 3 + Math.floor(Math.abs(p.x * 10))) % cols.length
+          while (x < lw / 2 - 0.1) {
+            const bw = 0.03 + ((i * 37) % 5) * 0.01
+            const bh = p.h / 5 - 0.1 - ((i * 13) % 4) * 0.03
+            b(x + bw / 2, y + 0.03, 0.02, bw, bh, ld - 0.08, std(`book-${cols[i % cols.length]}`, { color: paint(cols[i % cols.length], 0.6), roughness: 0.8 }))
+            x += bw + 0.005
+            i++
+          }
+        }
+        b(0, p.h - 0.03, 0, lw, 0.03, ld, dark)
+        break
+      }
+      case 'sideboard':
+        b(0, 0.08, 0, lw, p.h - 0.08, ld, dark)
+        legs(lw, ld, 0.08, 0.05, dark)
+        for (const s of [-1, 1]) b(s * lw / 4, 0.14, ld / 2, lw / 2 - 0.04, p.h - 0.2, 0.01, wood)
+        cyl(-lw * 0.25, p.h, 0, 0.08, 0.11, 0.28, std('vase-c', { color: paint('#e9e2d4', 0.75), roughness: 0.25 }))
+        b(lw * 0.15, p.h, -0.05, 0.3, 0.38, 0.03, std('photo-frame', { color: '#2b2622', roughness: 0.5 }))
+        break
+      case 'plant': {
+        cyl(0, 0, 0, 0.14, 0.18, 0.3, std('pot', { color: paint('#c46a43', 0.6), roughness: 0.8 }))
+        const leaf = std('leaf-in', { color: paint('#3f8a45', 0.5), roughness: 0.8 })
+        for (let i = 0; i < 7; i++) {
+          const a = i * 2.4
+          const sp = new THREE.SphereGeometry(0.16 + (i % 3) * 0.04, 8, 6)
+          sp.scale(1, 1.4, 1)
+          sp.translate(Math.cos(a) * 0.12, 0.45 + i * 0.08, Math.sin(a) * 0.12)
+          k.geo(sp, leaf)
+        }
+        break
+      }
+      case 'basin':
+        cyl(0, 0, 0, 0.09, 0.07, 0.72, porcelain)
+        b(0, 0.72, 0, lw, 0.12, ld, porcelain)
+        b(0, 0.84, -ld / 2 + 0.05, 0.03, 0.12, 0.03, M.metal('#c8ccd2'))
+        b(0, 1.1, -ld / 2 + 0.01, lw - 0.02, 0.5, 0.02, std('mirror', { color: '#9fb6c8', roughness: 0.05, metalness: 0.8 }))
+        break
+      case 'bathtub': {
+        b(0, 0, 0, lw, 0.08, ld, porcelain)
+        b(-lw / 2 + 0.05, 0.08, 0, 0.1, p.h - 0.08, ld, porcelain)
+        b(lw / 2 - 0.05, 0.08, 0, 0.1, p.h - 0.08, ld, porcelain)
+        b(0, 0.08, -ld / 2 + 0.05, lw - 0.2, p.h - 0.08, 0.1, porcelain)
+        b(0, 0.08, ld / 2 - 0.05, lw - 0.2, p.h - 0.08, 0.1, porcelain)
+        b(0, p.h - 0.2, 0, lw - 0.2, 0.01, ld - 0.2, std('bathwater', { color: '#8fd3e8', roughness: 0.05, transparent: true, opacity: 0.6 }))
+        b(0, p.h, -ld / 2 + 0.06, 0.05, 0.22, 0.05, M.metal('#c8ccd2'))
+        view.colour = '#ffffff'
+        break
+      }
       case 'bed': {
         const bed = instance(this.assets, 'bed')
         if (bed) {
@@ -797,52 +1016,69 @@ export class World {
           view.colour = '#f4d35e'
           break
         }
-        g.add(box(p.w, 0.25, p.d, wood, 0.3))
-        g.add(box(p.w - 0.1, 0.25, p.d - 0.1, std(`duvet-${p.house}`, { color: p.house === 0 ? '#f4d35e' : '#8ecae6', roughness: 1 }), 0.55))
-        g.add(box(p.w * 0.4, 0.14, 0.4, std('pillow', { color: '#ffffff' }), 0.74, 0, -p.d / 2 + 0.35))
-        g.add(box(p.w, 0.8, 0.08, wood, 0.6, 0, -p.d / 2 + 0.04))
+        b(0, 0.15, 0, lw, 0.25, ld, wood)
+        b(0, 0.4, 0, lw - 0.1, 0.25, ld - 0.1, std(`duvet-${p.house}`, { color: p.house === 0 ? '#f4d35e' : '#8ecae6', roughness: 1 }))
+        b(0, 0.65, -ld / 2 + 0.35, lw * 0.4, 0.14, 0.4, std('pillow', { color: '#ffffff' }))
+        b(0, 0.2, -ld / 2 + 0.04, lw, 0.8, 0.08, wood)
         view.colour = '#f4d35e'
         break
       }
       case 'wardrobe':
-        g.add(box(p.w, p.h, p.d, wood))
-        g.add(box(0.03, p.h - 0.1, 0.02, std('handle', { color: '#ddd' }), p.h / 2, 0, p.d / 2 + 0.02))
+        b(0, 0, 0, lw, p.h, ld, wood)
+        b(0, 0.06, ld / 2, 0.01, p.h - 0.16, 0.012, dark)
+        for (const s of [-1, 1]) b(s * 0.06, p.h * 0.5, ld / 2 + 0.01, 0.025, 0.25, 0.025, brass)
+        b(0, p.h, 0, lw + 0.04, 0.05, ld + 0.04, dark)
         break
       case 'toilet':
-        if (!model('toilet')) g.add(box(0.4, 0.4, 0.6, std('porcelain', { color: '#fff' })), box(0.4, 0.5, 0.2, std('porcelain', { color: '#fff' }), 0.6, 0, -0.2))
+        if (!model('toilet')) {
+          b(0, 0, 0.05, 0.4, 0.4, 0.55, porcelain)
+          b(0, 0.4, -0.22, 0.42, 0.45, 0.18, porcelain)
+        }
         view.colour = '#ffffff'
         break
       case 'sink': {
         // The vanity carries its mirror, so it stands taller than its collision box.
         const s = instance(this.assets, 'sink')
         if (s) g.add(s)
-        else g.add(box(0.6, 0.85, 0.45, std('porcelain', { color: '#fff' })))
+        else b(0, 0, 0, 0.6, 0.85, 0.45, porcelain)
         view.colour = '#ffffff'
         break
       }
       case 'desk':
-        g.add(box(p.w, 0.05, p.d, wood, p.h), box(0.5, p.h, p.d - 0.1, wood, p.h / 2, -p.w / 2 + 0.3), box(0.06, p.h, 0.06, wood, p.h / 2, p.w / 2 - 0.1, p.d / 2 - 0.1), box(0.06, p.h, 0.06, wood, p.h / 2, p.w / 2 - 0.1, -p.d / 2 + 0.1))
-        g.add(box(0.5, 0.35, 0.03, std('screen', { color: '#223', emissive: '#4ac', emissiveIntensity: 0.4 }), p.h + 0.25, 0.2, -0.1))
+        b(0, p.h - 0.05, 0, lw, 0.05, ld, wood)
+        b(-lw / 2 + 0.25, 0, 0, 0.45, p.h - 0.05, ld - 0.06, wood)
+        for (const sz of [-1, 1]) b(lw / 2 - 0.05, 0, sz * (ld / 2 - 0.05), 0.06, p.h - 0.05, 0.06, wood)
+        b(0.15, p.h, -0.12, 0.5, 0.34, 0.03, std('screen', { color: '#223', emissive: '#4ac', emissiveIntensity: 0.5 }))
+        b(0.15, p.h, -0.1, 0.1, 0.05, 0.12, std('screen-foot', { color: '#2a2a2a' }))
+        b(-0.3, p.h, 0.05, 0.22, 0.02, 0.3, std('notepad', { color: '#f2efe4' }))
+        // The desk chair.
+        b(0.1, 0.45, ld / 2 + 0.3, 0.44, 0.06, 0.42, fabric)
+        b(0.1, 0.5, ld / 2 + 0.5, 0.44, 0.5, 0.05, fabric)
+        cyl(0.1, 0.05, ld / 2 + 0.3, 0.03, 0.03, 0.4, M.metal('#2f2f2f'), 8)
+        b(0.1, 0, ld / 2 + 0.3, 0.5, 0.05, 0.05, M.metal('#2f2f2f'))
+        b(0.1, 0, ld / 2 + 0.3, 0.05, 0.05, 0.5, M.metal('#2f2f2f'))
         break
       case 'toolrack': {
-        g.add(box(0.06, p.h, p.d, std('pegboard', { color: '#c9a77a', roughness: 0.9 }), p.h / 2 + 0.2))
+        b(0, 0.2, -ld / 2 + 0.03, lw, p.h, 0.04, std('pegboard', { color: paint('#c9a77a', 0.6), roughness: 0.9 }))
         // Hang the tools that can be picked up.
         const names = ['rake', 'shovel', 'bat', 'sledge', 'pan']
         names.forEach((n, i) => {
           const t = instance(this.assets, n)
           if (!t) return
           t.scale.setScalar(0.9)
-          t.position.set(0.12, 0.2, -p.d / 2 + 0.25 + i * 0.3)
+          t.position.set(-lw / 2 + 0.25 + i * 0.3, 0.2, -ld / 2 + 0.12)
           t.rotation.z = 0.1
           g.add(t)
         })
         break
       }
       default:
-        g.add(box(p.w, p.h, p.d, wood))
+        b(0, 0, 0, lw, p.h, ld, wood)
     }
-    void theme
-    return g
+    // Kit geometry was built in the item's frame: put it under the turned group.
+    const built = k.build()
+    g.add(built)
+    return indoorModel(g)
   }
 
   private valuable(kind: string, p: Piece, view: PieceView): THREE.Object3D | null {
@@ -935,7 +1171,7 @@ export class World {
       default:
         g.add(box(p.w, p.h, p.d, std('unknown', { color: '#c99' })))
     }
-    return g
+    return indoorModel(g)
   }
 
   private prop(kind: string, p: Piece, view: PieceView, fit: (name: string, fallback: () => THREE.Object3D | null, yaw?: number) => THREE.Object3D | null): THREE.Object3D | null {
@@ -1057,7 +1293,7 @@ export class World {
           // The white car takes the paint colour; glass, chrome and tyres stay dark or bright enough to read.
           car.traverse((o) => {
             const mm = o as THREE.Mesh
-            if (mm.isMesh) mm.material = mat(`sedan-${colour}`, () => {
+            if (mm.isMesh) mm.material = cached(`sedan-${colour}`, () => {
               const c = (mm.material as THREE.MeshStandardMaterial).clone()
               c.color.set(colour).lerp(new THREE.Color('#ffffff'), 0.25)
               return c

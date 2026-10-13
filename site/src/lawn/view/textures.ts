@@ -212,3 +212,98 @@ export function skyStrip(top: string, horizon: string) {
     g.fillRect(0, 0, w, h)
   }, 1)
 }
+
+/** Little paintings for the walls: a landscape, a sunset, abstract blocks, a botanical, a sailboat and a portrait. */
+export function art(i: number) {
+  const k = ((i % 6) + 6) % 6
+  return tex(`art-${k}`, 128, 128, (g, w, h) => {
+    seed = 31 + k * 7
+    const fill = (c: string, x: number, y: number, ww: number, hh: number) => {
+      g.fillStyle = c
+      g.fillRect(x, y, ww, hh)
+    }
+    if (k === 0) {
+      fill('#9fd0f0', 0, 0, w, h)
+      fill('#f6f1d0', 90, 18, 18, 18)
+      g.fillStyle = '#5d9a4a'
+      g.beginPath()
+      g.moveTo(0, 90)
+      g.quadraticCurveTo(40, 55, 80, 80)
+      g.quadraticCurveTo(110, 95, 128, 70)
+      g.lineTo(128, 128)
+      g.lineTo(0, 128)
+      g.fill()
+      fill('#3f7a3a', 0, 105, w, 23)
+    } else if (k === 1) {
+      const gr = g.createLinearGradient(0, 0, 0, h)
+      gr.addColorStop(0, '#ffb35c')
+      gr.addColorStop(0.6, '#f0607a')
+      gr.addColorStop(1, '#3b2a5a')
+      g.fillStyle = gr
+      g.fillRect(0, 0, w, h)
+      g.fillStyle = '#ffe9a0'
+      g.beginPath()
+      g.arc(64, 78, 22, 0, Math.PI * 2)
+      g.fill()
+      fill('#2a2140', 0, 92, w, 36)
+    } else if (k === 2) {
+      fill('#f2ead8', 0, 0, w, h)
+      fill('#d9453b', 12, 14, 52, 60)
+      fill('#2f5fa8', 70, 40, 46, 74)
+      fill('#f2c230', 20, 82, 40, 32)
+      g.strokeStyle = '#1c1c1c'
+      g.lineWidth = 4
+      g.strokeRect(12, 14, 52, 60)
+      g.strokeRect(70, 40, 46, 74)
+    } else if (k === 3) {
+      fill('#f4efe2', 0, 0, w, h)
+      g.strokeStyle = '#4f7f45'
+      g.lineWidth = 3
+      g.beginPath()
+      g.moveTo(64, 120)
+      g.lineTo(64, 20)
+      g.stroke()
+      g.fillStyle = '#6aa05a'
+      for (let j = 0; j < 6; j++) {
+        g.beginPath()
+        g.ellipse(64 + (j % 2 ? 16 : -16), 30 + j * 14, 16, 6, j % 2 ? 0.5 : -0.5, 0, Math.PI * 2)
+        g.fill()
+      }
+    } else if (k === 4) {
+      fill('#bfe3f5', 0, 0, w, 76)
+      fill('#2d6fa0', 0, 76, w, 52)
+      g.fillStyle = '#ffffff'
+      g.beginPath()
+      g.moveTo(64, 20)
+      g.lineTo(64, 70)
+      g.lineTo(96, 70)
+      g.fill()
+      fill('#a8563a', 40, 72, 64, 10)
+    } else {
+      fill('#3a4a5a', 0, 0, w, h)
+      g.fillStyle = '#e8c9a0'
+      g.beginPath()
+      g.arc(64, 52, 22, 0, Math.PI * 2)
+      g.fill()
+      fill('#8a3a3a', 30, 80, 68, 48)
+    }
+    for (let j = 0; j < 300; j++) {
+      g.fillStyle = `rgba(0,0,0,${rnd() * 0.05})`
+      g.fillRect(rnd() * w, rnd() * h, 2, 2)
+    }
+  })
+}
+
+/** Striped wallpaper (a 0.5 m repeat on world-space UVs). */
+export function stripes(a: string, b: string) {
+  const t = tex(`stripes-${a}-${b}`, 128, 128, (g, w, h) => {
+    g.fillStyle = a
+    g.fillRect(0, 0, w, h)
+    g.fillStyle = b
+    for (let x = 0; x < w; x += 32) g.fillRect(x, 0, 14, h)
+    g.fillStyle = 'rgba(255,255,255,0.25)'
+    for (let x = 16; x < w; x += 32) g.fillRect(x, 0, 2, h)
+  })
+  t.repeat.set(2, 2)
+  return t
+}

@@ -87,33 +87,6 @@ function dress(model: THREE.Object3D, look: HeroLook, hero: Hero, colour: string
   })
 }
 
-/** Keep only the forearm and hand triangles of a skinned body (first-person view). */
-function armGeometry(mesh: THREE.SkinnedMesh) {
-  const geo = mesh.geometry
-  const idx = geo.attributes.skinIndex as THREE.BufferAttribute
-  const wgt = geo.attributes.skinWeight as THREE.BufferAttribute
-  const names = mesh.skeleton.bones.map((b) => b.name)
-  const armBone = names.map((n) => /lowerarm|hand/.test(n))
-  // A vertex belongs to the forearm if the forearm and hand carry a fair share of its weight (so the cut
-  // falls just above the elbow instead of leaving a jagged stump).
-  const isArm = (v: number) => {
-    let w = 0
-    for (let k = 0; k < 4; k++) if (armBone[idx.getComponent(v, k)]) w += wgt.getComponent(v, k)
-    return w >= 0.3
-  }
-  const index = geo.index!
-  const keep: number[] = []
-  for (let t = 0; t < index.count; t += 3) {
-    const a = index.getX(t)
-    const b = index.getX(t + 1)
-    const c = index.getX(t + 2)
-    if (isArm(a) && isArm(b) && isArm(c)) keep.push(a, b, c)
-  }
-  const out = geo.clone()
-  out.setIndex(keep)
-  return out
-}
-
 /** The held weapon / tool model for a hero (with per-weapon offsets on the right hand). */
 function weaponFor(assets: LawnAssets, hero: Hero, tool: ToolKind | 'blower' | null): THREE.Object3D {
   // [model, grip fraction along the length (0 = held at the base), yaw twist]
@@ -481,18 +454,62 @@ function standInBody(hero: Hero, robot: boolean): THREE.Object3D {
 
 /* ---------- first-person arms ---------- */
 
+/**
+ * A stylised gripping hand (local frame: -z along the forearm, +y up): a rounded palm and the heel of the hand,
+ * four fingers curled round a vertical grip at (0, 0, -0.1) as stacked partial rings, knuckles on the outside,
+ * and the thumb wrapped over the top.
+ */
+function gripHand(skin: THREE.Material, side: number, fix: (m: THREE.Mesh) => THREE.Mesh) {
+  const hand = new THREE.Group()
+  const palm = fix(new THREE.Mesh(new THREE.CapsuleGeometry(0.034, 0.045, 8, 16), skin))
+  palm.scale.set(1.0, 1.25, 0.62)
+  palm.position.set(side * 0.012, -0.004, -0.055)
+  hand.add(palm)
+  const wrist = fix(new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 0.05, 16), skin))
+  wrist.rotation.x = Math.PI / 2
+  wrist.position.z = -0.02
+  hand.add(wrist)
+  // Fingers: rings round the grip, open toward the palm side, shrinking toward the little finger.
+  const radii = [0.0215, 0.022, 0.021, 0.019]
+  radii.forEach((tube, i) => {
+    const ring = new THREE.TorusGeometry(0.024, tube * 0.62, 8, 20)
+    ring.rotateX(Math.PI / 2)
+    const m = fix(new THREE.Mesh(ring, skin))
+    m.position.set(side * 0.004, 0.034 - i * 0.023, -0.1)
+    hand.add(m)
+    // A knuckle bump on the outside of each finger.
+    const k = fix(new THREE.Mesh(new THREE.SphereGeometry(tube * 0.62, 10, 8), skin))
+    k.position.set(side * 0.004, 0.034 - i * 0.023, -0.126)
+    k.scale.set(0.9, 0.8, 1)
+    hand.add(k)
+  })
+  // Thumb over the top of the grip.
+  const thumb = fix(new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.04, 6, 10), skin))
+  thumb.rotation.set(0, 0, side * 1.25)
+  thumb.position.set(side * 0.006, 0.052, -0.088)
+  hand.add(thumb)
+  const base = fix(new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), skin))
+  base.position.set(side * 0.03, 0.035, -0.065)
+  hand.add(base)
+  return hand
+}
+
+/** Skin tones for the first-person hands. */
+const SKIN: Record<HeroId, string> = { nana: '#efc6a6', dad: '#e3ad86', kid: '#f0c39e', hoa: '#d49b74', gramps: '#e8bd9c', dog: '#b98a5a' }
+
+/**
+ * The first-person viewmodel: two sleeved forearms rising from the bottom corners of the screen into gripping
+ * hands, built to size (no cut-off body mesh), with the held tool in the right fist. Everything is modelled at
+ * real size and then shrunk toward the camera (a viewmodel at a fifth of the size, a fifth of the distance away,
+ * looks identical) so it never pokes into walls. Poses are layered procedurally: idle sway, light and heavy
+ * swings, block, throw, slingshot draw and ladder climbing.
+ */
 export class FirstPerson {
   readonly group = new THREE.Group()
   private inner = new THREE.Group()
-  private rig: THREE.Object3D | null = null
-  private mixer: THREE.AnimationMixer | null = null
-  private upperR: THREE.Object3D | null = null
-  private lowerR: THREE.Object3D | null = null
-  private upperL: THREE.Object3D | null = null
-  private lowerL: THREE.Object3D | null = null
-  private hand: THREE.Object3D | null = null
-  private head: THREE.Object3D | null = null
+  private arms: { sleeve: THREE.Mesh; cuff: THREE.Mesh; hand: THREE.Group; shoulder: THREE.Vector3 }[] = []
   private weapon: THREE.Object3D | null = null
+  private holder = new THREE.Group()
   private tool: ToolKind | 'blower' | null = null
   private umbrella: THREE.Object3D | null = null
   private flashTool: 'blower' | null = null
@@ -504,89 +521,79 @@ export class FirstPerson {
   private swing = { t: -1, heavy: false, up: 0.14, down: 0.3 }
   private bob = 0
   private block = 0
+  private climb = 0
   private throwT = -1
   private hitStop = 0
   private draw = 0
-  private tmpV = new THREE.Vector3()
-  private tmpQ = new THREE.Quaternion()
-  private axisY = new THREE.Vector3(0, 1, 0)
-  private axisZ = new THREE.Vector3(0, 0, 1)
+  private enabled: boolean
+  private tmpA = new THREE.Vector3()
+  private tmpB = new THREE.Vector3()
+  private tmpM = new THREE.Matrix4()
+  private up = new THREE.Vector3(0, 1, 0)
 
   constructor(assets: LawnAssets, heroId: HeroId, colour: string, team: number) {
     void team
     this.assets = assets
     this.hero = HEROES[heroId]
-    const look = LOOKS[heroId]
-    const model = heroId === 'dog' ? null : instance(assets, look.model)
-    if (model) {
-      let body: THREE.SkinnedMesh | null = null
-      model.traverse((m) => {
-        const s = m as THREE.SkinnedMesh
-        if (s.isSkinnedMesh && (!body || s.geometry.attributes.position.count > body.geometry.attributes.position.count)) body = s
-      })
-      dress(model, look, this.hero, colour)
-      if (body) {
-        const b = body as THREE.SkinnedMesh
-        b.geometry = armGeometry(b)
-        b.frustumCulled = false
-        b.castShadow = false
-        model.traverse((m) => {
-          const s = m as THREE.Mesh
-          if (s.isMesh && s !== b) s.visible = false
-        })
-      }
-      model.traverse((m) => {
-        if (m.name === 'upperarm_r') this.upperR = m
-        if (m.name === 'lowerarm_r') this.lowerR = m
-        if (m.name === 'upperarm_l') this.upperL = m
-        if (m.name === 'lowerarm_l') this.lowerL = m
-        if (m.name === 'hand_r') this.hand = m
-        if (m.name === 'Head') this.head = m
-      })
-      this.rig = model
-      const clips = assets.clips.get(look.model) ?? []
-      if (clips.length) {
-        this.mixer = new THREE.AnimationMixer(model)
-        // Both arms forward (the push loop) is the base: the weapon sits in view, the swing is layered on top.
-        const base = findClip(clips, 'Push_Loop') ?? findClip(clips, 'Idle_Loop')
-        if (base) {
-          const a = this.mixer.clipAction(base)
-          a.play()
-          a.timeScale = 0.35
-        }
-      }
-      // The camera looks down -Z; the model faces +Z, so turn it round and hang it under the camera.
-      this.inner.add(model)
-      this.inner.rotation.y = Math.PI
-      this.inner.position.set(0, -1.6, 0.1)
-      // Arms sized like an adult's whatever the hero's height, so the weapon reads the same in view.
-      this.inner.scale.setScalar(0.8 * Math.min(1.25, Math.max(0.9, 1.8 / ((model.userData.height as number) || 1.8))))
-      this.group.add(this.inner)
-      this.setTool(null)
-      if (this.hero.umbrella) {
-        // The open umbrella held up in front of the camera while blocking.
-        this.umbrella = umbrellaShield(assets)
-        if (this.umbrella) {
-          this.umbrella.rotation.y = Math.PI
-          this.umbrella.position.set(-0.16, -0.4, -0.25)
-          this.umbrella.scale.setScalar(0.65)
-          this.group.add(this.umbrella)
-        }
+    this.enabled = heroId !== 'dog'
+    if (!this.enabled) return
+    const skin = new THREE.MeshStandardMaterial({ color: SKIN[heroId], roughness: 0.6 })
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85 })
+    const cuffMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour).multiplyScalar(0.75), roughness: 0.85 })
+    const noShadow = (m: THREE.Mesh) => {
+      m.castShadow = false
+      m.receiveShadow = false
+      m.frustumCulled = false
+      return m
+    }
+    for (const side of [1, -1]) {
+      // A tapered sleeve from beyond the screen edge to the wrist (unit height along +Y, re-aimed every frame).
+      const sg = new THREE.CylinderGeometry(0.043, 0.056, 1, 16, 1, false)
+      sg.translate(0, 0.5, 0)
+      const sleeve = noShadow(new THREE.Mesh(sg, sleeveMat))
+      const cuff = noShadow(new THREE.Mesh(new THREE.CylinderGeometry(0.049, 0.049, 0.05, 16), cuffMat))
+      const hand = gripHand(skin, side, noShadow)
+      this.inner.add(sleeve, cuff, hand)
+      this.arms.push({ sleeve, cuff, hand, shoulder: new THREE.Vector3(side * 0.36, -0.56, -0.02) })
+    }
+    this.arms[0].hand.add(this.holder)
+    this.holder.position.set(0, 0, -0.1)
+    this.inner.scale.setScalar(0.22)
+    this.group.add(this.inner)
+    this.setTool(null)
+    if (this.hero.umbrella) {
+      this.umbrella = umbrellaShield(assets)
+      if (this.umbrella) {
+        this.umbrella.rotation.y = Math.PI
+        this.umbrella.position.set(-0.16, -0.4, -0.25)
+        this.umbrella.scale.setScalar(0.65)
+        this.inner.add(this.umbrella)
       }
     }
   }
 
   setTool(tool: ToolKind | null) {
-    if (!this.rig) return
+    if (!this.enabled) return
     this.wantTool = tool
     const want: ToolKind | 'blower' | null = this.flashTool && this.clock < this.flashUntil ? this.flashTool : tool
-    if (this.weapon && this.tool === want && this.weapon.parent) return
-    if (this.weapon) this.weapon.parent?.remove(this.weapon)
+    if (this.weapon && this.tool === want) return
+    if (this.weapon) this.holder.remove(this.weapon)
     this.tool = want
     this.weapon = weaponFor(this.assets, this.hero, want)
-    const parent = this.hand ?? this.rig
-    parent.add(this.weapon)
-    counterScale(this.weapon, parent)
+    // weaponFor turns a tool to a bone frame; in the fist the shaft stands up through the grip, head up and a
+    // little forward.
+    this.weapon.position.set(0, 0, 0)
+    this.weapon.rotation.set(-0.35, 0, 0)
+    const inner = this.weapon.children[0]
+    if (inner) inner.rotation.set(0, inner.rotation.y, 0)
+    this.weapon.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (m.isMesh) {
+        m.castShadow = false
+        m.frustumCulled = false
+      }
+    })
+    this.holder.add(this.weapon)
   }
 
   /** Hold a gadget for a moment (the leaf blower during its ultimate). */
@@ -609,13 +616,27 @@ export class FirstPerson {
     this.hitStop = 0.07
   }
 
-  private rotate(bone: THREE.Object3D | null, axis: THREE.Vector3, angle: number) {
-    if (!bone || !angle) return
-    bone.quaternion.multiply(this.tmpQ.setFromAxisAngle(axis, angle))
+  /** Aim an arm: sleeve from the shoulder to the wrist, cuff at the wrist, the fist beyond it facing `fwd`. */
+  private place(i: number, wrist: THREE.Vector3, roll: number) {
+    const a = this.arms[i]
+    const d = this.tmpA.subVectors(wrist, a.shoulder)
+    const len = d.length()
+    d.normalize()
+    a.sleeve.position.copy(a.shoulder)
+    a.sleeve.quaternion.setFromUnitVectors(this.up, d)
+    a.sleeve.scale.set(1, len, 1)
+    a.cuff.position.copy(wrist).addScaledVector(d, -0.01)
+    a.cuff.quaternion.copy(a.sleeve.quaternion)
+    // The fist looks along the forearm (its -z down the arm), rolled about it.
+    a.hand.position.copy(wrist)
+    this.tmpB.copy(wrist).add(d)
+    this.tmpM.lookAt(wrist, this.tmpB, this.up)
+    a.hand.quaternion.setFromRotationMatrix(this.tmpM)
+    a.hand.rotateZ(roll)
   }
 
-  update(dt: number, moving: boolean, sprinting: boolean, blocking: boolean, drawing: number) {
-    if (!this.rig) return
+  update(dt: number, moving: boolean, sprinting: boolean, blocking: boolean, drawing: number, climbing = false) {
+    if (!this.enabled) return
     this.clock += dt
     if (this.flashTool && this.clock >= this.flashUntil) {
       this.flashTool = null
@@ -624,62 +645,71 @@ export class FirstPerson {
     if (this.umbrella) this.umbrella.visible = blocking
     this.hitStop = Math.max(0, this.hitStop - dt)
     const live = this.hitStop > 0 ? dt * 0.15 : dt
-    this.mixer?.update(live)
     this.bob += live * (sprinting ? 11 : 7) * (moving ? 1 : 0.3)
     this.block += ((blocking ? 1 : 0) - this.block) * Math.min(1, 12 * live)
     this.draw += (drawing - this.draw) * Math.min(1, 10 * live)
+    this.climb += ((climbing ? 1 : 0) - this.climb) * Math.min(1, 8 * live)
     // Swing curve: wind-up back and up, a fast strike down and across, then recovery.
-    let swingA = 0
-    let swingB = 0
+    let A = 0
+    let B = 0
     if (this.swing.t >= 0) {
       this.swing.t += live
       const s = this.swing
-      const k = s.heavy ? 1.4 : 1
+      const k = s.heavy ? 1.35 : 1
       if (s.t < s.up) {
         const u = s.t / s.up
-        swingA = -0.9 * u * k
-        swingB = 0.5 * u * k
+        A = -0.9 * u * k
+        B = 0.5 * u * k
       } else if (s.t < s.up + 0.12) {
         const u = (s.t - s.up) / 0.12
-        swingA = (-0.9 + 2.0 * u) * k
-        swingB = (0.5 - 1.1 * u) * k
+        A = (-0.9 + 2.0 * u) * k
+        B = (0.5 - 1.1 * u) * k
       } else if (s.t < s.up + s.down) {
         const u = (s.t - s.up - 0.12) / Math.max(0.05, s.down - 0.12)
-        swingA = 1.1 * (1 - u) * k
-        swingB = -0.6 * (1 - u) * k
+        A = 1.1 * (1 - u) * k
+        B = -0.6 * (1 - u) * k
       } else this.swing.t = -1
     }
-    let throwA = 0
+    let T = 0
     if (this.throwT >= 0) {
       this.throwT += live
       const t = this.throwT
-      throwA = t < 0.12 ? -t / 0.12 : t < 0.3 ? -1 + ((t - 0.12) / 0.18) * 1.8 : t < 0.6 ? 0.8 * (1 - (t - 0.3) / 0.3) : 0
+      T = t < 0.12 ? -t / 0.12 : t < 0.3 ? -1 + ((t - 0.12) / 0.18) * 1.8 : t < 0.6 ? 0.8 * (1 - (t - 0.3) / 0.3) : 0
       if (t > 0.6) this.throwT = -1
     }
-    // Layer the gestures on the animated pose (the mixer already set this frame's rotations).
-    this.rotate(this.upperR, this.axisZ, swingA * 0.8 + throwA * -0.9 - this.draw * 0.5)
-    this.rotate(this.upperR, this.axisY, swingB * 0.9)
-    this.rotate(this.lowerR, this.axisZ, swingA * 0.5 + throwA * -0.5 + this.block * -0.6)
-    this.rotate(this.upperL, this.axisZ, this.block * 0.7 + this.draw * 0.3)
-    this.rotate(this.lowerL, this.axisZ, this.block * 0.5)
-    // Pin the right hand into view (the pose moves it a little; the rest of the body follows).
-    if (this.hand) {
-      this.inner.updateMatrixWorld(true)
-      this.hand.getWorldPosition(this.tmpV)
-      this.group.worldToLocal(this.tmpV)
-      this.inner.position.x += 0.24 - this.tmpV.x
-      this.inner.position.y += -0.26 - this.tmpV.y
-      this.inner.position.z += -0.5 - this.tmpV.z
-    }
-    void this.head
-    const bobY = Math.sin(this.bob) * (moving ? 0.02 : 0.006)
-    const bobX = Math.cos(this.bob * 0.5) * (moving ? 0.012 : 0.003)
-    this.group.position.set(bobX, bobY - this.block * 0.05, this.hitStop > 0 ? 0.03 : 0)
+    const sway = Math.sin(this.bob) * (moving ? 0.018 : 0.006)
+    const swayX = Math.cos(this.bob * 0.5) * (moving ? 0.012 : 0.004)
+    const bl = this.block
+    const cl = this.climb
+    const climbPhase = Math.sin(this.clock * 7)
+    // Right hand: rest low right, raised and crossed for a block, carried back and over for a swing.
+    const right = new THREE.Vector3(0.25 + swayX, -0.3 + sway, -0.5)
+    right.x += B * 0.22 - bl * 0.15 - this.draw * 0.04
+    right.y += -A * 0.11 + Math.max(0, -A) * 0.12 + bl * 0.13 + T * -0.05 + cl * (0.32 + climbPhase * 0.12)
+    right.z += -Math.max(0, A) * 0.08 + T * 0.14 + cl * 0.05
+    // Left hand: off the side, comes up to guard or to steady the swing, reaches for rungs on a ladder.
+    const left = new THREE.Vector3(-0.27 + swayX, -0.34 + sway * 0.8, -0.46)
+    left.x += bl * 0.16 + this.draw * 0.06 + Math.max(0, A) * 0.05
+    left.y += bl * 0.15 + this.draw * 0.05 + cl * (0.32 - climbPhase * 0.12)
+    left.z += -this.draw * 0.08 + cl * 0.05
+    this.place(0, right, 0.15 + B * 0.4 - bl * 1.1)
+    this.place(1, left, -0.25 + bl * 1.0)
+    // The tool tilts with the swing (back on the wind-up, through on the strike) and goes flat to block.
+    this.holder.rotation.set(A * 0.85 - T * 0.4, 0, B * 0.5 + bl * 1.25)
+    this.holder.visible = cl < 0.5
+    this.group.position.set(0, -bl * 0.01, this.hitStop > 0 ? 0.006 : 0)
     this.group.rotation.z = Math.sin(this.bob * 0.5) * 0.01 * (moving ? 1 : 0)
   }
 
   dispose() {
-    this.mixer?.stopAllAction()
+    // Materials and geometries are owned here.
+    this.inner.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (m.isMesh && this.arms.some((a) => a.sleeve === m || a.cuff === m || a.hand.children.includes(m))) {
+        m.geometry.dispose()
+        ;(m.material as THREE.Material).dispose()
+      }
+    })
   }
 }
 

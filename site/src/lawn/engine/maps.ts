@@ -50,9 +50,10 @@ export const MAPS: Record<MapId, MapInfo> = {
       night: { sky: '#0b1430', horizon: '#2a3a6a', sun: '#8aa5ff', fog: '#101a3a', ambient: 0.28, grass: '#2b5a24', road: '#23262e', path: '#5f5a48', snow: false, houseThemes: ['lemon', 'mint'] },
     },
     road: { z0: 28, z1: 36 },
+    // Houses sit a quarter metre off the 0.5 m nav grid so their 1 m doorways centre on a grid cell.
     houses: [
-      { ox: 34, oz: 16, dir: 1 },
-      { ox: 34, oz: 48, dir: -1 },
+      { ox: 34.25, oz: 15.25, dir: 1 },
+      { ox: 34.25, oz: 48.75, dir: -1 },
     ],
   },
   snowline: {
@@ -67,8 +68,8 @@ export const MAPS: Record<MapId, MapInfo> = {
     },
     road: { z0: 28, z1: 36 },
     houses: [
-      { ox: 34, oz: 16, dir: 1 },
-      { ox: 34, oz: 48, dir: -1 },
+      { ox: 34.25, oz: 15.25, dir: 1 },
+      { ox: 34.25, oz: 48.75, dir: -1 },
     ],
   },
 }
@@ -102,24 +103,24 @@ export function buildWorld(mapId: MapId, layouts: [LayoutId, LayoutId], themes: 
 
   // Picket fences along both lawns, with a gap for the path to the front door.
   for (const h of houses) {
-    const zf = h.oz + h.dir * 11 // fence line 11 m in front of the house centre (the lawn edge by the sidewalk)
+    const zf = h.oz + h.dir * 12 // fence line 12 m in front of the house centre (the lawn edge by the sidewalk)
     for (let x = 18; x < 50; x += 2) {
-      if (Math.abs(x + 1 - (h.ox + h.dir * 0.75)) < 1.2) continue
+      if (Math.abs(x + 1 - h.ox) < 1.2) continue
       prop(snow ? 'snowfence' : 'fence', x + 1, zf, 2, 0.2, 1.0, 0, 30)
     }
     // Side fences.
-    for (let k = 0; k < 7; k++) {
+    for (let k = 0; k < 8; k++) {
       prop(snow ? 'snowfence' : 'fence', 18, h.oz + h.dir * (k * 2 - 1), 0.2, 2, 1.0, Math.PI / 2, 30)
       prop(snow ? 'snowfence' : 'fence', 50, h.oz + h.dir * (k * 2 - 1), 0.2, 2, 1.0, Math.PI / 2, 30)
     }
     prop('mailbox', h.ox + h.dir * 2.4, zf + h.dir * 0.6, 0.4, 0.4, 1.2, h.dir > 0 ? 0 : Math.PI)
-    prop('hedge', h.ox - h.dir * 5, h.oz + h.dir * 7.5, 3, 1, 1.1)
-    prop('bbq', h.ox - h.dir * 9, h.oz - h.dir * 2, 0.9, 0.7, 1.2, 0, 40)
-    prop('shed', h.ox + h.dir * 12.5, h.oz - h.dir * 4, 2.4, 2.4, 2.4, 0)
-    prop('gnome', h.ox - h.dir * 3, h.oz + h.dir * 9, 0.4, 0.4, 0.6, 0, 0, false)
-    prop('gnome', h.ox + h.dir * 4.5, h.oz + h.dir * 8.2, 0.4, 0.4, 0.6, 0, 0, false)
-    prop('tree', h.ox - h.dir * 12, h.oz + h.dir * 8, 1.0, 1.0, 6, 0)
-    prop('tree', h.ox + h.dir * 13, h.oz + h.dir * 6, 1.0, 1.0, 6, 0)
+    prop('hedge', h.ox - h.dir * 5, h.oz + h.dir * 9.9, 3, 1, 1.1)
+    prop('bbq', h.ox - h.dir * 10.6, h.oz - h.dir * 3, 0.9, 0.7, 1.2, 0, 40)
+    prop('shed', h.ox + h.dir * 14.4, h.oz - h.dir * 4, 2.4, 2.4, 2.4, 0)
+    prop('gnome', h.ox - h.dir * 3, h.oz + h.dir * 10.6, 0.4, 0.4, 0.6, 0, 0, false)
+    prop('gnome', h.ox + h.dir * 4.5, h.oz + h.dir * 9.6, 0.4, 0.4, 0.6, 0, 0, false)
+    prop('tree', h.ox - h.dir * 12.5, h.oz + h.dir * 8.5, 1.0, 1.0, 6, 0)
+    prop('tree', h.ox + h.dir * 14.2, h.oz + h.dir * 8, 1.0, 1.0, 6, 0)
   }
   // Street furniture: power poles with lines, parked cars, the cul-de-sac turnaround.
   for (const x of [10, 26, 42, 58]) prop('pole', x, 27.3, 0.35, 0.35, 8.5)

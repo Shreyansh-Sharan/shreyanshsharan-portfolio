@@ -120,8 +120,10 @@ export class Nav {
       return
     }
     c.y = floor
-    // Body band above the floor: anything solid there blocks (breakable things become a cost).
-    const bb: Box = { x0: x - 0.34, y0: floor + 0.6, z0: z - 0.34, x1: x + 0.34, y1: floor + 1.6, z1: z + 0.34 }
+    // Body band above the floor: anything solid there blocks (breakable things become a cost). It is a little narrower
+    // than a body so a 1 m doorway whose jambs fall on cell edges still has a walkable cell in it (bodies slide past
+    // the jambs).
+    const bb: Box = { x0: x - 0.24, y0: floor + 0.6, z0: z - 0.24, x1: x + 0.24, y1: floor + 1.6, z1: z + 0.24 }
     let blocker: Piece | null = null
     let hard = false
     for (const p of sim.hash.query(bb, this.tmp)) {

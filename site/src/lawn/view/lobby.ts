@@ -13,6 +13,9 @@ import type { Piece } from '../engine/pieces'
 import type { HouseTheme } from '../engine/progress'
 import type { Quality } from '../engine/quality'
 import { Actor } from './actors'
+import { bakeEnvironment } from './atmosphere'
+import { indoorAmbient } from './housemats'
+import { MOODS } from './moods'
 import { World, texturesSettled } from './world'
 
 export type LobbyMode = 'house' | 'hero'
@@ -28,10 +31,10 @@ export interface HeroSpec {
 
 /** Pieces that make up the outside shell of a floor (hidden in the cutaway). */
 const SHELL = new Set(['wall', 'sill', 'window', 'door', 'header:window', 'header:door', 'header:frontdoor', 'garagedoor', 'header:garage'])
-const ROOF = new Set(['roof', 'attic', 'parapet', 'garageroof'])
-/** The house's footprint centre (main block x -6..6 plus the garage to x 10; balcony to z 6.5). */
-const CX = 2
-const CZ = 0.6
+const ROOF = new Set(['chimney'])
+/** The house's footprint centre (main block x -7.5..7.5 plus the garage to x 12; porch steps to z 8.5). */
+const CX = 2.25
+const CZ = 1.2
 const GROUND = '#ff8a2b'
 const UPSTAIRS = '#ffd93b'
 /** Marker size as a fraction of the view height. */
@@ -152,7 +155,12 @@ export class LobbyStage {
     this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.12
+    this.renderer.toneMappingExposure = MOODS.sunny.exposure
+    // The match's sunny image-based light, so paint, brick and shingles read the same as on the street.
+    const env = bakeEnvironment(this.renderer, MOODS.sunny, '#5f7f3f')
+    this.houseScene.environment = env
+    this.houseScene.environmentIntensity = MOODS.sunny.envIntensity
+    this.owned.push(env)
     this.canvas = this.renderer.domElement
     this.canvas.className = 'lw-3dcanvas'
     this.canvas.addEventListener('pointerdown', this.onDown)
@@ -288,28 +296,24 @@ export class LobbyStage {
 
   private buildHouseStage() {
     const s = this.houseScene
-    const hemi = new THREE.HemisphereLight('#eef6ff', '#b9a98a', 1.25)
-    const sun = new THREE.DirectionalLight('#fff2d6', 2.1)
+    const m = MOODS.sunny
+    const hemi = new THREE.HemisphereLight(m.hemiSky, m.hemiGround, m.hemiIntensity + 0.15)
+    const sun = new THREE.DirectionalLight(m.sunColour, m.sunIntensity)
     sun.position.set(14, 22, 16)
     sun.castShadow = this.quality.shadows
-    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.mapSize.set(2048, 2048)
     const sc = sun.shadow.camera
     sc.left = sc.bottom = -15
     sc.right = sc.top = 15
     sc.near = 5
     sc.far = 70
-    sun.shadow.bias = -0.0006
+    sun.shadow.bias = -0.0005
     sun.shadow.normalBias = 0.03
-    sun.shadow.radius = 4
-    const fill = new THREE.DirectionalLight('#cfe2ff', 0.55)
+    sun.shadow.radius = 3
+    const fill = new THREE.DirectionalLight('#cfe2ff', 0.35)
     fill.position.set(-16, 10, -8)
     s.add(hemi, sun, sun.target, fill)
-    // Warm room lights so the cutaway reads.
-    for (const [x, y, z] of [[-3, 2.5, 0], [4, 2.5, 0], [0, 5.7, 0]]) {
-      const l = new THREE.PointLight('#fff1dc', 7, 9, 1.4)
-      l.position.set(x - CX, y, z - CZ)
-      this.pivot.add(l)
-    }
+    // The house's own interior lamps light the cutaway (see shell.ts).
     s.add(this.pivot)
     // The diorama: a round lawn on a soil plinth, with the front path, the driveway, a mailbox, gnomes and a hedge.
     const loader = new THREE.TextureLoader()
@@ -342,10 +346,10 @@ export class LobbyStage {
       this.owned.push(geo, m.material as THREE.Material)
       return m
     }
-    const pathLen = Math.sqrt(R * R - 1.6) - 4.5 + CZ - 0.3
-    const driveZ0 = 1.5
-    const driveLen = Math.sqrt(R * R - 60) - driveZ0 + CZ - 0.2
-    this.pivot.add(plinth, walk(1.4, pathLen, 0.75, 4.5 + pathLen / 2, '#ffffff'), walk(3.4, driveLen, 8, driveZ0 + driveLen / 2, '#e6e0d6'))
+    const pathLen = Math.sqrt(R * R - CX * CX) - 8.45 + CZ - 0.3
+    const driveZ0 = 1.65
+    const driveLen = Math.sqrt(R * R - 57) - driveZ0 + CZ - 0.2
+    this.pivot.add(plinth, walk(1.4, pathLen, 0, 8.45 + pathLen / 2, '#ffffff'), walk(3.4, driveLen, 9.75, driveZ0 + driveLen / 2, '#e6e0d6'))
     this.owned.push(plinthGeo, grass, soil)
     const prop = (name: string, x: number, z: number, yaw = 0, scale = 1) => {
       const o = instance(this.assets, name)
@@ -359,12 +363,12 @@ export class LobbyStage {
       })
       this.pivot.add(o)
     }
-    prop('mailbox', 2.4, 10.6)
-    prop('gnome', -3, 8.6, 0.4)
-    prop('gnome', 4.6, 7.8, -0.5)
-    for (let i = 0; i < 3; i++) prop('bush', -6.4 + i, 7.2)
-    prop('bush', 11.2, -3.5, 0.6, 1.2)
-    prop('bush', -8.2, -2.5, 1.2, 1.1)
+    prop('mailbox', 2.4, 11.4)
+    prop('gnome', -3, 9.6, 0.4)
+    prop('gnome', 4.6, 9.4, -0.5)
+    for (let i = 0; i < 3; i++) prop('bush', -6.4 + i, 9.4)
+    prop('bush', 13.0, -4.0, 0.6, 1.2)
+    prop('bush', -9.4, -3.0, 1.2, 1.1)
     this.markerGroup.renderOrder = 20
     this.pivot.add(this.markerGroup)
   }
@@ -385,7 +389,8 @@ export class LobbyStage {
     const first = !this.world
     const map: MapInfo = { ...MAPS.culdesac, houses: [{ ox: 0, oz: 0, dir: 1 }] }
     const info = buildHouse(0, 0, 0, 1, { layout: spec.layout, theme: spec.theme })
-    const world = new World(this.assets, map, { ...MAPS.culdesac.theme.day, snow: false }, [spec.theme, spec.theme], false, this.quality.shadows, false)
+    indoorAmbient.value = MOODS.sunny.indoor
+    const world = new World(this.assets, map, { ...MAPS.culdesac.theme.day, snow: false }, [spec.theme, spec.theme], MOODS.sunny, this.quality, false)
     world.addPieces(info.pieces)
     world.group.position.set(-CX, 0, -CZ)
     // Swap in the same frame so changing paint or layout never flashes an empty lawn.
@@ -411,6 +416,7 @@ export class LobbyStage {
     this.shell = []
     this.roof = []
     const views = this.world!.views
+    this.roof.push(...this.world!.roofs)
     for (const p of pieces) {
       const v = views.get(p.id)
       if (!v) continue
@@ -419,9 +425,9 @@ export class LobbyStage {
         continue
       }
       if (!SHELL.has(p.model) || p.inside) continue
-      const garage = p.x > 6.05
-      const cx = garage ? 8 : 0
-      const cz = garage ? -1.5 : 0
+      const garage = p.x > 7.55
+      const cx = garage ? 9.75 : 0
+      const cz = garage ? -2 : 0
       const along = p.w >= p.d
       const nx = along ? 0 : Math.sign(p.x - cx)
       const nz = along ? Math.sign(p.z - cz) : 0
@@ -455,8 +461,8 @@ export class LobbyStage {
   private placeHouseCamera() {
     const cam = this.houseCam
     const t = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))
-    // Fit the ~28 m wide diorama and the ~10 m tall house in either orientation.
-    const d = Math.max(15.4 / (t * cam.aspect), 10.4 / t)
+    // Fit the ~28 m wide diorama and the ~10.6 m tall house (to the chimney) in either orientation.
+    const d = Math.max(15.6 / (t * cam.aspect), 12.4 / t)
     const el = 0.5
     cam.position.set(0, 1.9 + Math.sin(el) * d, Math.cos(el) * d)
     cam.lookAt(0, 1.6, 0)
