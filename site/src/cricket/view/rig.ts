@@ -1,9 +1,10 @@
-// One cricketer on screen: one of the two shared rigged bodies (Mixamo-style skeleton) in painted team kit, with
-// pads, gloves, the helmet or a cap, a bat, the library clips retargeted onto this skeleton (idle, walk, run,
-// throw, pick up...) and a procedural layer on top for everything cricket-specific (strokes, bowling actions,
-// keeping, catches, dives, umpire signals). The procedural layer works in "character space" (the body's own
-// frame: +Z forward, +X its left, y up): limbs are placed with two-bone IK and the spine is bent and twisted, so
-// poses are authored as positions (feet, hands, bat grip) rather than raw bone angles.
+// One cricketer on screen: one of the rigged bodies (two fielders, the batter in helmet, pads and gloves, the keeper,
+// the umpire; one skeleton layout) in painted team kit with name and number decals, a bat, the library clips
+// retargeted onto each body's skeleton (idle, walk, run, throw, pick up...) and a procedural layer on top for
+// everything cricket-specific (strokes, bowling actions, keeping, catches, dives, umpire signals). The procedural
+// layer works in "character space" (the body's own frame: +Z forward, +X its left, y up): limbs are placed with
+// two-bone IK and the spine is bent and twisted, so poses are authored as positions (feet, hands, bat grip) rather
+// than raw bone angles.
 //
 // Motion continuity: every change of pose (a clip to a stroke, a stroke to running, one stroke to another) is a
 // crossfade at bone level from a snapshot of the last displayed pose, so nothing ever snaps; planted feet are locked
@@ -11,9 +12,8 @@
 // skeleton is posed without recursive matrix updates (parents before children, one final pass).
 import * as THREE from 'three'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import type { CricketAssets } from '../assets'
-import { KitGeometry } from './props'
-import type { Kits } from './kit'
+import type { BodyKind, CricketAssets } from '../assets'
+import type { KitPaint, Kits, ShirtSpec } from './kit'
 
 export type KitKind = 'batter' | 'fielder' | 'keeper' | 'umpire' | 'bowler'
 
@@ -29,7 +29,7 @@ export interface Identity {
   teamName: string
   surname: string
   number: number
-  /** 0 or 1: which of the two faces. */
+  /** 0 or 1: which of the two fielders' bodies. */
   body: number
   skin: number
   /** Left-handed (the body is drawn mirrored). */
@@ -71,7 +71,8 @@ export interface ProcPose {
   noLock?: boolean
 }
 
-/** Height of the ankle (foot bone) when the foot is flat on the ground: poses put feet at this y. */
+/** Height of the ankle (foot bone) when the foot is flat on the ground: poses put feet at this y (each body shifts
+ *  it by its own ankle height). */
 export const ANKLE = 0.126
 
 const BONES = ['_rootJoint', 'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'RightUpLeg', 'RightLeg', 'RightFoot'] as const
@@ -126,6 +127,7 @@ const _kneeB = new THREE.Vector3()
 const _elbow = new THREE.Vector3()
 const _hdir = new THREE.Vector3()
 const _footAim = new THREE.Vector3()
+const _footT = new THREE.Vector3()
 const _hipQ = new THREE.Quaternion()
 const _spineQ = new THREE.Quaternion()
 const _wristQ = new THREE.Quaternion()
@@ -154,25 +156,11 @@ const NEG_X = new THREE.Vector3(-1, 0, 0)
 const DEG = Math.PI / 180
 const IDENTITY_Q = new THREE.Quaternion()
 
-/** Multipliers over the face texture and arm colour: as shipped, warm, tan, deep. */
-const SKIN_TONES = ['#ffffff', '#e6c4a6', '#c4946c', '#8a5a3c']
+/** Multipliers over the modelled skin: as modelled, warm, tan, deep. */
+const SKIN_TONES = ['#ffffff', '#f2dccb', '#dcb898', '#b48a6c']
 
 /** Ease in and out (smoothstep) for crossfades. */
 const easeInOut = (x: number) => x * x * (3 - 2 * x)
-
-let sharedGeo: Record<string, THREE.BufferGeometry> | null = null
-function kitGeo() {
-  if (!sharedGeo)
-    sharedGeo = {
-      padL: KitGeometry.pad(1),
-      padR: KitGeometry.pad(-1),
-      glove: KitGeometry.glove(),
-      kglove: KitGeometry.keeperGlove(),
-      cap: KitGeometry.cap(),
-      hat: KitGeometry.hat(),
-    }
-  return sharedGeo
-}
 
 /** One foot's ground lock: where it is planted in the world, and a shuffle step in progress. */
 interface FootLock {
@@ -208,8 +196,18 @@ export class Cricketer {
   private actions = {} as Record<ClipName, THREE.AnimationAction>
   private clip: ClipName | null = null
   bat: THREE.Object3D | null = null
-  /** Small head parts hidden at distance (eyes, teeth, glasses). */
+  /** Shirt decals, hidden at distance. */
   private detail: THREE.Object3D[] = []
+  /** The shirt decals' material and what they print; flipped with the body (a batter of the other hand). */
+  private decalMat: THREE.MeshStandardMaterial | null = null
+  private decalSpec: ShirtSpec | null = null
+  private decalMirror = false
+  private kits: Kits | null = null
+  /** The full body and its low-detail copy (distant players). */
+  private fullMesh: THREE.Object3D | null = null
+  private lodMesh: THREE.Object3D | null = null
+  /** This body's ankle height above the poses' ANKLE. */
+  private ankleDy = 0
   private rootInv = new THREE.Matrix4()
   private clipQ: THREE.Quaternion[] = POSED.map(() => new THREE.Quaternion())
   private clipPelvis = new THREE.Vector3()
@@ -240,7 +238,9 @@ export class Cricketer {
 
   constructor(assets: CricketAssets, kits: Kits, kind: KitKind, colors: KitColors, who: Identity) {
     this.kind = kind
-    this.model = cloneSkinned(assets.bodies[who.body % assets.bodies.length])
+    const bodyKind: BodyKind = kind === 'batter' ? 'batter' : kind === 'keeper' ? 'keeper' : kind === 'umpire' ? 'umpire' : who.body % 2 ? 'fielderB' : 'fielderA'
+    const body = assets.bodies[bodyKind]
+    this.model = cloneSkinned(body.scene)
     this.root.add(this.model)
     this.model.traverse((o) => {
       const b = o as THREE.Bone
@@ -250,12 +250,6 @@ export class Cricketer {
         m.castShadow = true
         m.receiveShadow = false
         m.frustumCulled = false
-        const mat = (m.material as THREE.Material).name
-        if (/Eye|Teeth|Glasses/.test(mat)) {
-          this.detail.push(m)
-          // Their shadows are never visible.
-          m.castShadow = false
-        }
       }
     })
     for (const n of BONES) this.bindQ[n] = this.bones[n].quaternion.clone()
@@ -271,12 +265,13 @@ export class Cricketer {
     this.len.calf = this.bones.LeftFoot.position.length()
     const footDir = new THREE.Vector3(0, 1, 0).applyQuaternion(this.charQuatOf(this.bones.LeftFoot, _headQ))
     this.footPitch = { c: Math.hypot(footDir.x, footDir.z), s: -footDir.y }
+    this.ankleDy = this.charPosOf(this.bones.LeftFoot, new THREE.Vector3()).y - ANKLE
 
-    this.applyKit(assets, kits, kind, colors, who)
+    this.applyKit(assets, bodyKind, kits, kind, colors, who)
 
     this.mixer = new THREE.AnimationMixer(this.model)
     for (const [k, name] of Object.entries(CLIP_NAMES) as [ClipName, string][]) {
-      const c = assets.clips[name]
+      const c = body.clips[name]
       if (!c) continue
       const a = this.mixer.clipAction(c)
       if (ONE_SHOT.includes(k)) {
@@ -288,103 +283,73 @@ export class Cricketer {
     this.playClip('idle', 0)
   }
 
-  private applyKit(assets: CricketAssets, kits: Kits, kind: KitKind, c: KitColors, who: Identity) {
+  private applyKit(assets: CricketAssets, bodyKind: BodyKind, kits: Kits, kind: KitKind, c: KitColors, who: Identity) {
+    const body = assets.bodies[bodyKind]
     const umpire = kind === 'umpire'
-    const tone = new THREE.Color(SKIN_TONES[who.skin % SKIN_TONES.length])
-    const shirtTex = umpire
-      ? kits.shirt({ primary: '#f1f1ee', trim: '#1f2937', chest: '', back: '', number: '', ink: '#1f2937' })
-      : kits.shirt({
-          primary: c.whites ? '#f3f1ea' : c.shirt,
-          trim: c.whites ? c.shirt : c.trim,
-          chest: who.teamName,
-          back: who.surname,
-          number: String(who.number),
-          ink: c.whites ? c.shirt : c.trim,
-          mirror: who.left,
-        })
-    const trouserTex = umpire ? kits.trousers('#202634', '#2d3446') : kits.trousers(c.whites ? '#eeebe2' : c.trousers, c.whites ? '#d6d3cb' : c.trim)
-    const shirt = new THREE.MeshStandardMaterial({ map: shirtTex, roughness: c.whites ? 0.78 : 0.65, metalness: 0 })
-    const trousers = new THREE.MeshStandardMaterial({ map: trouserTex, roughness: 0.8, metalness: 0 })
-    this.ownMaterials.push(shirt, trousers)
+    const paint: KitPaint = {
+      shirt: c.whites ? '#f3f1ea' : c.shirt,
+      trim: c.whites ? c.shirt : c.trim,
+      trousers: c.whites ? '#eeebe2' : c.trousers,
+      // The batter's helmet shell, everyone else's cap.
+      headwear: kind === 'batter' ? (c.whites ? '#1e293b' : c.trim === '#f8fafc' ? c.shirt : c.trousers) : c.whites ? c.shirt : c.trousers,
+      pads: c.whites || kind === 'keeper' ? '#f5f5f0' : c.shirt,
+      gloves: kind === 'keeper' ? '#e5e7eb' : c.whites ? '#f5f5f0' : c.trim,
+      skin: SKIN_TONES[who.skin % SKIN_TONES.length],
+    }
+    // The full body and its low-detail copy share one kit material.
+    let mat: THREE.Material | null = null
+    let found: THREE.SkinnedMesh | null = null
     this.model.traverse((o) => {
-      const m = o as THREE.Mesh
-      if (!m.isMesh) return
-      const src = m.material as THREE.MeshStandardMaterial
-      const name = src.name
-      if (name === 'Wolf3D_Outfit_Top') m.material = shirt
-      else if (name === 'Wolf3D_Outfit_Bottom') m.material = trousers
-      else if (name === 'Wolf3D_Skin' || name === 'Wolf3D_Body') {
-        const skin = src.clone()
-        skin.color.copy(src.color).multiply(tone)
-        this.ownMaterials.push(skin)
-        m.material = skin
-      } else if (name === 'Wolf3D_Glasses') m.visible = kind === 'fielder' && who.number % 3 === 0
+      const m = o as THREE.SkinnedMesh
+      if (!m.isSkinnedMesh) return
+      if (!mat) {
+        mat = kits.bodyMaterial(body, m.material as THREE.MeshStandardMaterial, paint)
+        this.ownMaterials.push(mat)
+      }
+      m.material = mat
+      if (m.name === 'BodyLOD') {
+        this.lodMesh = m
+        m.visible = false
+      } else if (!found) {
+        found = m
+        this.fullMesh = m
+      }
     })
-    const geo = kitGeo()
-    const padMat = new THREE.MeshStandardMaterial({ color: c.whites || kind === 'keeper' ? '#f5f5f0' : c.shirt, roughness: 0.6 })
-    const gloveMat = new THREE.MeshStandardMaterial({ color: kind === 'keeper' ? '#e5e7eb' : c.whites ? '#f5f5f0' : c.trim, roughness: 0.6 })
-    const capMat = new THREE.MeshStandardMaterial({ color: c.whites ? c.shirt : c.trousers, roughness: 0.7 })
-    this.ownMaterials.push(padMat, gloveMat, capMat)
-    const B = this.bones
-    const at = (b: THREE.Bone) => this.charPosOf(b, new THREE.Vector3())
-    const attach = (bone: THREE.Bone, obj: THREE.Object3D, pos: THREE.Vector3, rot?: THREE.Euler) => {
-      obj.position.copy(pos)
-      if (rot) obj.rotation.copy(rot)
-      this.model.add(obj)
-      obj.updateMatrixWorld(true)
-      bone.attach(obj)
-      return obj
-    }
-    const mesh = (g: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => {
-      const m = new THREE.Mesh(g, mat)
-      m.castShadow = shadow
-      return m
-    }
-    if (kind === 'batter' || kind === 'keeper') {
-      // Pads strapped to the shins: authored for a shin at x ±0.1, so slide to this body's legs.
-      for (const s of [1, -1] as const) {
-        const knee = at(s > 0 ? B.LeftLeg : B.RightLeg)
-        attach(s > 0 ? B.LeftLeg : B.RightLeg, mesh(s > 0 ? geo.padL : geo.padR, padMat), new THREE.Vector3(knee.x - s * 0.1, 0.03, -0.045))
+    const mesh = found as THREE.SkinnedMesh | null
+    if (mesh && !umpire) {
+      const geo = kits.decalGeometry(body, mesh)
+      if (geo) {
+        const ink = c.whites ? c.shirt : c.trim
+        this.decalSpec = { chest: who.teamName, back: who.surname, number: String(who.number), ink, mirror: who.left }
+        this.decalMirror = who.left
+        this.kits = kits
+        const tex = kits.decal(this.decalSpec)
+        const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+        this.ownMaterials.push(mat)
+        this.decalMat = mat
+        const decal = new THREE.SkinnedMesh(geo, mat)
+        decal.frustumCulled = false
+        decal.castShadow = false
+        decal.renderOrder = 1
+        mesh.parent!.add(decal)
+        decal.bind(mesh.skeleton, mesh.bindMatrix)
+        this.detail.push(decal)
       }
     }
-    const handPos = (b: THREE.Bone, back: number) => {
-      // Along the fingers from the wrist.
-      const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(this.charQuatOf(b, _headQ))
-      return at(b).addScaledVector(dir, back)
-    }
     if (kind === 'batter') {
-      attach(B.LeftHand, mesh(geo.glove, gloveMat, false), handPos(B.LeftHand, 0.07))
-      attach(B.RightHand, mesh(geo.glove, gloveMat, false), handPos(B.RightHand, 0.07))
-      const helmet = assets.helmet.clone()
-      const shellMat = new THREE.MeshStandardMaterial({ color: c.whites ? '#1e293b' : c.trim === '#f8fafc' ? c.shirt : c.trousers, roughness: 0.35, metalness: 0.15 })
-      const grilleMat = new THREE.MeshStandardMaterial({ color: '#b8c0cc', metalness: 0.85, roughness: 0.3 })
-      this.ownMaterials.push(shellMat, grilleMat)
-      helmet.traverse((o) => {
-        const m = o as THREE.Mesh
-        if (!m.isMesh) return
-        m.material = m.name === 'grille' ? grilleMat : shellMat
-        m.castShadow = m.name !== 'grille'
-      })
-      attach(B.Head, helmet, at(B.Head).add(new THREE.Vector3(0, 0.115, 0.012)))
       this.bat = assets.bat.clone()
       this.bat.traverse((o) => ((o as THREE.Mesh).castShadow = true))
       this.root.add(this.bat)
-    } else if (kind === 'keeper') {
-      attach(B.LeftHand, mesh(geo.kglove, gloveMat, false), handPos(B.LeftHand, 0.08))
-      attach(B.RightHand, mesh(geo.kglove, gloveMat, false), handPos(B.RightHand, 0.08))
-      attach(B.Head, mesh(geo.cap, capMat), at(B.Head).add(new THREE.Vector3(0, 0.165, -0.005)))
-    } else if (kind === 'umpire') {
-      const hatMat = new THREE.MeshStandardMaterial({ color: '#f5f5f0', roughness: 0.8 })
-      this.ownMaterials.push(hatMat)
-      attach(B.Head, mesh(geo.hat, hatMat), at(B.Head).add(new THREE.Vector3(0, 0.19, -0.005)))
-    } else {
-      attach(B.Head, mesh(geo.cap, capMat), at(B.Head).add(new THREE.Vector3(0, 0.165, -0.005)))
     }
   }
 
-  /** Hide the small head parts (distant fielders). */
-  setLod(low: boolean) {
-    for (const o of this.detail) o.visible = !low
+  /** Distant players: the low-detail body (`low`), and no shirt decals (`noDecals`). */
+  setLod(low: boolean, noDecals = low) {
+    if (this.lodMesh && this.fullMesh && this.lodMesh.visible !== low) {
+      this.lodMesh.visible = low
+      this.fullMesh.visible = !low
+    }
+    for (const o of this.detail) o.visible = !noDecals
   }
 
   playClip(name: ClipName, fade = 0.2, timeScale = 1) {
@@ -488,6 +453,12 @@ export class Cricketer {
     this.root.position.copy(pos)
     this.root.rotation.set(0, yaw, 0)
     this.root.scale.set(mirror ? -1 : 1, 1, 1)
+    if (this.decalMat && this.decalSpec && this.kits && mirror !== this.decalMirror) {
+      // The decals are pre-mirrored so they read right on a mirrored body.
+      this.decalMirror = mirror
+      this.decalSpec.mirror = mirror
+      this.decalMat.map = this.kits.decal(this.decalSpec)
+    }
     this.model.position.set(0, 0, 0)
     this.model.quaternion.identity()
     this.root.updateMatrix()
@@ -652,7 +623,7 @@ export class Cricketer {
       const toe = ((L ? pose.toeL : pose.toeR) ?? 0) * DEG
       const toeDir = _toe.set(Math.sin(toe), 0, Math.cos(toe))
       if (foot) {
-        const at = this.lockedFoot(s as 0 | 1, foot, lock && foot.y < ANKLE + 0.035, dt)
+        const at = this.lockedFoot(s as 0 | 1, _footT.copy(foot).setY(foot.y + this.ankleDy), lock && foot.y < ANKLE + 0.035, dt)
         const knee = (L ? pose.kneeL : pose.kneeR) ?? _knee.copy(toeDir).add(_kneeB.set(L ? 0.15 : -0.15, 0.1, 0))
         this.ik(thigh, calf, at, knee, this.len.thigh, this.len.calf)
       } else {

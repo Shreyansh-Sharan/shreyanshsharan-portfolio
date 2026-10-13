@@ -1,7 +1,9 @@
-// The venue: Shayan's low-poly Ekana stadium (CC BY) stretched to wrap the game's oval, with the game's own ground
-// (mowing stripes, pitch with creases and wear, the 30-yard circle, rope, ad boards, sight screens, big screen),
-// an instanced crowd sampled onto the model's terraces, floodlight glows at its towers, and sky and lighting for
-// day, dusk and night. Built once per match; the quality tier decides the crowd size and shadows.
+// The venue: a ring of grandstand sections (one model, instanced) round the game's oval with the pavilion square of
+// the wicket, a scoreboard in a gap of the ring, sight screens behind both ends, floodlight towers on the diagonals
+// and the pitch roller parked by the rope (all original models made for this project), the game's own ground
+// (mowing stripes, pitch with creases and wear, the 30-yard circle, rope, scrolling boundary boards), an instanced
+// crowd seated on the stands' seats, and sky and lighting for day, dusk and night. Built once per match; the quality
+// tier decides the crowd size and shadows.
 import * as THREE from 'three'
 import type { CricketAssets } from '../assets'
 import type { QualitySettings } from '../quality'
@@ -9,20 +11,21 @@ import type { PitchType, TimeOfDay } from '../sim/conditions'
 import { Geo } from '../sim/geo'
 import { Crowd, ringSeats } from './crowd'
 
+const Y_AXIS = new THREE.Vector3(0, 1, 0)
 const RX = Geo.BoundarySquare
 const RZ = Geo.BoundaryStraight
 
-/** The stadium model is a 95 m circle with its field inside r 26.5; stretch it round the 63 x 68 m boundary. */
-const VENUE_SCALE = new THREE.Vector3(2.95, 1.45, 3.15)
-/** The model's floodlight heads (model units, before scaling). */
-const TOWERS = [
-  [31, 20.6, 0],
-  [-31, 20.6, 0],
-  [15.5, 20.6, 26.9],
-  [-15.5, 20.6, 26.9],
-  [15.5, 20.6, -26.9],
-  [-15.5, 20.6, -26.9],
-]
+/** The stands' front edge, beyond the rope (m). */
+const STAND_AT = 12
+/** Stand sections are 40 m wide; spaced a little closer so neighbours overlap at the front. */
+const STAND_STEP = 37.5
+/** Where the pavilion and the scoreboard sit (ellipse angles: 0 down the ground towards +z, pi/2 square at +x). */
+const PAVILION_ANGLE = Math.PI / 2
+const SCOREBOARD_ANGLE = Math.PI * 1.32
+const TOWER_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75]
+const TOWER_AT = 36
+/** The boundary boards' line, beyond the rope (m). */
+const BOARDS_AT = 3.2
 
 export interface StadiumOptions {
   pitch: PitchType
@@ -34,6 +37,54 @@ export interface StadiumOptions {
 /** A point on an ellipse scaled from the boundary by `k` (and `extra` metres). */
 function ellipse(angle: number, extra = 0) {
   return new THREE.Vector3(Math.sin(angle) * (RX + extra), 0, Math.cos(angle) * (RZ + extra))
+}
+
+/** The yaw that turns a model's front (+Z) to face in from the ellipse at `angle` (along its inward normal). */
+function inwardYaw(angle: number, extra = 0) {
+  const nx = Math.sin(angle) / (RX + extra)
+  const nz = Math.cos(angle) / (RZ + extra)
+  return Math.atan2(-nx, -nz)
+}
+
+/**
+ * Ellipse angles for pieces `width` metres wide round the ellipse `extra` metres out, at most `step` metres apart,
+ * spread evenly through the free stretches between the given windows (centre angle, half-width in metres), so the
+ * pieces meet the buildings in the windows without gaps.
+ */
+function arcSlots(extra: number, step: number, skip: [number, number][], width = step) {
+  const N = 2048
+  const len: number[] = [0]
+  let prev = ellipse(0, extra)
+  for (let i = 1; i <= N; i++) {
+    const p = ellipse((i / N) * Math.PI * 2, extra)
+    len.push(len[i - 1] + p.distanceTo(prev))
+    prev = p
+  }
+  const total = len[N]
+  const angleAt = (d: number) => {
+    d = ((d % total) + total) % total
+    let i = 1
+    while (i < N && len[i] < d) i++
+    return ((i - 1 + (d - len[i - 1]) / Math.max(1e-6, len[i] - len[i - 1])) / N) * Math.PI * 2
+  }
+  const lenAt = (a: number) => len[Math.round(((((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * N)]
+  const out: number[] = []
+  if (!skip.length) {
+    const n = Math.ceil(total / step)
+    for (let k = 0; k < n; k++) out.push(angleAt((k / n) * total))
+    return out
+  }
+  const windows = skip.map(([a, half]) => [lenAt(a) - half, lenAt(a) + half]).sort((a, b) => a[0] - b[0])
+  for (let w = 0; w < windows.length; w++) {
+    const from = windows[w][1]
+    const to = w + 1 < windows.length ? windows[w + 1][0] : windows[0][0] + total
+    const free = to - from
+    if (free < width * 0.75) continue
+    const n = Math.max(1, Math.ceil((free - width) / step) + 1)
+    const gap = n > 1 ? (free - width) / (n - 1) : 0
+    for (let k = 0; k < n; k++) out.push(angleAt(n > 1 ? from + width / 2 + k * gap : from + free / 2))
+  }
+  return out
 }
 
 const SPONSORS = ['NORTHWIND AIR', 'KETTLE & CRUMB', 'ZENITH MOBILE', 'PINEWOOD BANK', 'ORBIT COLA', 'HALCYON TYRES', 'LUMEN ENERGY', 'GRAINFIELD', 'VOLT RIOT', 'BOGEY BRAWL', 'SKYLARK TRAVEL', 'IRONLEAF']
@@ -49,6 +100,9 @@ export class Stadium {
   private screenCanvas: HTMLCanvasElement
   private screenTex: THREE.CanvasTexture
   private opts: StadiumOptions
+  /** The venue materials, one per source material (lit for the time of day). */
+  private venueMats: Map<THREE.Material, THREE.MeshStandardMaterial>
+  private glow: THREE.Color
 
   constructor(assets: CricketAssets, opts: StadiumOptions) {
     this.opts = opts
@@ -93,20 +147,25 @@ export class Stadium {
     g.add(this.pitchStrip(assets))
     g.add(this.circleMarks())
     g.add(this.rope())
-    g.add(this.adBoards())
-    g.add(this.sightScreens(night))
-    const venue = this.venue(assets, night, dusk)
-    g.add(venue)
-    const seats = terraceSeats(assets.stadium, opts.quality.crowd, VENUE_SCALE)
-    this.crowd = new Crowd(seats, opts.colors, night)
+    this.venueMats = new Map()
+    this.glow = new THREE.Color(night ? '#2c3650' : dusk ? '#2a1c12' : '#000000')
+    g.add(this.adBoards(assets))
+    g.add(this.sightScreens(assets))
+    const standAngles = arcSlots(STAND_AT + 2, STAND_STEP, [
+      [PAVILION_ANGLE, 24],
+      [SCOREBOARD_ANGLE, 14],
+    ], 40)
+    g.add(this.stands(assets, standAngles))
+    g.add(this.buildings(assets))
+    this.crowd = new Crowd(standSeats(assets, standAngles, opts.quality.crowd), opts.colors, night)
     g.add(this.crowd.mesh)
     g.add(this.floodlightGlow(night))
     this.screenCanvas = document.createElement('canvas')
-    this.screenCanvas.width = 512
+    this.screenCanvas.width = 620
     this.screenCanvas.height = 256
     this.screenTex = new THREE.CanvasTexture(this.screenCanvas)
     this.screenTex.colorSpace = THREE.SRGBColorSpace
-    g.add(this.bigScreen())
+    g.add(this.bigScreen(assets))
     this.setScreen(['CRICKET', '', 'Welcome'])
   }
 
@@ -276,7 +335,7 @@ export class Stadium {
     return m
   }
 
-  private adBoards() {
+  private adBoards(assets: CricketAssets) {
     const c = document.createElement('canvas')
     c.width = 2048
     c.height = 64
@@ -304,12 +363,15 @@ export class Stadium {
     const uvs: number[] = []
     const idx: number[] = []
     let u = 0
-    const hgt = 0.95
+    // The ribbon is the boards' LED face: the board model's dark panel, a hair in front of it.
+    const face = assets.adBoardFace.length === 5 ? assets.adBoardFace : [-2.3, 0.12, 2.3, 0.99, -0.27]
+    const y0 = face[1]
+    const hgt = face[3]
     for (let i = 0; i <= n; i++) {
       const a = (i / n) * Math.PI * 2
-      const p = ellipse(a, 3.2)
-      if (i > 0) u += p.distanceTo(ellipse(((i - 1) / n) * Math.PI * 2, 3.2)) / 24
-      positions.push(p.x, 0, p.z, p.x, hgt, p.z)
+      const p = ellipse(a, BOARDS_AT)
+      if (i > 0) u += p.distanceTo(ellipse(((i - 1) / n) * Math.PI * 2, BOARDS_AT)) / 24
+      positions.push(p.x, y0, p.z, p.x, hgt, p.z)
       uvs.push(u, 0, u, 1)
       if (i < n) {
         const k = i * 2
@@ -324,72 +386,131 @@ export class Stadium {
     const night = this.opts.time === 'night'
     const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: night ? 0.9 : 0.35, side: THREE.DoubleSide, roughness: 0.6 }))
     this.boards.push(m)
-    return m
+    // The boards themselves (frames and legs), one every board length round the ribbon, faces on its line.
+    const g = new THREE.Group()
+    g.add(m)
+    const width = face[2] - face[0]
+    const angles = arcSlots(BOARDS_AT, width + 0.04, [])
+    const frames = new THREE.InstancedMesh(assets.adBoard.geometry, this.venueMaterial(assets.adBoard.material as THREE.Material), angles.length)
+    const q = new THREE.Quaternion()
+    const one = new THREE.Vector3(1, 1, 1)
+    const mat4 = new THREE.Matrix4()
+    angles.forEach((a, i) => {
+      const yaw = inwardYaw(a, BOARDS_AT)
+      // Origin at the board's front: its face sits `face[4]` behind it, 2 cm behind the ribbon.
+      const p = ellipse(a, BOARDS_AT).add(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(-face[4] - 0.02))
+      frames.setMatrixAt(i, mat4.compose(p, q.setFromAxisAngle(Y_AXIS, yaw), one))
+    })
+    frames.computeBoundingSphere()
+    frames.userData.shared = true
+    g.add(frames)
+    return g
   }
 
-  private sightScreens(night: boolean) {
+  private sightScreens(assets: CricketAssets) {
     const g = new THREE.Group()
     for (const end of [-1, 1]) {
-      const geo = new THREE.BoxGeometry(22, 9, 0.6)
-      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: night ? '#0b0d12' : '#111318', roughness: 0.9 }))
-      m.position.set(0, 4.5, end * (RZ + 7))
-      m.castShadow = false
-      g.add(m)
+      // Two screens side by side behind each end, faces towards the far stumps.
+      for (const side of [-1, 1]) {
+        const m = this.venueClone(assets.sightScreen)
+        m.position.set(side * 4.56, 0, end * (RZ + 5.5))
+        m.rotation.y = end > 0 ? Math.PI : 0
+        g.add(m)
+      }
     }
     return g
   }
 
-  /** The stadium model round the ground, lit for the time of day (its lamps glow after dark). */
-  private venue(assets: CricketAssets, night: boolean, dusk: boolean) {
-    const venue = assets.stadium.clone()
-    venue.scale.copy(VENUE_SCALE)
-    const glow = new THREE.Color(night ? '#2c3650' : dusk ? '#2a1c12' : '#000000')
-    venue.traverse((o) => {
-      const m = o as THREE.Mesh
+  /** A venue material for a model's material (shared per source): lit for the time of day. */
+  private venueMaterial(src: THREE.Material) {
+    const hit = this.venueMats.get(src)
+    if (hit) return hit
+    const night = this.opts.time === 'night'
+    const dusk = this.opts.time === 'dusk'
+    const mat = (src as THREE.MeshStandardMaterial).clone()
+    mat.metalness = Math.min(mat.metalness, 0.3)
+    mat.envMapIntensity = 0.6
+    const glow = this.glow
+    // The stands catch the floodlights at night (a flat lift on the surface colour).
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uGlow = { value: glow }
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uGlow;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * diffuseColor.rgb;')
+    }
+    mat.customProgramCacheKey = () => `venue-${night ? 'n' : dusk ? 'd' : 'y'}`
+    this.venueMats.set(src, mat)
+    return mat
+  }
+
+  /** A copy of a venue model with venue materials, no shadows (the shadow map only covers the field). */
+  private venueClone(src: THREE.Object3D) {
+    const o = src.clone()
+    o.traverse((c) => {
+      const m = c as THREE.Mesh
       if (!m.isMesh) return
-      const src = m.material as THREE.MeshStandardMaterial
-      const mat = src.clone()
-      mat.emissiveIntensity = night ? 2.5 : dusk ? 1.2 : 0
-      mat.roughness = 0.85
-      // The stands catch the floodlights at night (a flat lift on top of the lamp panels' emissive map).
-      mat.onBeforeCompile = (sh) => {
-        sh.uniforms.uGlow = { value: glow }
-        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uGlow;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * diffuseColor.rgb;')
-      }
-      mat.customProgramCacheKey = () => `venue-${night ? 'n' : dusk ? 'd' : 'y'}`
-      m.material = mat
+      m.material = this.venueMaterial(m.material as THREE.Material)
       m.castShadow = false
       m.receiveShadow = false
-      m.frustumCulled = false
+      m.userData.shared = true
     })
-    return venue
+    return o
+  }
+
+  /** The ring of stand sections, one instanced model. */
+  private stands(assets: CricketAssets, angles: number[]) {
+    const src = this.opts.quality.tier === 'low' ? assets.standLow : assets.stand
+    const m = new THREE.InstancedMesh(src.geometry, this.venueMaterial(src.material as THREE.Material), angles.length)
+    const q = new THREE.Quaternion()
+    const one = new THREE.Vector3(1, 1, 1)
+    const mat4 = new THREE.Matrix4()
+    angles.forEach((a, i) => m.setMatrixAt(i, mat4.compose(ellipse(a, STAND_AT), q.setFromAxisAngle(Y_AXIS, inwardYaw(a, STAND_AT)), one)))
+    m.computeBoundingSphere()
+    m.userData.shared = true
+    return m
+  }
+
+  /** The pavilion, floodlight towers and the roller. */
+  private buildings(assets: CricketAssets) {
+    const g = new THREE.Group()
+    const pav = this.venueClone(assets.pavilion)
+    pav.position.copy(ellipse(PAVILION_ANGLE, STAND_AT - 2))
+    pav.rotation.y = inwardYaw(PAVILION_ANGLE, STAND_AT)
+    g.add(pav)
+    for (const a of TOWER_ANGLES) {
+      const t = this.venueClone(assets.floodlight)
+      t.position.copy(ellipse(a, TOWER_AT))
+      t.rotation.y = inwardYaw(a, TOWER_AT)
+      g.add(t)
+    }
+    const roller = this.venueClone(assets.roller)
+    const ra = PAVILION_ANGLE + 0.42
+    roller.position.copy(ellipse(ra, BOARDS_AT + 3))
+    roller.rotation.y = inwardYaw(ra, BOARDS_AT) + Math.PI / 2
+    g.add(roller)
+    return g
   }
 
   private floodlightGlow(night: boolean) {
     const g = new THREE.Group()
     if (!night) return g
-    for (const [x, y, z] of TOWERS) {
+    for (const a of TOWER_ANGLES) {
       const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff7d6', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.8 }))
-      glow.scale.set(26, 18, 1)
-      glow.position.set(x * VENUE_SCALE.x, y * VENUE_SCALE.y + 1, z * VENUE_SCALE.z)
+      glow.scale.set(22, 16, 1)
+      glow.position.copy(ellipse(a, TOWER_AT - 1.5)).setY(43)
       g.add(glow)
     }
     return g
   }
 
-  private bigScreen() {
+  /** The scoreboard in its gap of the ring, the match screen on its LED face. */
+  private bigScreen(assets: CricketAssets) {
     const g = new THREE.Group()
-    const a = Math.PI * 0.82
-    const p = ellipse(a, 30)
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(22, 11), new THREE.MeshBasicMaterial({ map: this.screenTex, toneMapped: false }))
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(23, 12, 1), new THREE.MeshStandardMaterial({ color: '#111827' }))
-    frame.position.z = -0.6
-    g.add(scr, frame)
-    g.position.set(p.x, 28, p.z)
-    g.lookAt(0, 18, 0)
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 24, 1.2), new THREE.MeshStandardMaterial({ color: '#334155' }))
-    leg.position.set(0, -17, -1)
-    g.add(leg)
+    g.add(this.venueClone(assets.scoreboard))
+    const f = assets.scoreboardFace.length === 5 ? assets.scoreboardFace : [-11.1, 14.9, 11.1, 24, 1.72]
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(f[2] - f[0], f[3] - f[1]), new THREE.MeshBasicMaterial({ map: this.screenTex, toneMapped: false }))
+    scr.position.set((f[0] + f[2]) / 2, (f[1] + f[3]) / 2, f[4] + 0.04)
+    g.add(scr)
+    g.position.copy(ellipse(SCOREBOARD_ANGLE, STAND_AT + 2))
+    g.rotation.y = inwardYaw(SCOREBOARD_ANGLE, STAND_AT)
     return g
   }
 
@@ -425,8 +546,10 @@ export class Stadium {
   dispose() {
     this.group.traverse((o) => {
       const m = o as THREE.Mesh
-      // The venue's geometry belongs to the shared asset; everything else is this stadium's own.
-      if (m.geometry && !(m.material as THREE.Material)?.name?.startsWith('stadium')) m.geometry.dispose()
+      // The models' geometry belongs to the shared assets; everything else is this stadium's own.
+      if (m.geometry && !m.userData.shared) m.geometry.dispose()
+      // Instanced pieces own their instance buffers even when the geometry is shared.
+      else if ((m as THREE.InstancedMesh).isInstancedMesh) (m as THREE.InstancedMesh).dispose()
       const mat = m.material as THREE.Material | THREE.Material[] | undefined
       if (Array.isArray(mat)) mat.forEach((x) => x.dispose())
       else mat?.dispose()
@@ -435,76 +558,32 @@ export class Stadium {
 }
 
 /**
- * Seats for the crowd sampled from the venue model's terraces: the upward-facing triangles of the stand band,
- * area-weighted, then stretched like the model. Falls back to a plain ring if the model has no such surface.
+ * Seats for the crowd: the stand model's seats (sampled on its seat-coloured faces when it was built), shared out
+ * across the sections and turned to face the middle. Falls back to a plain ring if the model has none.
  */
-function terraceSeats(model: THREE.Object3D, count: number, scale: THREE.Vector3): Float32Array {
-  const tris: { a: THREE.Vector3; b: THREE.Vector3; c: THREE.Vector3; area: number }[] = []
-  let total = 0
-  const n = new THREE.Vector3()
-  const ab = new THREE.Vector3()
-  const ac = new THREE.Vector3()
-  model.updateMatrixWorld(true)
-  model.traverse((o) => {
-    const m = o as THREE.Mesh
-    if (!m.isMesh) return
-    const pos = m.geometry.getAttribute('position')
-    const idx = m.geometry.index
-    const count3 = idx ? idx.count : pos.count
-    for (let i = 0; i < count3; i += 3) {
-      const ia = idx ? idx.getX(i) : i
-      const ib = idx ? idx.getX(i + 1) : i + 1
-      const ic = idx ? idx.getX(i + 2) : i + 2
-      const a = new THREE.Vector3().fromBufferAttribute(pos, ia).applyMatrix4(m.matrixWorld)
-      const b = new THREE.Vector3().fromBufferAttribute(pos, ib).applyMatrix4(m.matrixWorld)
-      const c = new THREE.Vector3().fromBufferAttribute(pos, ic).applyMatrix4(m.matrixWorld)
-      ab.subVectors(b, a)
-      ac.subVectors(c, a)
-      n.crossVectors(ab, ac)
-      const area = n.length() / 2
-      if (area < 1e-4) continue
-      n.divideScalar(area * 2)
-      const cy = (a.y + b.y + c.y) / 3
-      const cr = Math.hypot((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3)
-      // The terraces: upward faces of the stand band between the arcade roof and the top tier (the roof petals
-      // and towers sit higher).
-      if (n.y < 0.45 || cr < 26.5 || cr > 32.6 || cy < 2 || cy > 11.5) continue
-      tris.push({ a, b, c, area })
-      total += area
-    }
-  })
-  if (tris.length < 20) return ringSeats(count, 7, RX + 15, RZ + 17, 13, 3, 17)
+function standSeats(assets: CricketAssets, angles: number[], count: number): Float32Array {
+  const local = assets.standSeats
+  const per = local.length / 3
+  if (per < 20 || !angles.length) return ringSeats(count, 7, RX + 15, RZ + 17, 13, 3, 17)
   const out = new Float32Array(count * 4)
-  let s = 7
-  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296)
-  const cum: number[] = []
-  let acc = 0
-  for (const t of tris) cum.push((acc += t.area))
+  const m = new THREE.Matrix4()
+  const q = new THREE.Quaternion()
+  const one = new THREE.Vector3(1, 1, 1)
+  const v = new THREE.Vector3()
+  let n = 0
   for (let i = 0; i < count; i++) {
-    const r = rnd() * total
-    let lo = 0
-    let hi = cum.length - 1
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1
-      if (cum[mid] < r) lo = mid + 1
-      else hi = mid
-    }
-    const t = tris[lo]
-    let u = rnd()
-    let v = rnd()
-    if (u + v > 1) {
-      u = 1 - u
-      v = 1 - v
-    }
-    const x = (t.a.x + (t.b.x - t.a.x) * u + (t.c.x - t.a.x) * v) * scale.x
-    const y = (t.a.y + (t.b.y - t.a.y) * u + (t.c.y - t.a.y) * v) * scale.y
-    const z = (t.a.z + (t.b.z - t.a.z) * u + (t.c.z - t.a.z) * v) * scale.z
-    out[i * 4] = x
-    out[i * 4 + 1] = y
-    out[i * 4 + 2] = z
-    out[i * 4 + 3] = Math.atan2(-x, -z)
+    const s = Math.floor(i / angles.length)
+    if (s >= per) break
+    const a = angles[i % angles.length]
+    m.compose(ellipse(a, STAND_AT), q.setFromAxisAngle(Y_AXIS, inwardYaw(a, STAND_AT)), one)
+    v.set(local[s * 3], local[s * 3 + 1], local[s * 3 + 2]).applyMatrix4(m)
+    out[n * 4] = v.x
+    out[n * 4 + 1] = v.y
+    out[n * 4 + 2] = v.z
+    out[n * 4 + 3] = Math.atan2(-v.x, -v.z)
+    n++
   }
-  return out
+  return out.subarray(0, n * 4)
 }
 
 let glowTex: THREE.Texture | null = null

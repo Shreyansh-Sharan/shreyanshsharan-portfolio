@@ -1,27 +1,48 @@
-// The downloaded models (all CC BY, see public/cricket/CREDITS.md) and three small surface textures:
-//  - player-1.glb, player-2.glb: numaan.k99's rigged cricketers (Mixamo-style skeleton), kit textures stripped so the
-//    game can paint fictional team colours; player-1 carries the movement clips retargeted from the old library;
-//  - ball.glb (TakeRefuge3D photoscan), bat.glb (AMBROOOSE), helmet.glb (pradeepaanandhi5420), stumps.glb (Piyush
-//    Ashok, straightened into one stump and one bail), stadium.glb (Shayan's Ekana, field removed);
-//  - kit-top.webp, kit-bottom.webp: the jersey and trouser shading/trim maps the kit painter tints at runtime;
+// The cricket models (original models made for this project, see public/cricket/CREDITS.md) and three small surface
+// textures:
+//  - player-*.glb: five rigged bodies (two fielders, a batter in helmet, pads and gloves, a keeper, the umpire),
+//    each with the movement clips retargeted onto its skeleton; the kit is a neutral grey that the game paints in
+//    team colours through each body's kit mask (player-*-kit.webp: which texels are shirt, trim, trousers, cap or
+//    helmet, pads, gloves or skin; the reference tones are in the material's extras);
+//  - bat, ball, stumps (one stump and one bail), and the venue: a grandstand section, the pavilion, sight screens,
+//    the scoreboard, boundary boards, floodlight towers and a pitch roller;
 //  - grass.webp, pitch.webp, concrete.webp: ambientCG Grass005, Ground109 and Concrete034 (CC0).
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+
+export type BodyKind = 'fielderA' | 'fielderB' | 'batter' | 'keeper' | 'umpire'
+
+export interface CricketBody {
+  scene: THREE.Object3D
+  /** The movement clips, by name, retargeted onto this body. */
+  clips: Record<string, THREE.AnimationClip>
+  /** Kit classes per texel (class id * 32 in red), sampled nearest. */
+  mask: THREE.Texture
+  /** Each class's reference luminance (linear): the tone a team colour is painted at. */
+  refs: number[]
+}
 
 export interface CricketAssets {
-  /** Two player bodies (different faces and hair), same skeleton. */
-  bodies: THREE.Object3D[]
-  clips: Record<string, THREE.AnimationClip>
+  bodies: Record<BodyKind, CricketBody>
   ball: THREE.Mesh
   bat: THREE.Object3D
-  helmet: THREE.Object3D
-  stump: THREE.BufferGeometry
-  bail: THREE.BufferGeometry
-  stadium: THREE.Object3D
-  kitTop: HTMLImageElement
-  kitBottom: HTMLImageElement
+  stump: THREE.Mesh
+  bail: THREE.Mesh
+  stand: THREE.Mesh
+  /** A lighter stand for the low graphics tier. */
+  standLow: THREE.Mesh
+  /** Crowd seats on one stand section (x, y, z in its own space). */
+  standSeats: Float32Array
+  pavilion: THREE.Object3D
+  sightScreen: THREE.Object3D
+  scoreboard: THREE.Object3D
+  /** The scoreboard's screen: [x0, y0, x1, y1, z] in its own space. */
+  scoreboardFace: number[]
+  adBoard: THREE.Mesh
+  adBoardFace: number[]
+  floodlight: THREE.Object3D
+  roller: THREE.Object3D
   grass: THREE.Texture
   pitch: THREE.Texture
   concrete: THREE.Texture
@@ -30,28 +51,55 @@ export interface CricketAssets {
 const base = `${import.meta.env.BASE_URL}cricket/`
 let pending: Promise<CricketAssets> | null = null
 
-/** Collects the geometries of every mesh called `name` into one (the stumps file keeps them as parts). */
-function mergeNamed(root: THREE.Object3D, name: string) {
-  const parts: THREE.BufferGeometry[] = []
+const BODY_FILES: Record<BodyKind, string> = {
+  fielderA: 'player-fielder-a',
+  fielderB: 'player-fielder-b',
+  batter: 'player-batter',
+  keeper: 'player-keeper',
+  umpire: 'player-umpire',
+}
+
+/** The first mesh of a file baked to one mesh in the file's space (the compressed files keep their vertices
+ *  quantised behind a node transform). */
+function firstMesh(root: THREE.Object3D, name?: string) {
+  let out: THREE.Mesh | null = null
   root.updateMatrixWorld(true)
   root.traverse((o) => {
     const m = o as THREE.Mesh
-    if (!m.isMesh || m.name !== name) return
-    const g = m.geometry.clone().applyMatrix4(m.matrixWorld)
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k)
-    parts.push(g.index ? g.toNonIndexed() : g)
+    if (out || !m.isMesh || (name && m.name !== name && m.parent?.name !== name)) return
+    const g = m.geometry.clone()
+    // Dequantise first: baking metres into normalised integer attributes would clamp them.
+    for (const k of ['position', 'normal'] as const) {
+      const a = g.getAttribute(k)
+      if (a && !(a.array instanceof Float32Array)) {
+        const f = new Float32Array(a.count * a.itemSize)
+        for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) f[i * a.itemSize + c] = a.getComponent(i, c)
+        g.setAttribute(k, new THREE.BufferAttribute(f, a.itemSize))
+      }
+    }
+    g.applyMatrix4(m.matrixWorld)
+    out = new THREE.Mesh(g, m.material)
+    out.userData = { ...m.userData, ...(m.parent?.userData ?? {}) }
   })
-  const merged = parts.length ? mergeGeometries(parts) : null
-  return merged ?? new THREE.CylinderGeometry(0.02, 0.02, 0.7, 8)
+  return out ?? new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshStandardMaterial())
+}
+
+/** The extras a file keeps on its mesh node (seats, panel faces). */
+function extras(root: THREE.Object3D, key: string): number[] {
+  let v: number[] | null = null
+  root.traverse((o) => {
+    if (!v && Array.isArray(o.userData[key])) v = o.userData[key] as number[]
+  })
+  return v ?? []
 }
 
 export function loadCricketAssets(onProgress?: (done: number, total: number) => void): Promise<CricketAssets> {
   if (pending) return pending
-  const total = 12
+  const bodyKinds = Object.keys(BODY_FILES) as BodyKind[]
+  const total = bodyKinds.length * 2 + 13
   let done = 0
   const tick = () => onProgress?.(++done, total)
   const texLoader = new THREE.TextureLoader()
-  const imgLoader = new THREE.ImageLoader()
   const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const tex = (name: string) =>
     texLoader
@@ -63,43 +111,68 @@ export function loadCricketAssets(onProgress?: (done: number, total: number) => 
         return t
       })
       .finally(tick)
-  const img = (name: string) => imgLoader.loadAsync(base + name).finally(tick)
-  const gltf = (name: string) => gltfLoader.loadAsync(base + name).finally(tick)
+  const mask = (name: string) =>
+    texLoader
+      .loadAsync(base + name)
+      .then((t) => {
+        // Class ids: never blended between texels, never mipmapped, never colour-converted.
+        t.colorSpace = THREE.NoColorSpace
+        t.magFilter = THREE.NearestFilter
+        t.minFilter = THREE.NearestFilter
+        t.generateMipmaps = false
+        t.flipY = false
+        return t
+      })
+      .finally(tick)
+  const gltf = (name: string): Promise<GLTF> => gltfLoader.loadAsync(base + name).finally(tick)
+  const bodies = Promise.all(
+    bodyKinds.map((k) =>
+      Promise.all([gltf(`${BODY_FILES[k]}.glb`), mask(`${BODY_FILES[k]}-kit.webp`)]).then(([g, m]): [BodyKind, CricketBody] => {
+        const clips: Record<string, THREE.AnimationClip> = {}
+        for (const c of g.animations) clips[c.name] = c
+        let refs: number[] = []
+        g.scene.traverse((o) => {
+          const mesh = o as THREE.Mesh
+          if (mesh.isMesh) refs = ((mesh.material as THREE.Material).userData.kitRefs as number[]) ?? refs
+        })
+        return [k, { scene: g.scene, clips, mask: m, refs }]
+      }),
+    ),
+  )
   pending = Promise.all([
-    gltf('player-1.glb'),
-    gltf('player-2.glb'),
+    bodies,
     gltf('ball.glb'),
     gltf('bat.glb'),
-    gltf('helmet.glb'),
     gltf('stumps.glb'),
-    gltf('stadium.glb'),
-    img('kit-top.webp'),
-    img('kit-bottom.webp'),
+    gltf('stand.glb'),
+    gltf('pavilion.glb'),
+    gltf('sightscreen.glb'),
+    gltf('scoreboard.glb'),
+    gltf('adboard.glb'),
+    gltf('floodlight.glb'),
+    gltf('roller.glb'),
     tex('grass.webp'),
     tex('pitch.webp'),
     tex('concrete.webp'),
-  ]).then(([p1, p2, ball, bat, helmet, stumps, stadium, kitTop, kitBottom, grass, pitch, concrete]) => {
-    const clips: Record<string, THREE.AnimationClip> = {}
-    for (const c of p1.animations) clips[c.name] = c
-    // The ball as one mesh in metres (the compressed file keeps its vertices quantised behind a node transform).
-    let ballMesh: THREE.Mesh | null = null
-    ball.scene.updateMatrixWorld(true)
-    ball.scene.traverse((o) => {
-      const m = o as THREE.Mesh
-      if (m.isMesh && !ballMesh) ballMesh = new THREE.Mesh(m.geometry.clone().applyMatrix4(m.matrixWorld), m.material)
-    })
-    for (const t of [p1, p2, bat, helmet, stadium]) t.scene.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).frustumCulled = true) : null))
+  ]).then(([bodyList, ball, bat, stumps, stand, pavilion, sight, score, board, flood, roller, grass, pitch, concrete]) => {
+    for (const t of [bat, pavilion, sight, score, flood, roller]) t.scene.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).frustumCulled = true) : null))
     return {
-      bodies: [p1.scene, p2.scene],
-      clips,
-      ball: ballMesh ?? new THREE.Mesh(new THREE.SphereGeometry(0.036, 12, 8), new THREE.MeshStandardMaterial({ color: '#8b1a1a' })),
+      bodies: Object.fromEntries(bodyList) as Record<BodyKind, CricketBody>,
+      ball: firstMesh(ball.scene),
       bat: bat.scene,
-      helmet: helmet.scene,
-      stump: mergeNamed(stumps.scene, 'stump'),
-      bail: mergeNamed(stumps.scene, 'bail'),
-      stadium: stadium.scene,
-      kitTop,
-      kitBottom,
+      stump: firstMesh(stumps.scene, 'stump'),
+      bail: firstMesh(stumps.scene, 'bail'),
+      stand: firstMesh(stand.scene, 'stand'),
+      standLow: firstMesh(stand.scene, 'standLOD'),
+      standSeats: new Float32Array(extras(stand.scene, 'seats')),
+      pavilion: pavilion.scene,
+      sightScreen: sight.scene,
+      scoreboard: score.scene,
+      scoreboardFace: extras(score.scene, 'face'),
+      adBoard: firstMesh(board.scene),
+      adBoardFace: extras(board.scene, 'face'),
+      floodlight: flood.scene,
+      roller: roller.scene,
       grass,
       pitch,
       concrete,
