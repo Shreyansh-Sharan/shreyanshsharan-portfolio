@@ -452,7 +452,7 @@ export class SiegeView {
       }
     }
     if (this.mapDef) {
-      const pad = 4
+      const pad = 1.5
       tx = Math.min(this.mapDef.w * CELL - pad, Math.max(pad, tx))
       tz = Math.min(this.mapDef.h * CELL - pad, Math.max(pad, tz))
     }

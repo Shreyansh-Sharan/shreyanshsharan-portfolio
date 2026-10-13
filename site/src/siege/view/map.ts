@@ -428,20 +428,21 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
     const kinds = ['corner-shop', 'retail-infill', 'retail-infill', 'corner-shop']
     const step = 8.5
     const ring: [number, number, number][] = []
-    for (let x = 2; x < wm - 1; x += step) ring.push([x + 2, -4.5, 0], [x + 4, hm + 4.5, Math.PI])
+    // The south row sits further back and lower so it never rises between the camera and a fighter at the wall.
+    for (let x = 2; x < wm - 1; x += step) ring.push([x + 2, -4.5, 0], [x + 4, hm + 10, Math.PI])
     for (let z = 2; z < hm - 1; z += step) ring.push([-4.5, z + 3, Math.PI / 2], [wm + 4.5, z + 1, -Math.PI / 2])
     ring.forEach(([x, z, yaw], i) => {
       const name = kinds[(i + rng.int(2)) % kinds.length]
       const o = placeProp(name, x, z, yaw + Math.PI, [7, 9 + rng.next() * 4, 7], '#1b1630')
-      o.scale.setScalar(0.9 + rng.next() * 0.25)
+      o.scale.setScalar((z > hm ? 0.6 : 0.9) + rng.next() * 0.25)
     })
     // Big screens and billboards on the long sides.
     for (const [x, z, yaw] of [
       [wm * 0.3, -2.6, 0],
-      [wm * 0.7, hm + 2.6, Math.PI],
+      [wm * 0.7, hm + 7, Math.PI],
     ] as [number, number, number][]) {
       const o = placeProp('media-facade', x, z, yaw, [7, 5, 0.6], '#0b0f2a', '#22d3ee')
-      o.position.y = 2.5
+      o.position.y = z > hm ? 0.5 : 2.5
     }
     for (const [x, z, yaw] of [
       [-2, hm * 0.3, Math.PI / 2],
