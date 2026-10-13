@@ -1,7 +1,8 @@
 // Team kits painted at runtime. The shipped jersey and trouser maps carry no colour: R is the garment's shading
 // (128 = the base tone), G is the trim mask (collar, cuffs, hem, side stripes). A kit is the two team colours
 // through those maps, plus the team name on the chest and the player's name and number on the back, all
-// fictional. Textures are cached per team and player.
+// fictional. The tinted base is cached per colour pair (the slow per-pixel pass), textures per team and player, and
+// a whole squad can be painted and uploaded up front so nothing is generated mid-match.
 import * as THREE from 'three'
 import type { CricketAssets } from '../assets'
 
@@ -28,6 +29,7 @@ const BACK_NAME = { x: 828, y: 842, w: 300, h: 58 }
 
 export class Kits {
   private cache = new Map<string, THREE.CanvasTexture>()
+  private bases = new Map<string, HTMLCanvasElement>()
   private size: number
   private assets: CricketAssets
 
@@ -36,8 +38,11 @@ export class Kits {
     this.size = size
   }
 
-  /** The tinted map (no decals) as a canvas. */
+  /** The tinted map (no decals) as a canvas, cached per source and colour pair. */
   private tint(src: HTMLImageElement, primary: string, trim: string) {
+    const key = `${src === this.assets.kitTop ? 'top' : 'bottom'}|${primary}|${trim}`
+    const hit = this.bases.get(key)
+    if (hit) return hit
     const S = this.size
     const c = document.createElement('canvas')
     c.width = c.height = S
@@ -56,6 +61,15 @@ export class Kits {
       d[i + 3] = 255
     }
     x.putImageData(img, 0, 0)
+    this.bases.set(key, c)
+    return c
+  }
+
+  /** A copy of a tinted base to draw decals on. */
+  private copyOf(base: HTMLCanvasElement) {
+    const c = document.createElement('canvas')
+    c.width = c.height = this.size
+    c.getContext('2d')!.drawImage(base, 0, 0)
     return c
   }
 
@@ -96,7 +110,7 @@ export class Kits {
     const key = `shirt|${s.primary}|${s.trim}|${s.chest}|${s.back}|${s.number}|${s.ink ?? ''}|${s.mirror ? 'm' : ''}`
     const hit = this.cache.get(key)
     if (hit) return hit
-    const c = this.tint(this.assets.kitTop, s.primary, s.trim)
+    const c = this.copyOf(this.tint(this.assets.kitTop, s.primary, s.trim))
     const x = c.getContext('2d')!
     const ink = s.ink ?? s.trim
     const outline = luminance(ink) > 0.5 ? 'rgba(10,12,20,0.85)' : 'rgba(255,255,255,0.85)'
@@ -119,9 +133,15 @@ export class Kits {
     return tex
   }
 
+  /** Uploads every painted texture to the GPU now (so the first frame they appear in costs nothing). */
+  upload(renderer: THREE.WebGLRenderer) {
+    for (const t of this.cache.values()) renderer.initTexture(t)
+  }
+
   dispose() {
     for (const t of this.cache.values()) t.dispose()
     this.cache.clear()
+    this.bases.clear()
   }
 }
 

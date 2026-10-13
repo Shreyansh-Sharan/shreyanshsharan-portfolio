@@ -13,7 +13,7 @@ import { PERFECT, shotSpec, type Footwork, type ShotType, type Timing } from './
 import { bat01, hashString, styleName, surname, type Player, type Team } from './sim/teams'
 import { V3 } from './sim/vec'
 import { toView, yawToView } from './view/coords'
-import { procPose, type PoseCtx } from './view/poses'
+import { fadeFor, newPoseMem, procPose, type PoseCtx, type PoseMem } from './view/poses'
 import { makeBall, makeMarker, Wicket } from './view/props'
 import { Cricketer, type ClipName, type Identity, type KitKind } from './view/rig'
 import { Kits } from './view/kit'
@@ -21,6 +21,7 @@ import { Stadium } from './view/stadium'
 import { Hawkeye } from './view/hawkeye'
 import { Guides, lengthWords, type ShotColour } from './view/guides'
 import type { Post } from './view/post'
+import { Profile } from './profile'
 
 export interface GameOptions {
   setup: MatchSetup
@@ -109,7 +110,42 @@ interface FrameRec {
   ball: [number, number, number, number]
 }
 
+/** Per-actor display state: damped reach targets, measured speed and turn rate, the last pose (for fade times). */
+interface ActorView {
+  mem: PoseMem
+  prevPos: THREE.Vector3
+  hasPrev: boolean
+  speed: number
+  prevYaw: number
+  /** The yaw shown (the sim may snap; this turns at a limited rate). */
+  yawShown: number
+  yawRate: number
+  accel: number
+  lastPose: Pose
+  lastVariant: string
+  key: string
+  fade: number
+}
+
+const newView = (): ActorView => ({ mem: newPoseMem(), prevPos: new THREE.Vector3(), hasPrev: false, speed: 0, prevYaw: 0, yawShown: 0, yawRate: 0, accel: 0, lastPose: 'hidden', lastVariant: '', key: '', fade: 0.2 })
+/** Fastest a body is shown turning (degrees per second): a half turn takes a fifth of a second. */
+const TURN_RATE = 900
+
 const ACTOR_FIELDS = 12
+/** Replay recording length (frames at 60 Hz). */
+const MAX_REC = 1500
+const _pp = new THREE.Vector3()
+const _ballView = new THREE.Vector3()
+const _ballChar = new THREE.Vector3()
+const _aheadView = new THREE.Vector3()
+const _aheadChar = new THREE.Vector3()
+const _camPos = new THREE.Vector3()
+const _camLook = new THREE.Vector3()
+const _focus = new THREE.Vector3()
+const _flat = new THREE.Vector3()
+const _away = new THREE.Vector3()
+const _bpos = new THREE.Vector3()
+const _sphere = new THREE.Sphere(new THREE.Vector3(), 3)
 const POSES: Pose[] = ['hidden', 'idle', 'walk', 'run', 'stance', 'shot', 'slide', 'batslide', 'runup', 'deliver', 'follow', 'keeper', 'keepertake', 'ready', 'dive', 'catch', 'pickup', 'throw', 'celebrate', 'appeal', 'dejected', 'umpire', 'signal', 'leave', 'hit', 'getup']
 
 const v3 = (a: number[] | V3) => toView(a as V3)
@@ -133,7 +169,18 @@ export class Game {
   stadium: Stadium
   audio = new CricketAudio()
   hawk: Hawkeye
+  profile = new Profile()
   private people: (Cricketer | null)[] = new Array(ACTORS).fill(null)
+  private views: ActorView[] = new Array(ACTORS).fill(null).map(newView)
+  /** Stand-ins for the actors during replays (the recorded frame's values over the live actor). */
+  private fakes: Actor[] = []
+  private frameNo = 0
+  private frustum = new THREE.Frustum()
+  private frustumM = new THREE.Matrix4()
+  private lastHudJson = ''
+  /** The HUD's meter elements, moved every frame while the meter runs (no React render for the needle). */
+  private meterWrap: HTMLElement | null = null
+  private meterNeedle: HTMLElement | null = null
   kits: Kits
   private kitTeam = -1
   private ball: THREE.Mesh
@@ -166,7 +213,9 @@ export class Game {
   private keys = new Set<string>()
   private hudT = 0
   private recording: FrameRec[] = []
-  private replayFrames: FrameRec[] = []
+  private recCount = 0
+  private replayFrames: FrameRec[] = this.recording
+  private replayCount = 0
   private replayT = 0
   private replayKind: 'wicket' | 'six' | 'runout' = 'wicket'
   private replaying = false
@@ -194,6 +243,8 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.dpr))
     this.renderer.shadowMap.enabled = this.quality.shadows
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    // The shadow map is redrawn on alternate frames on the medium tier (see frame()).
+    this.renderer.shadowMap.autoUpdate = false
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = opts.setup.time === 'night' ? 1.05 : opts.setup.time === 'dusk' ? 1.18 : 1.0
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -210,6 +261,7 @@ export class Game {
     this.scene.fog = new THREE.Fog(opts.setup.time === 'night' ? '#0a1020' : opts.setup.time === 'dusk' ? '#e9b38a' : '#cfe3f2', 160, 520)
 
     this.kits = new Kits(opts.assets, this.quality.tier === 'low' ? 256 : 512)
+    this.prewarmKits()
     this.ball = makeBall(opts.assets)
     this.ball.visible = false
     this.scene.add(this.ball)
@@ -262,6 +314,7 @@ export class Game {
     window.removeEventListener('blur', this.onBlur)
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointer)
     this.audio.close()
+    this.profile.dispose()
     this.postToken++
     this.post?.dispose()
     this.guides.dispose()
@@ -366,38 +419,58 @@ export class Game {
 
   private frame(dt: number, render: boolean) {
     const d = this.director
+    const P = this.profile
+    P.frameStart()
+    const tFrame = P.now()
+    let t = tFrame
     const frozen = this.paused || this.hold
     if (!frozen) {
       this.time += dt
       this.handleHeldInput(dt)
       if (!this.opts.mirror) d.update(dt)
+      if (this.meterNeedle && d.localBowls && d.meterRunning) this.moveMeter(d.meterValue, Math.abs(d.meterValue - d.meterGreen) <= d.meterHalfWidth)
+      t = P.add('director', t)
       for (const c of this.pendingCommands.splice(0)) this.submit(c)
       for (const e of d.drainEvents()) this.handleEvent(e)
+      t = P.add('events', t)
       this.trackRelease(dt)
       if (this.replaying) this.replayT += dt
       else this.record()
+      t = P.add('record', t)
       this.stadium.update(dt)
+      t = P.add('stadium', t)
       this.audio.update(dt)
       for (const w of this.wickets) w.update(dt)
       this.timingFlash = Math.max(0, this.timingFlash - dt * 2.5)
+      t = P.add('audio+wickets', t)
     }
     this.syncKits()
+    t = P.add('kits', t)
     if (this.replaying) this.applyReplayFrame(dt)
     else this.updatePeople(frozen ? 0 : dt)
+    t = P.add('people', t)
     this.updateMarker()
     this.updateCamera(frozen ? 0 : dt)
     this.updateBall()
     this.updateGuides()
     this.hawk.update(d, frozen ? 0 : dt)
+    t = P.add('camera+ball+guides', t)
     this.hudT -= dt
     if (this.hudT <= 0 || dt === 0) {
       this.hudT = 0.1
       this.pushHud()
     }
+    t = P.add('hud', t)
     if (render) {
+      this.frameNo++
+      // Shadows every frame on high (and in tests), every other frame otherwise: a 16 ms lag nobody can see.
+      this.renderer.shadowMap.needsUpdate = this.quality.tier === 'high' || !!this.opts.snap || dt === 0 || (this.frameNo & 1) === 0 || !this.stadium.sun.shadow.map
       if (this.post) this.post.render(dt)
       else this.renderer.render(this.scene, this.camera)
+      t = P.add('render', t)
     }
+    P.add('frame', tFrame)
+    P.frameEnd()
   }
 
   private trackRelease(dt: number) {
@@ -416,6 +489,25 @@ export class Game {
   }
 
   /* ---------------- players ---------------- */
+
+  /** Paints and uploads every kit the match can need (both squads, both handednesses) before the first frame. */
+  private prewarmKits() {
+    const teams = this.opts.setup.teams
+    for (const t of teams) {
+      this.kits.trousers(t.kit === 'whites' ? '#eeebe2' : t.trousers, t.kit === 'whites' ? '#d6d3cb' : t.secondary)
+      t.players.forEach((p, i) => {
+        for (const left of new Set([p.leftBat, p.leftArm])) this.kits.shirt(this.shirtSpec(t, p, i + 1, left))
+      })
+    }
+    this.kits.shirt({ primary: '#f1f1ee', trim: '#1f2937', chest: '', back: '', number: '', ink: '#1f2937' })
+    this.kits.trousers('#202634', '#2d3446')
+    this.kits.upload(this.renderer)
+  }
+
+  private shirtSpec(t: Team, p: Player | null, number: number, left: boolean) {
+    const whites = t.kit === 'whites'
+    return { primary: whites ? '#f3f1ea' : t.primary, trim: whites ? t.primary : t.secondary, chest: t.name, back: p ? surname(p) : '', number: String(number), ink: whites ? t.primary : t.secondary, mirror: left }
+  }
 
   /** Rebuilds the bodies with the right kits at the start of each innings. */
   private syncKits() {
@@ -455,10 +547,12 @@ export class Game {
       const c = new Cricketer(this.opts.assets, this.kits, kind, kit(team), who)
       this.scene.add(c.root)
       this.people[i] = c
+      this.views[i] = newView()
     }
+    this.fakes = []
   }
 
-  private poseCtx(a: Actor, c: Cricketer, ballView: THREE.Vector3 | null): PoseCtx {
+  private poseCtx(a: Actor, c: Cricketer, ballView: THREE.Vector3 | null, view: ActorView, dt: number): PoseCtx {
     const d = this.director
     const inn = d.state.current
     let kind: PoseCtx['kind'] = a.kind
@@ -466,28 +560,35 @@ export class Game {
     else if (a.index === NONSTRIKER) kind = 'nonstriker'
     // "Ahead": for the striker and keeper the bowler's end; for others the striker's end.
     const strikerEnd = inn ? inn.strikerEnd : 1
-    const aheadSim = a.index === STRIKER || a.kind === 'keeper' ? new V3(0, 1.5, stumpsZ(1 - strikerEnd)) : new V3(0, 1.0, stumpsZ(strikerEnd))
-    const ahead = c.toChar(v3(aheadSim))
+    const nearEnd = a.index === STRIKER || a.kind === 'keeper'
+    _aheadView.set(0, nearEnd ? 1.5 : 1.0, stumpsZ(nearEnd ? 1 - strikerEnd : strikerEnd))
+    const ahead = c.toChar(_aheadView, _aheadChar)
     const bowler = d.bowler
+    const live = d.phase === 'flight' || d.phase === 'live'
     return {
       pose: a.pose,
       t: a.poseTime,
+      dt,
       variant: a.variant,
       feet: a.feet,
       loft: a.loft,
       aim: a.aim,
-      ball: ballView ? c.toChar(ballView) : null,
-      sinceRelease: d.phase === 'flight' || d.phase === 'live' ? this.sinceRelease : -1,
+      power: a.loft ? 1 : a.variant === 'defend' ? 0.25 : 0.65,
+      ball: ballView ? c.toChar(ballView, _ballChar) : null,
+      sinceRelease: live ? this.sinceRelease : -1,
+      toRelease: d.phase === 'runup' && !d.ballReleased ? Math.max(0, d.runUpDuration - d.phaseTime) : -1,
       ahead,
       kind,
       style: bowler?.bowl ?? 'fast',
       hasBall: a.hasBall,
-      speed: a.speed,
+      speed: view.speed,
+      yawRate: view.yawRate,
+      accel: view.accel,
+      mem: view.mem,
     }
   }
 
-  private clipFor(a: Actor): { clip: ClipName; scale: number } {
-    const sp = a.speed
+  private clipFor(a: Actor, sp: number): { clip: ClipName; scale: number } {
     switch (a.pose) {
       case 'run':
         return sp > 5 ? { clip: 'sprint', scale: Math.max(0.7, sp / 7.5) } : sp > 2 ? { clip: 'jog', scale: Math.max(0.7, sp / 3.5) } : { clip: 'walk', scale: 1 }
@@ -518,28 +619,81 @@ export class Game {
 
   private updatePeople(dt: number) {
     const d = this.director
-    const ballView = d.ballVisible ? v3(d.ball.pos) : null
+    const ballView = d.ballVisible ? toView(d.ball.pos, _ballView) : null
     const camPos = this.camera.position
+    // Fielders the camera can't see are neither posed nor drawn (the four at the crease always are).
+    const cull = dt > 0 && !this.debugView
+    if (cull) {
+      this.camera.updateMatrixWorld()
+      this.frustum.setFromProjectionMatrix(this.frustumM.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse))
+    }
     for (let i = 0; i < ACTORS; i++) {
       const a = d.actors[i]
       const c = this.people[i]
       if (!c) continue
       c.root.visible = a.visible && a.pose !== 'hidden'
       if (!c.root.visible) continue
-      this.placePerson(c, a.pos, a.yaw, a.left, a, ballView, dt, camPos)
+      if (cull && i > NONSTRIKER && a.kind !== 'bowler' && a.kind !== 'keeper') {
+        toView(a.pos, _sphere.center).y += 1
+        if (!this.frustum.intersectsSphere(_sphere)) {
+          c.root.visible = false
+          continue
+        }
+      }
+      this.placePerson(c, a.pos, a.yaw, a.left, a, ballView, dt, camPos, this.views[i])
     }
   }
 
-  private placePerson(c: Cricketer, pos: V3 | THREE.Vector3, yaw: number, left: boolean, a: Actor, ballView: THREE.Vector3 | null, dt: number, camPos: THREE.Vector3) {
-    const p = pos instanceof V3 ? v3(pos) : pos
+  private placePerson(c: Cricketer, pos: V3 | THREE.Vector3, yaw: number, left: boolean, a: Actor, ballView: THREE.Vector3 | null, dt: number, camPos: THREE.Vector3, view: ActorView) {
+    const p = pos instanceof V3 ? toView(pos, _pp) : pos
     p.y = 0
-    const { clip, scale } = this.clipFor(a)
-    c.playClip(clip, 0.2, scale)
     // Mirror left-handers (batting or bowling). Umpires never.
     const mirror = a.kind !== 'umpire' && left
-    c.prepare(p, yawToView(yaw), mirror)
-    const pose = procPose(this.poseCtx(a, c, ballView))
-    c.update(dt, pose)
+    const yawSim = yawToView(yaw)
+    // Measured motion for the clips and the lean: the sim moves some actors without setting a velocity.
+    if (dt > 0) {
+      if (view.hasPrev) {
+        const ds = Math.hypot(p.x - view.prevPos.x, p.z - view.prevPos.z) / dt
+        if (ds > 14) view.hasPrev = false // a teleport (new ball, new innings)
+        else {
+          const k = 1 - Math.exp(-dt * 12)
+          const spNew = Math.max(a.speed, ds)
+          view.accel += ((spNew - view.speed) / dt - view.accel) * k
+          view.speed += (spNew - view.speed) * k
+          // Turn towards the sim's heading at a limited rate (it can snap a batter round in one step).
+          let dy = yawSim - view.yawShown
+          if (dy > Math.PI) dy -= 2 * Math.PI
+          else if (dy < -Math.PI) dy += 2 * Math.PI
+          const maxTurn = ((TURN_RATE * Math.PI) / 180) * dt
+          const turn = THREE.MathUtils.clamp(dy, -maxTurn, maxTurn)
+          view.yawShown += turn
+          view.yawRate += ((((turn / dt) * 180) / Math.PI) * (mirror ? -1 : 1) - view.yawRate) * k
+        }
+      }
+      if (!view.hasPrev) {
+        view.hasPrev = true
+        view.speed = a.speed
+        view.accel = 0
+        view.yawRate = 0
+        view.yawShown = yawSim
+      }
+      view.prevPos.copy(p)
+      view.prevYaw = yawSim
+    } else {
+      view.speed = a.speed
+      if (!view.hasPrev) view.yawShown = yawSim
+    }
+    const { clip, scale } = this.clipFor(a, view.speed)
+    c.playClip(clip, 0.2, scale)
+    c.prepare(p, view.yawShown, mirror)
+    if (a.pose !== view.lastPose || a.variant !== view.lastVariant) {
+      view.fade = fadeFor(a.pose, view.lastPose)
+      view.lastPose = a.pose
+      view.lastVariant = a.variant
+      view.key = a.pose + '|' + a.variant
+    }
+    const pose = procPose(this.poseCtx(a, c, ballView, view, dt))
+    c.update(dt, pose, view.key, view.fade)
     if (this.quality.lodDistance >= 0 && a.kind !== 'striker' && a.index > NONSTRIKER) c.setLod(this.quality.lodDistance === 0 || p.distanceTo(camPos) > this.quality.lodDistance)
   }
 
@@ -552,8 +706,8 @@ export class Game {
     if (this.replaying) {
       const f = this.replayFrame()
       vis = !!f && f.ball[3] > 0.5
-      pos = f ? new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]) : new THREE.Vector3()
-    } else pos = v3(d.ball.pos)
+      pos = f ? _bpos.set(-f.ball[0], f.ball[1], f.ball[2]) : _bpos.set(0, 0, 0)
+    } else pos = toView(d.ball.pos, _bpos)
     this.ball.visible = vis
     this.ballShadow.visible = vis && pos.y < 30
     if (!vis) {
@@ -704,8 +858,8 @@ export class Game {
       this.camMode = mode
     }
     this.followSince += dt
-    const pos = new THREE.Vector3()
-    const look = new THREE.Vector3()
+    const pos = _camPos.set(0, 0, 0)
+    const look = _camLook.set(0, 0, 0)
     let fov = 24
     let snap = dt === 0
     const se = inn ? inn.strikerEnd : 1
@@ -741,12 +895,11 @@ export class Game {
       }
       case 'follow': {
         const b = this.ballFocus()
-        const centre = new THREE.Vector3(0, 0, 0)
-        const flat = new THREE.Vector3(b.x, 0, b.z)
+        const flat = _flat.set(b.x, 0, b.z)
         const dist = flat.length()
-        const away = dist > 0.5 ? flat.clone().normalize() : new THREE.Vector3(0, 0, -dirZ)
+        const away = dist > 0.5 ? _away.copy(flat).normalize() : _away.set(0, 0, -dirZ)
         // From behind the pitch, fairly low, looking out at the ball so the field and the stands are in shot.
-        pos.copy(centre).addScaledVector(away, dist * 0.3 - 20).setY(5.5 + dist * 0.07 + Math.max(0, b.y) * 0.3)
+        pos.set(0, 0, 0).addScaledVector(away, dist * 0.3 - 20).setY(5.5 + dist * 0.07 + Math.max(0, b.y) * 0.3)
         look.copy(b).setY(Math.max(0.4, b.y * 0.8))
         fov = 32 + Math.min(14, dist * 0.12)
         break
@@ -803,8 +956,8 @@ export class Game {
   /** What the follow camera frames: the ball, or the fielder holding it. */
   private ballFocus() {
     const d = this.director
-    if (d.heldBy) return v3(d.heldBy.pos).setY(1)
-    return v3(d.ball.pos)
+    if (d.heldBy) return toView(d.heldBy.pos, _focus).setY(1)
+    return toView(d.ball.pos, _focus)
   }
 
   /** The camera the player chose for what he is doing now (batting gets the over-the-shoulder view by default). */
@@ -830,14 +983,21 @@ export class Game {
   private record() {
     const d = this.director
     if (d.phase === 'predelivery') {
-      this.recording.length = 0
+      this.recCount = 0
       this.marks = {}
       return
     }
     if (d.phase !== 'runup' && d.phase !== 'flight' && d.phase !== 'live' && d.phase !== 'dead') return
-    if (this.recording.length > 1500) return
-    const arr = new Float32Array(ACTORS * ACTOR_FIELDS)
-    const poses: string[] = []
+    if (this.recCount >= MAX_REC) return
+    // Frames are reused ball after ball: nothing is allocated once the buffer has filled once.
+    let rec = this.recording[this.recCount]
+    if (!rec) {
+      rec = { actors: new Float32Array(ACTORS * ACTOR_FIELDS), poses: new Array(ACTORS).fill(''), ball: [0, 0, 0, 0] }
+      this.recording[this.recCount] = rec
+    }
+    this.recCount++
+    const arr = rec.actors
+    const poses = rec.poses
     d.actors.forEach((a, i) => {
       const o = i * ACTOR_FIELDS
       arr[o] = a.pos.x
@@ -852,14 +1012,17 @@ export class Game {
       arr[o + 9] = a.visible ? 1 : 0
       arr[o + 10] = a.left ? 1 : 0
       arr[o + 11] = a.speed
-      poses.push(a.variant)
+      poses[i] = a.variant
     })
-    this.recording.push({ actors: arr, poses, ball: [d.ball.pos.x, d.ball.pos.y, d.ball.pos.z, d.ballVisible ? 1 : 0] })
+    rec.ball[0] = d.ball.pos.x
+    rec.ball[1] = d.ball.pos.y
+    rec.ball[2] = d.ball.pos.z
+    rec.ball[3] = d.ballVisible ? 1 : 0
   }
 
   private mark(e: GameEvent) {
     if (this.replaying) return
-    const n = this.recording.length
+    const n = this.recCount
     const m = this.marks
     if (e.type === 'release') m.release = n
     else if ((e.type === 'bathit' || e.type === 'edge' || e.type === 'pad') && m.hit === undefined) m.hit = n
@@ -875,14 +1038,16 @@ export class Game {
   }
 
   private startReplay(kind: 'wicket' | 'six' | 'runout') {
-    if (this.opts.online || this.recording.length < 20) return false
-    const n = this.recording.length
+    if (this.opts.online || this.recCount < 20) return false
+    const n = this.recCount
     const m = this.marks
     const key = Math.min(n - 1, kind === 'runout' ? (m.stumps ?? n - 1) : (m.stumps ?? m.catch ?? m.hit ?? n - 1))
     const start = kind === 'runout' ? Math.max(0, key - 150) : Math.max(0, (m.release ?? 0) - 25)
     const end = kind === 'six' ? n : Math.min(n, key + 90)
     this.replayWin = { start, end, key, slowFrom: Math.max(start, (kind === 'six' ? (m.hit ?? key) : key) - 45), slowTo: Math.min(n, (kind === 'six' ? (m.hit ?? key) : key) + 55) }
-    this.replayFrames = this.recording.slice()
+    // Nothing is recorded while the replay plays, so it reads the recording in place.
+    this.replayFrames = this.recording
+    this.replayCount = n
     this.replayKind = kind
     this.replayT = 0
     this.replaying = true
@@ -908,9 +1073,9 @@ export class Game {
   }
 
   private replayFrame(): FrameRec | null {
-    if (!this.replayFrames.length) return null
+    if (!this.replayCount) return null
     const { idx } = this.replayIndex()
-    return this.replayFrames[Math.min(this.replayFrames.length - 1, Math.max(0, idx))]
+    return this.replayFrames[Math.min(this.replayCount - 1, Math.max(0, idx))]
   }
 
   private applyReplayFrame(dt: number) {
@@ -918,12 +1083,17 @@ export class Game {
     if (!f) return
     const d = this.director
     const { idx, pass } = this.replayIndex()
-    const ballView = f.ball[3] > 0.5 ? new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]) : null
+    const ballView = f.ball[3] > 0.5 ? _ballView.set(-f.ball[0], f.ball[1], f.ball[2]) : null
     for (let i = 0; i < ACTORS; i++) {
       const c = this.people[i]
       if (!c) continue
       const o = i * ACTOR_FIELDS
-      const fake = Object.create(d.actors[i]) as Actor
+      let fake = this.fakes[i]
+      if (!fake) {
+        fake = Object.create(d.actors[i]) as Actor
+        fake.vel = new V3()
+        this.fakes[i] = fake
+      }
       fake.pose = POSES[f.actors[o + 3]] ?? 'idle'
       fake.poseTime = f.actors[o + 4]
       fake.aim = f.actors[o + 5]
@@ -931,10 +1101,10 @@ export class Game {
       fake.feet = (['auto', 'front', 'back', 'charge'] as Footwork[])[f.actors[o + 7]] ?? 'auto'
       fake.hasBall = f.actors[o + 8] > 0.5
       fake.variant = f.poses[i]
-      fake.vel = new V3(f.actors[o + 11], 0, 0)
+      fake.vel.x = f.actors[o + 11]
       c.root.visible = f.actors[o + 9] > 0.5 && fake.pose !== 'hidden'
       if (!c.root.visible) continue
-      this.placePerson(c, new V3(f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, pass === 2 ? dt * 0.4 : dt, this.camera.position)
+      this.placePerson(c, _pp.set(-f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, pass === 2 ? dt * 0.4 : dt, this.camera.position, this.views[i])
     }
     // The stumps go down again at the right moment of each pass.
     const m = this.marks
@@ -987,7 +1157,7 @@ export class Game {
     if (m.catch !== undefined && m.catcher !== undefined && m.stumps === undefined) {
       // The catch, close up.
       const o = m.catcher * ACTOR_FIELDS
-      const cf = this.replayFrames[Math.min(this.replayFrames.length - 1, m.catch)]
+      const cf = this.replayFrames[Math.min(this.replayCount - 1, m.catch)]
       const cp = new THREE.Vector3(-cf.actors[o], 1.2, cf.actors[o + 1])
       const away = cp.clone().setY(0).normalize()
       pos.copy(cp).addScaledVector(away, 5).setY(1.8)
@@ -1116,10 +1286,12 @@ export class Game {
           this.hawk.clear()
           this.shotKind = 'none'
           this.card = null
+          this.updateScreen()
         }
         break
     }
-    if (e.type === 'release' || e.type === 'wicket' || e.type === 'four' || e.type === 'six' || e.type === 'overend') this.updateScreen()
+    // (Not at release: a texture upload there would hitch the delivery.)
+    if (e.type === 'wicket' || e.type === 'four' || e.type === 'six' || e.type === 'overend') this.updateScreen()
   }
 
   /** Remembers how the local batter timed the last six balls (for the practice strip). */
@@ -1339,9 +1511,25 @@ export class Game {
 
   /* ---------------- HUD ---------------- */
 
+  /** The HUD hands over its meter elements while the release meter is on screen (null to let go). */
+  attachMeter(wrap: HTMLElement | null, needle: HTMLElement | null) {
+    this.meterWrap = wrap
+    this.meterNeedle = needle
+  }
+
+  private moveMeter(value: number, inGreen: boolean) {
+    if (this.meterNeedle) this.meterNeedle.style.left = `${value * 100}%`
+    if (this.meterWrap) this.meterWrap.dataset.green = inGreen ? '1' : '0'
+  }
+
   private pushHud() {
     if (!this.onHud) return
-    this.onHud(this.hudState())
+    const h = this.hudState()
+    // Only a change reaches React (most frames nothing on the HUD moves).
+    const json = JSON.stringify(h)
+    if (json === this.lastHudJson) return
+    this.lastHudJson = json
+    this.onHud(h)
   }
 
   hudState(): HudState {
@@ -1389,7 +1577,7 @@ export class Game {
       confidence: d.strikerConfidence,
       localBats: !this.opts.autopilot && d.localBats,
       localBowls: !this.opts.autopilot && d.localBowls,
-      meter: d.localBowls && (d.phase === 'runup' || d.phase === 'predelivery') ? { value: d.meterValue, green: d.meterGreen, half: d.meterHalfWidth, running: d.meterRunning } : null,
+      meter: d.localBowls && (d.phase === 'runup' || d.phase === 'predelivery') ? { value: Math.round(d.meterValue * 100) / 100, green: d.meterGreen, half: d.meterHalfWidth, running: d.meterRunning } : null,
       delivery:
         d.localBowls && bp && (d.phase === 'predelivery' || d.phase === 'runup')
           ? { selected: d.selectedDelivery, around: d.around, options: deliveriesFor(bp.bowl).map((t, i) => ({ type: t, name: DELIVERIES[t].name, key: String(i + 1) })) }
@@ -1434,21 +1622,21 @@ export class Game {
       replay: this.replaying,
       banner: d.bannerTime > 0 ? d.banner : '',
       bannerSub: d.bannerTime > 0 ? d.bannerSub : '',
-      bannerTime: d.bannerTime,
+      bannerTime: Math.round(d.bannerTime * 20) / 20,
       camera: this.userCam,
       paused: this.paused,
       live: d.phase === 'live',
       running: d.anyRunning,
       quality: this.quality.tier,
       reviewsLeft: inn ? d.reviewsLeft(localSide) : 0,
-      card: this.card && this.sinceRelease >= 0 && this.sinceRelease < 3.2 && (d.phase === 'flight' || d.phase === 'live') ? { ...this.card, age: this.sinceRelease } : null,
+      card: this.card && this.sinceRelease >= 0 && this.sinceRelease < 3.2 && (d.phase === 'flight' || d.phase === 'live') ? { ...this.card, age: Math.round(this.sinceRelease * 10) / 10 } : null,
       timings: this.timings,
       nets: d.nets,
       difficulty: st.setup.difficulty,
       markerWords: d.localBowls && (d.phase === 'predelivery' || d.phase === 'runup') ? lengthWords(d.frame.offsetFwd(d.marker), d.frame.offsetOff(d.marker)).text : '',
       aimDeg: d.localBats ? this.aimFromKeys() : null,
       shotKind: this.shotKind,
-      toContact: d.localBats && d.ballReleased && d.phase === 'flight' && d.crossTime('auto') > 0 ? d.crossTime('auto') - d.ball.time - SHOT_LEAD : -1,
+      toContact: d.localBats && d.ballReleased && d.phase === 'flight' && d.crossTime('auto') > 0 ? Math.round((d.crossTime('auto') - d.ball.time - SHOT_LEAD) * 100) / 100 : -1,
     }
   }
 
