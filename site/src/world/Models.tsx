@@ -381,9 +381,44 @@ function impostorMaterial(accent: string) {
   return m
 }
 
-/** A plain block the size of the building, shown until (and while) the real model streams in. */
-function Impostor({ region, l }: { region: Region; l: Landmark }) {
-  if (l.ghost || l.lod === 'near' || (!l.foot && l.height < 6)) return null
+/** Buildings with a distant version in world/models/far: a few hundred triangles, colours baked into the vertices. */
+const FAR = new Set<string>(
+  ('castle-arcade city-brownstone city-corner city-deco-tower city-glass-tower cyber-shop cyber-tower scifi-tower fish-market ' +
+    'fisher-house harbour-townhouse tavern lighthouse village-cottage village-forge village-stonehouse fortress-gate fortress-keep ' +
+    'fortress-tower fortress-wall fortress-pillar temple shipwreck burrow-house cabin windmill distillery silos warehouse observatory ' +
+    'clock-tower lab crane neon-tower portal crystals metal-bridge corner-shop retail-infill metro-headhouse neon-storefront ' +
+    'media-facade stadium-bowl floodlight giant-billboard hotel-neon-blade metro-train ai-core pot-still drone-bot hover-car tree-oak ' +
+    'tree-birch tree-round tree-poplar tree-fir tree-fir-wide autumn-tree pine palm').split(' '),
+)
+const farUrl = (name: string) => `${import.meta.env.BASE_URL}world/models/far/${name}.glb`
+// Faceted and a touch cool, so the skyline reads through the haze without competing with what's close.
+const FAR_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, color: '#dde2ea' })
+
+function FarModel({ region, l }: { region: Region; l: Landmark }) {
+  const gltf = useGLTF(farUrl(l.model), false, true)
+  const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
+  const yaw = ((l.rot ?? 0) * Math.PI) / 180
+  const [obj, y] = useMemo(() => {
+    const root = gltf.scene.clone(true)
+    root.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (m.isMesh) m.material = FAR_MAT
+    })
+    const box = new THREE.Box3().setFromObject(root)
+    const size = box.getSize(new THREE.Vector3())
+    const center = box.getCenter(new THREE.Vector3())
+    const s = l.height / Math.max(size.y, 1e-3)
+    root.scale.setScalar(s)
+    root.position.set(-center.x * s, -box.min.y * s, -center.z * s)
+    const wrap = new THREE.Group()
+    wrap.add(root)
+    return [wrap, groundUnder(wrap, x, z, yaw, l.height) + (l.lift ?? 0)] as const
+  }, [gltf, l.height, l.lift, x, z, yaw])
+  return <primitive object={obj} position={[x, y, z]} rotation={[0, yaw, 0]} />
+}
+
+/** A plain block the size of the building: the stand-in until the island has settled and the far version is in. */
+function ImpostorBox({ region, l }: { region: Region; l: Landmark }) {
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
   const y = heightAt(x, z)
   const [w, d] = l.foot ?? [l.height * 0.55, l.height * 0.55]
@@ -391,6 +426,19 @@ function Impostor({ region, l }: { region: Region; l: Landmark }) {
     <mesh position={[x, y + l.height * 0.42, z]} rotation={[0, ((l.rot ?? 0) * Math.PI) / 180, 0]} material={impostorMaterial(region.accent)}>
       <boxGeometry args={[w, l.height * 0.84, d]} />
     </mesh>
+  )
+}
+
+/** What a district shows from afar, and while its real models stream in: the far version once the island has settled. */
+function Impostor({ region, l, far }: { region: Region; l: Landmark; far: boolean }) {
+  // Street furniture (lamps, signs) has no far version: too slight to read at a distance, and a block would look wrong.
+  if (l.ghost || l.lod === 'near' || !FAR.has(l.model) || (!l.foot && l.height < 6)) return null
+  const box = <ImpostorBox region={region} l={l} />
+  if (!far) return box
+  return (
+    <Suspense fallback={box}>
+      <FarModel region={region} l={l} />
+    </Suspense>
   )
 }
 
@@ -590,11 +638,11 @@ function District({ region }: { region: Region }) {
             </Suspense>
           ) : null
         ) : near ? (
-          <Suspense key={`${region.id}-${i}`} fallback={<Impostor region={region} l={l} />}>
+          <Suspense key={`${region.id}-${i}`} fallback={<Impostor region={region} l={l} far={farReady} />}>
             <LandmarkModel region={region} l={l} index={region.landmarks.indexOf(l)} />
           </Suspense>
         ) : (
-          <Impostor key={`${region.id}-${i}`} region={region} l={l} />
+          <Impostor key={`${region.id}-${i}`} region={region} l={l} far={farReady} />
         ),
       )}
     </>
@@ -660,6 +708,12 @@ mvPosition.z += cos(uWind * 1.05 + ph * 1.3) * sw * 0.7;
 #endif
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;`,
+    )
+    // A branch right in front of the camera (walking under a canopy) is cut away instead of filling the screen.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>
+  if (length(vViewPosition) < 2.6) discard;`,
     )
   }
   m.customProgramCacheKey = () => `sway-${amp}-${localH.toFixed(3)}`

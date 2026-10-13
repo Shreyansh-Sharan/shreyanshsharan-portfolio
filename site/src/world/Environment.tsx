@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { REGIONS, WATER_LEVEL, type Mood } from './regions'
 import { skyFlash } from './particles'
 import { daylight } from './clock'
+import { heightAt } from './terrain'
 
 /** Where the camera is looking; the sun's shadow box follows it. Written by the camera rig. */
 export const lookTarget = new THREE.Vector3()
@@ -167,6 +168,28 @@ function waterNormals() {
   return tex
 }
 
+/** How deep the water is across the island (0-12 m), sampled once from the terrain: tints the shallows and edges the shore. */
+const DEPTH_SPAN = 1280
+const DEPTH_MAX = 12
+function depthTexture() {
+  const size = 256
+  const data = new Uint8Array(size * size * 4)
+  for (let j = 0; j < size; j++)
+    for (let i = 0; i < size; i++) {
+      const x = ((i + 0.5) / size - 0.5) * DEPTH_SPAN, z = ((j + 0.5) / size - 0.5) * DEPTH_SPAN
+      const d = Math.min(1, Math.max(0, (WATER_LEVEL - heightAt(x, z)) / DEPTH_MAX))
+      const k = (j * size + i) * 4
+      data[k] = data[k + 1] = data[k + 2] = Math.round(d * 255)
+      data[k + 3] = 255
+    }
+  const t = new THREE.DataTexture(data, size, size)
+  t.magFilter = THREE.LinearFilter
+  t.minFilter = THREE.LinearFilter
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping
+  t.needsUpdate = true
+  return t
+}
+
 export function Water() {
   const normals = useMemo(waterNormals, [])
   const detail = useMemo(() => {
@@ -175,10 +198,37 @@ export function Water() {
     t.needsUpdate = true
     return t
   }, [normals])
-  useFrame((_, dt) => {
+  const uniforms = useMemo(() => ({ uDepth: { value: depthTexture() }, uWaterTime: { value: 0 } }), [])
+  // Turquoise over the sand, deep blue offshore, and a broken line of foam where the water meets the land.
+  const onBeforeCompile = useMemo(
+    () => (shader: THREE.WebGLProgramParametersWithUniforms) => {
+      Object.assign(shader.uniforms, uniforms)
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vWaterXZ;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvWaterXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vWaterXZ;\nuniform sampler2D uDepth;\nuniform float uWaterTime;')
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          float wDepth = texture2D(uDepth, vWaterXZ / ${DEPTH_SPAN.toFixed(1)} + 0.5).r * ${DEPTH_MAX.toFixed(1)};
+          float wShallow = 1.0 - smoothstep(0.0, 6.0, wDepth);
+          diffuseColor.rgb = mix(diffuseColor.rgb * 0.62, vec3(0.30, 0.78, 0.74), wShallow * 0.8);
+          diffuseColor.a *= mix(1.0, 0.62, wShallow);
+          float wEdge = 1.0 - smoothstep(0.05, 0.75, wDepth);
+          float wBreak = sin(vWaterXZ.x * 0.9 + uWaterTime * 1.4) * sin(vWaterXZ.y * 0.8 - uWaterTime * 1.1) * 0.5 + 0.5;
+          float wFoam = wEdge * smoothstep(0.25, 0.75, wBreak * 0.6 + wEdge * 0.6);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), wFoam * 0.85);
+          diffuseColor.a = max(diffuseColor.a, wFoam * 0.9);`,
+        )
+    },
+    [uniforms],
+  )
+  useFrame(({ clock }, dt) => {
     normals.offset.x += dt * 0.004
     normals.offset.y += dt * 0.0025
     detail.offset.x -= dt * 0.006
+    uniforms.uWaterTime.value = clock.elapsedTime
   })
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, WATER_LEVEL, 0]} receiveShadow>
@@ -196,6 +246,7 @@ export function Water() {
         envMapIntensity={1.25}
         transparent
         opacity={0.86}
+        onBeforeCompile={onBeforeCompile}
       />
     </mesh>
   )

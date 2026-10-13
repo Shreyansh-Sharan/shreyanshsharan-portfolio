@@ -43,8 +43,8 @@ void main() {
   float wave = sin(vUv.y * 9.0 - uTime * 1.6 + vPhase) * 0.5 + 0.5;
   float lap = smoothstep(0.35, 1.0, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
   float ends = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
-  float a = (wave * wave * 0.55 + lap * 0.5) * ends * (0.75 + 0.25 * sin(uTime * 0.8 + vPhase * 3.0));
-  gl_FragColor = vec4(vec3(0.94, 0.98, 1.0), a * 0.8);
+  float a = (wave * wave * 0.6 + lap * 0.65) * ends * (0.75 + 0.25 * sin(uTime * 0.8 + vPhase * 3.0));
+  gl_FragColor = vec4(vec3(0.94, 0.98, 1.0), min(1.0, a * 0.95));
 }`
 
 /** Shoreline points every few metres, each with the direction towards land. */
