@@ -166,6 +166,92 @@
   gap: 6px;
 }
 
+.sg-herocard img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  background: #0b0820;
+}
+
+.sg-herosheet {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.sg-herocardimg {
+  width: 112px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--sg-accent, #f0abfc) 50%, transparent);
+  box-shadow: 0 0 28px -10px var(--sg-accent, #f0abfc);
+  background: #0b0820;
+}
+
+.sg-herosheet .sg-sub {
+  margin-top: 0;
+}
+
+.sg-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+  margin-right: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: #0b0820;
+}
+
+.sg-players li {
+  display: flex;
+  align-items: center;
+}
+
+.sg-fighter {
+  white-space: nowrap;
+}
+
+.sg-credits {
+  margin-top: 14px;
+}
+
+.sg-creditsbtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sg-creditlist {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.sg-creditlist em {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.sg-creditlist a {
+  color: var(--text);
+  text-decoration: underline dotted;
+}
+
 .sg-herocard span {
   font-size: 11px;
   color: var(--sg-accent, #f0abfc);
@@ -581,11 +667,24 @@
 }
 
 .sg-mehero {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 900;
   letter-spacing: 0.1em;
   color: var(--sg-accent, #f0abfc);
   text-shadow: 0 0 10px var(--sg-accent, #f0abfc);
   font-size: 13px;
+}
+
+.sg-mehero img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--sg-accent, #f0abfc);
+  box-shadow: 0 0 12px -2px var(--sg-accent, #f0abfc);
+  background: #0b0820;
 }
 
 .sg-hp {

@@ -113,10 +113,9 @@ export class Fx {
 
   /* ---------- Presets ---------- */
 
-  muzzle(x: number, z: number, aim: number, color: string, big = false) {
+  muzzle(x: number, z: number, aim: number, color: string, big = false, y = 1.3) {
     const dx = Math.cos(aim)
     const dz = Math.sin(aim)
-    const y = 1.3
     this.emit(x, y, z, dx * 2, 0, dz * 2, '#ffffff', 0.06, big ? 1.4 : 0.9)
     this.burst(x + dx * 0.2, y, z + dz * 0.2, big ? 8 : 4, color, 5, 0.18, 0.35)
     if (big) this.light(x, z, color, 8)
