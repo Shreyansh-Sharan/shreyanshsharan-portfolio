@@ -1348,3 +1348,12 @@
 .art-key picture img {
   object-position: 72% 40%;
 }
+
+/* The round "..." button keeps its icon full size whatever padding the breakpoints give buttons. */
+.ps-home .ps-btn.ps-btn-more {
+  padding: 0;
+}
+
+.ps-btn svg {
+  flex-shrink: 0;
+}
