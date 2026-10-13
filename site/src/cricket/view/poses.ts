@@ -16,9 +16,13 @@ type V = [number, number, number]
 export interface PoseMem {
   hands: THREE.Vector3
   hasHands: boolean
+  /** Bowling action: ground covered since the action began, the clock last frame, and the distance at each plant. */
+  travel: number
+  lastT: number
+  plants: number[]
 }
 
-export const newPoseMem = (): PoseMem => ({ hands: new THREE.Vector3(), hasHands: false })
+export const newPoseMem = (): PoseMem => ({ hands: new THREE.Vector3(), hasHands: false, travel: 0, lastT: -1, plants: [-1, -1, -1] })
 
 export interface PoseCtx {
   pose: Pose
@@ -64,6 +68,11 @@ interface Key {
   toeR?: number
   handL?: V
   handR?: V
+  /** The bowling arm's windmill: angle (deg from up, + forward), shoulder-to-hand distance, sideways offset. */
+  armA?: number
+  armRad?: number
+  armX?: number
+  rollR?: number
   grip?: V
   dir?: V
   face?: V
@@ -94,7 +103,7 @@ function slerpDir(a: V, b: V, k: number): V {
 }
 
 const VEC_FIELDS = ['pelvis', 'hips', 'spine', 'footL', 'footR', 'handL', 'handR', 'grip'] as const
-const NUM_FIELDS = ['toeL', 'toeR', 'wristR'] as const
+const NUM_FIELDS = ['toeL', 'toeR', 'wristR', 'armA', 'armRad', 'armX', 'rollR'] as const
 
 /** Interpolates a keyframe list at time t (eased between keys). Missing fields carry over. */
 function sample(keys: Key[], t: number): Key {
@@ -131,6 +140,8 @@ function toPose(k: Key, extra: Partial<ProcPose> = {}): ProcPose {
   if (k.toeL !== undefined) p.toeL = k.toeL
   if (k.toeR !== undefined) p.toeR = k.toeR
   if (k.wristR !== undefined) p.wristR = k.wristR
+  if (k.rollR !== undefined) p.rollR = k.rollR
+  if (k.armA !== undefined) p.armR = { angle: k.armA, radius: k.armRad ?? 0.53, out: k.armX ?? 0 }
   if (k.grip && k.dir) {
     const grip = vec(k.grip)
     const dir = vec(k.dir).normalize()
@@ -299,6 +310,18 @@ function pullKeys(aim: number, lead: number, loft: boolean, power: number): Key[
   ]
 }
 
+/** The hook: the pull to a ball at the head, rolled down and round, finishing over the front shoulder. */
+function hookKeys(aim: number, lead: number, loft: boolean, power: number): Key[] {
+  const keys = pullKeys(Math.min(-90, aim), lead, loft, power)
+  const c = keys[2]
+  c.grip = [0.2, 1.48, 0.02]
+  c.pelvis = [-0.1, -0.02, -0.04]
+  c.spine = [2, 52, 12]
+  keys[3] = { ...keys[3], grip: [-0.12, 1.66, -0.32], dir: [-0.6, 0.65, -0.45], spine: [0, 80, 14], hips: [85, 0, 0] }
+  keys[4] = { ...keys[3], t: lead + 0.75 }
+  return keys
+}
+
 function cutKeys(aim: number, lead: number, power: number): Key[] {
   const a = aimDir(aim)
   const c: Key = {
@@ -392,7 +415,7 @@ const LEAVE: Key = {
 
 function batterPose(c: PoseCtx): ProcPose | null {
   const look = c.ball && c.sinceRelease >= 0 ? c.ball : _a.copy(c.ahead).setY(1.6)
-  const lead = { drive: 0.2, cut: 0.18, pull: 0.2, sweep: 0.22, flick: 0.17, defend: 0.14 }[c.variant] ?? 0.2
+  const lead = { drive: 0.2, cut: 0.18, pull: 0.2, hook: 0.2, sweep: 0.22, flick: 0.17, defend: 0.14 }[c.variant] ?? 0.2
   switch (c.pose) {
     case 'stance': {
       if (c.variant === 'charge' && c.sinceRelease < 0) {
@@ -404,6 +427,13 @@ function batterPose(c: PoseCtx): ProcPose | null {
       const pre = c.toRelease >= 0 ? clamp01(1 - c.toRelease / 0.35) * 0.4 : 0
       const lift = c.sinceRelease >= 0 ? 0.4 + 0.6 * smooth(Math.min(1, c.sinceRelease / 0.22)) : pre
       const k = sample([{ ...STANCE, t: 0 }, { ...BACKLIFT, t: 1, ease: 'in' }], lift)
+      // The trigger: as the bowler gathers, the back foot goes back and across and the front foot presses.
+      const trig = c.toRelease >= 0 ? smooth(clamp01(1 - c.toRelease / 0.45)) : c.sinceRelease >= 0 ? 1 - smooth(clamp01((c.sinceRelease - 0.25) / 0.3)) : 0
+      if (trig > 0 && k.footR && k.footL) {
+        k.footR = [k.footR[0] - 0.06 * trig, k.footR[1], k.footR[2] + 0.07 * trig]
+        k.footL = [k.footL[0] + 0.03 * trig, k.footL[1], k.footL[2] + 0.04 * trig]
+        if (k.pelvis) k.pelvis = [k.pelvis[0] - 0.02 * trig, k.pelvis[1] - 0.015 * trig, k.pelvis[2] + 0.05 * trig]
+      }
       // Breathing and a little sway while waiting, a tap of the bat.
       const idle = 1 - lift
       const sway = Math.sin(c.t * 1.1) * 0.012 * idle
@@ -424,6 +454,9 @@ function batterPose(c: PoseCtx): ProcPose | null {
         case 'pull':
           keys = pullKeys(c.aim, lead, c.loft, c.power)
           break
+        case 'hook':
+          keys = hookKeys(c.aim, lead, c.loft, c.power)
+          break
         case 'cut':
           keys = cutKeys(c.aim, lead, c.power)
           break
@@ -441,6 +474,22 @@ function batterPose(c: PoseCtx): ProcPose | null {
     case 'leave':
       return toPose(sample([{ ...BACKLIFT, t: 0 }, LEAVE, { ...LEAVE, t: 0.9 }, recoverKey(1.5, LEAVE.footL!, LEAVE.footR!)], c.t), { look })
     case 'batslide': {
+      if (c.variant === 'dive') {
+        // Full length for the line: launch, land on the chest with the bat out in front, then up again.
+        const k = smooth(Math.min(1, c.t / 0.22)) * (1 - smooth(clamp01((c.t - 0.95) / 0.4)))
+        return {
+          weight: 1,
+          noLock: true,
+          body: { axis: new THREE.Vector3(1, 0, 0), angle: 80 * k, offset: new THREE.Vector3(0, 0.1 * k, 0.45 * k) },
+          spine: [-10 * k, 0, 0],
+          footL: new THREE.Vector3(0.14, ANKLE + 0.06 * k, -0.15 * k),
+          footR: new THREE.Vector3(-0.14, ANKLE + 0.12 * k, -0.25 * k),
+          handR: new THREE.Vector3(-0.08, 1.85 + 0.3 * k, 0.3),
+          handL: new THREE.Vector3(0.1, 1.75 + 0.25 * k, 0.25),
+          bat: { grip: new THREE.Vector3(-0.08, 1.9 + 0.3 * k, 0.32), dir: new THREE.Vector3(0, 1, 0.1), face: new THREE.Vector3(0, 0, 1) },
+          look: _a.set(0, 2.5, 3),
+        }
+      }
       // Stretching the bat into the crease: lunge forward, bat along the ground, then straighten up again.
       const k = smooth(Math.min(1, c.t / 0.2)) * (1 - smooth(clamp01((c.t - 0.55) / 0.35)))
       return {
@@ -464,51 +513,142 @@ function batterPose(c: PoseCtx): ProcPose | null {
 /* ---------------- bowling ---------------- */
 // Bowler's character space: +Z is the direction of the run, +X his left. A right-armer bowls with his right (-X) arm.
 
-function paceKeys(): Key[] {
+/**
+ * The action on one clock: 0 is the gather (the last running stride), `rel` the release. Event times for a fast
+ * bowler; the others scale them to their own stride (a spinner's is short: a hop, not a bound).
+ *  takeoff: the bound off the front-arm side foot   apex: highest point, arm loaded down by the hip
+ *  back:    the back foot lands side-on               front: the front foot lands, braced
+ */
+interface ActionTimes {
+  rel: number
+  takeoff: number
+  apex: number
+  back: number
+  front: number
+  /** How high the bound goes (m) and how long the stride is. */
+  jump: number
+  stride: number
+}
+
+function actionTimes(style: BowlStyle): ActionTimes {
+  const spin = style === 'offspin' || style === 'legspin'
+  if (spin) return { rel: 0.6, takeoff: 0.12, apex: 0.22, back: 0.32, front: 0.48, jump: 0.09, stride: 0.72 }
+  const S = style === 'fast' ? 0.78 : style === 'swing' ? 0.74 : 0.72
+  const k = S / 0.78
+  return { rel: S, takeoff: 0.16 * k, apex: 0.3 * k, back: 0.44 * k, front: 0.64 * k, jump: style === 'fast' ? 0.3 : 0.22, stride: style === 'fast' ? 0.95 : 0.88 }
+}
+
+/** Trunk, front arm and bowling arm through the action (times in the fast bowler's clock, scaled). */
+function actionKeys(T: ActionTimes, spin: boolean, leg: boolean): Key[] {
+  const j = T.jump
+  const r = T.rel
+  // Spinners: the wrist cocks back and rips through (a leg-spinner rolls it the other way).
+  const flick = spin ? 70 : 40
+  const roll = spin ? (leg ? -75 : 65) : 0
   return [
-    { t: 0, pelvis: [0, 0.1, 0], hips: [0, -4, 0], spine: [-4, 0, 0], footL: [0.12, 0.42, 0.22], footR: [-0.1, 0.2, -0.28], toeL: 0, toeR: 0, handL: [0.08, 1.38, 0.3], handR: [-0.06, 1.34, 0.3], wristR: 0 },
-    { t: 0.22, pelvis: [0, 0.02, 0.05], hips: [-55, -6, 0], spine: [-12, -30, 4], footL: [0.06, 0.34, 0.45], footR: [-0.04, ANKLE, -0.05], toeR: -80, toeL: -20, handL: [0.16, 2.02, 0.5], handR: [-0.28, 1.05, -0.4], wristR: 15 },
-    { t: 0.42, ease: 'in', pelvis: [0, -0.1, 0.32], hips: [-30, 8, 0], spine: [6, -24, 2], footL: [0.06, ANKLE, 0.92], footR: [-0.06, 0.16, 0.02], toeL: 0, toeR: -60, handL: [0.3, 1.5, 0.8], handR: [-0.36, 1.82, -0.42], wristR: 20 },
-    { t: 0.6, ease: 'in', pelvis: [0, -0.12, 0.45], hips: [0, 18, 0], spine: [26, 10, 0], footL: [0.06, ANKLE, 0.95], footR: [-0.1, 0.24, 0.12], toeL: 0, toeR: -20, handL: [0.28, 0.98, 0.18], handR: [-0.16, 2.25, 0.62], wristR: -30 },
+    { t: 0, pelvis: [0, -0.03, 0], hips: [0, 6, 0], spine: [8, 0, 0], handL: [0.12, 1.3, 0.35], armA: 105, armRad: 0.33, armX: 0.13, wristR: 0, rollR: 0 },
+    { t: T.takeoff, pelvis: [0, 0.03 + j * 0.2, 0.06], hips: [-25, 0, 0], spine: [0, -10, 0], handL: [0.1, 1.5, 0.3], armA: 80, armRad: 0.28, armX: 0.12 },
+    { t: T.apex, ease: 'out', pelvis: [0, j, 0.12], hips: [-60, -4, 0], spine: [-10, -30, 6], handL: [0.12, 2.0, 0.42], armA: 190, armRad: 0.5, armX: -0.02, wristR: flick * 0.5 },
+    { t: T.back, ease: 'in', pelvis: [0, -0.05, 0.16], hips: [-72, -2, 0], spine: [-14, -36, 8], handL: [0.14, 1.98, 0.5], armA: 228, armRad: 0.53, armX: -0.05, wristR: flick },
+    { t: T.front, pelvis: [0, -0.11, 0.34], hips: [-38, 6, 0], spine: [-4, -26, 6], handL: [0.22, 1.78, 0.55], armA: 282, armRad: 0.53, armX: -0.06, wristR: flick, rollR: -roll * 0.3 },
+    { t: r, ease: 'in', pelvis: [0, -0.14, 0.46], hips: [12, 18, 0], spine: [28, 18, -4], handL: [0.34, 1.0, -0.02], armA: 378, armRad: 0.53, armX: -0.08, wristR: -30, rollR: roll },
+    { t: r + 0.1, ease: 'out', pelvis: [0, -0.2, 0.52], hips: [20, 24, 0], spine: [46, 26, -6], handL: [0.26, 0.9, -0.16], armA: 470, armRad: 0.53, armX: 0.12, wristR: -10, rollR: roll * 0.5 },
+    { t: r + 0.3, pelvis: [0, -0.18, 0.45], hips: [16, 18, 0], spine: [40, 20, -4], handL: [0.26, 0.95, -0.12], armA: 535, armRad: 0.46, armX: 0.32, wristR: 0, rollR: 0 },
+    { t: r + 0.75, pelvis: [0, -0.07, 0.15], hips: [4, 6, 0], spine: [16, 8, 0], handL: [0.22, 0.95, 0.12], armA: 535, armRad: 0.42, armX: 0.2 },
   ]
 }
 
-function spinKeys(): Key[] {
-  return [
-    { t: 0, pelvis: [0, 0.04, 0], spine: [-2, 0, 0], footL: [0.1, 0.3, 0.18], footR: [-0.1, ANKLE, -0.2], handL: [0.1, 1.35, 0.3], handR: [-0.05, 1.32, 0.3], wristR: 0 },
-    { t: 0.2, pelvis: [0, -0.02, 0.05], hips: [-50, 0, 0], spine: [-6, -25, 0], footL: [0.05, 0.25, 0.4], footR: [-0.04, ANKLE, -0.05], toeR: -80, toeL: -15, handL: [0.18, 1.85, 0.5], handR: [-0.3, 1.15, -0.3], wristR: 25 },
-    { t: 0.36, ease: 'in', pelvis: [0, -0.07, 0.25], hips: [-25, 6, 0], spine: [6, -18, 0], footL: [0.08, ANKLE, 0.72], footR: [-0.06, 0.12, 0.0], toeL: 0, toeR: -60, handL: [0.3, 1.45, 0.7], handR: [-0.35, 1.7, -0.25], wristR: 35 },
-    { t: 0.5, ease: 'in', pelvis: [0, -0.1, 0.35], hips: [0, 14, 0], spine: [20, 12, 0], footL: [0.08, ANKLE, 0.75], footR: [-0.08, 0.2, 0.1], toeR: -20, handL: [0.26, 1.0, 0.2], handR: [-0.22, 2.1, 0.45], wristR: -45 },
-  ]
-}
-
-function followKeys(spin: boolean): Key[] {
-  const rel = (spin ? spinKeys() : paceKeys()).at(-1)!
-  return [
-    { ...rel, t: 0 },
-    { t: spin ? 0.2 : 0.25, ease: 'out', pelvis: [0, -0.2, 0.6], hips: [10, 20, 0], spine: [spin ? 30 : 45, 25, 0], footL: [0.06, ANKLE, 0.95], footR: [-0.05, 0.32, 0.65], toeR: 0, handR: [0.25, 0.78, 0.55], handL: [0.3, 0.95, -0.1], wristR: 0 },
-    { t: 0.6, pelvis: [0, -0.08, 0.6], hips: [0, 6, 0], spine: [15, 10, 0], footL: [0.1, ANKLE, 1.0], footR: [-0.1, ANKLE, 1.25], handR: [-0.2, 0.9, 0.4], handL: [0.25, 0.95, 0.2] },
-  ]
-}
-
+const ACTION_CACHE = new Map<string, Key[]>()
+const _footL = new THREE.Vector3()
+const _footR = new THREE.Vector3()
 const LOOK_DOWN_PITCH = new THREE.Vector3(0, 1.4, 20)
-const ELBOW_BOWL_R = new THREE.Vector3(-0.5, 0, -1)
-const ELBOW_BOWL_L = new THREE.Vector3(0.6, -0.5, 0.4)
-const ELBOW_FOLLOW_R = new THREE.Vector3(-0.3, -0.5, 1)
+
+/**
+ * The bowling action (`deliver` up to release, `follow` after it) as one continuous motion: the gather, the bound
+ * (or a spinner's hop), the back foot landing side-on, the front foot braced, the hips and shoulders unwinding, the
+ * arm windmilling over the top to release, and the follow-through with the back leg coming round. Feet that are on
+ * the ground stay where they landed while the body travels on (the ground covered is integrated from the speed).
+ */
+function bowlAction(c: PoseCtx): ProcPose | null {
+  const spin = c.style === 'offspin' || c.style === 'legspin'
+  const T = actionTimes(c.style)
+  const t = c.pose === 'deliver' ? c.t : T.rel + c.t
+  // The clock: the sim starts 'deliver' exactly stride seconds before release, so its time is the action time.
+  const m = c.mem
+  if (t < m.lastT - 0.05 || m.lastT < 0) {
+    m.travel = 0
+    m.plants[0] = m.plants[1] = m.plants[2] = -1
+  }
+  m.lastT = t
+  if (c.dt > 0) m.travel += c.speed * c.dt
+  const plantAt = (i: number, at: number) => {
+    if (t >= at && m.plants[i] < 0) m.plants[i] = m.travel
+    return m.plants[i] < 0 ? 0 : m.travel - m.plants[i]
+  }
+  let keys = ACTION_CACHE.get(c.style)
+  if (!keys) {
+    keys = actionKeys(T, spin, c.style === 'legspin')
+    ACTION_CACHE.set(c.style, keys)
+  }
+  const k = sample(keys, t)
+  const p = toPose(k, { look: c.pose === 'follow' && c.ball ? c.ball : LOOK_DOWN_PITCH, elbowL: ELBOW_FRONT_ARM, noLock: true })
+  const r = T.rel
+  // Front (left) foot: takeoff foot, then the long stride to land braced, then planted through the follow-through.
+  const fl = _footL
+  if (t < T.takeoff) {
+    const u = t / T.takeoff
+    fl.set(0.09, ANKLE + 0.02 * u, 0.3 - 0.55 * u)
+  } else if (t < T.front) {
+    const u = (t - T.takeoff) / (T.front - T.takeoff)
+    fl.set(0.09 - 0.03 * u, ANKLE + Math.sin(u * Math.PI) * 0.5 + (1 - u) * 0.02, -0.25 + (T.stride + 0.25) * smooth(u))
+  } else {
+    const slid = plantAt(1, T.front)
+    fl.set(0.06, ANKLE, Math.max(-0.45, T.stride - slid))
+  }
+  // Back (right) foot: drives up into the bound, lands side-on, drags through release, then comes round.
+  const fr = _footR
+  let toeR = 0
+  if (t < T.takeoff) {
+    const u = t / T.takeoff
+    fr.set(-0.1, 0.3 + 0.12 * u, -0.35 + 0.6 * smooth(u))
+  } else if (t < T.back) {
+    const u = (t - T.takeoff) / (T.back - T.takeoff)
+    fr.set(-0.08, ANKLE + (0.42 - ANKLE) * (1 - smooth(u)) + Math.sin(u * Math.PI) * 0.05, 0.25 - 0.1 * u)
+    toeR = -80 * smooth(u)
+  } else if (t < r + 0.06) {
+    const slid = plantAt(0, T.back)
+    const drag = t > T.front ? smooth((t - T.front) / (r + 0.06 - T.front)) : 0
+    fr.set(-0.06, ANKLE + 0.06 * drag, Math.max(-0.7, 0.15 - slid))
+    toeR = -80 + 50 * drag
+  } else if (t < r + 0.36) {
+    // The back leg swings through past the front foot.
+    const u = (t - r - 0.06) / 0.3
+    const from = Math.max(-0.7, 0.15 - (m.plants[0] < 0 ? 0 : m.travel - m.plants[0]))
+    fr.set(-0.08, ANKLE + Math.sin(u * Math.PI) * 0.3, from + (0.95 - from) * smooth(u))
+    toeR = -30 * (1 - u)
+  } else {
+    const slid = plantAt(2, r + 0.36)
+    fr.set(-0.1, ANKLE, Math.max(-0.4, 0.95 - slid))
+  }
+  p.footL = fl.clone()
+  p.footR = fr.clone()
+  p.toeL = t < T.front ? -20 : 0
+  p.toeR = toeR
+  // Knees: the bound tucks them; the front leg is braced straight at landing.
+  p.kneeL = new THREE.Vector3(0.1, 0.2, 1)
+  p.kneeR = new THREE.Vector3(-0.3, 0.1, 1)
+  if (c.pose === 'follow') {
+    // Hand back to the run clips as the follow-through ends.
+    p.weight = c.t < 0.7 ? 1 : Math.max(0, 1 - (c.t - 0.7) / 0.3)
+    if (p.weight <= 0) return null
+  }
+  return p
+}
+
+const ELBOW_FRONT_ARM = new THREE.Vector3(0.6, -0.5, 0.4)
 
 function bowlerPose(c: PoseCtx): ProcPose | null {
-  const spin = c.style === 'offspin' || c.style === 'legspin'
-  if (c.pose === 'deliver') {
-    const keys = spin ? spinKeys() : paceKeys()
-    // The feet are in the air through the gather: no ground lock until the front foot lands.
-    return toPose(sample(keys, c.t), { look: LOOK_DOWN_PITCH, elbowR: ELBOW_BOWL_R, elbowL: ELBOW_BOWL_L })
-  }
-  if (c.pose === 'follow') {
-    if (c.t > 0.85) return null
-    const p = toPose(sample(followKeys(spin), c.t), { elbowR: ELBOW_FOLLOW_R, look: c.ball ?? LOOK_DOWN_PITCH })
-    p.weight = c.t < 0.6 ? 1 : 1 - (c.t - 0.6) / 0.25
-    return p
-  }
+  if (c.pose === 'deliver' || c.pose === 'follow') return bowlAction(c)
   return null
 }
 
@@ -737,8 +877,46 @@ function umpirePose(c: PoseCtx): ProcPose | null {
   }
 }
 
+/** Wicket roar for the bowler, the raised bat for a milestone. */
+function celebratePose(c: PoseCtx): ProcPose | null {
+  if (c.variant === 'roar') {
+    const k = smooth(Math.min(1, c.t / 0.3))
+    const pump = Math.sin(c.t * 7) * 0.06 * k * Math.exp(-c.t * 0.4)
+    return {
+      weight: 1,
+      pelvis: new THREE.Vector3(0, -0.08 * k, 0),
+      spine: [-14 * k, 0, 0],
+      footL: new THREE.Vector3(0.26, ANKLE, 0.08),
+      footR: new THREE.Vector3(-0.26, ANKLE, -0.04),
+      toeL: 20,
+      toeR: -20,
+      handL: new THREE.Vector3(0.75, 1.7 + pump, 0.25),
+      handR: new THREE.Vector3(-0.75, 1.7 - pump, 0.25),
+      elbowL: new THREE.Vector3(1, -0.5, -0.4),
+      elbowR: new THREE.Vector3(-1, -0.5, -0.4),
+      look: _a.set(0, 3.2, 5),
+    }
+  }
+  if (c.variant === 'bat') {
+    const k = smooth(Math.min(1, c.t / 0.5))
+    return {
+      weight: 1,
+      pelvis: new THREE.Vector3(0, -0.02, 0),
+      spine: [-4 * k, 0, 0],
+      footL: new THREE.Vector3(0.18, ANKLE, 0.06),
+      footR: new THREE.Vector3(-0.18, ANKLE, -0.04),
+      handR: new THREE.Vector3(-0.3, 1.25 + 0.95 * k, 0.25),
+      handL: new THREE.Vector3(0.16, 1.62, 0.12 + 0.05 * k),
+      bat: { grip: new THREE.Vector3(-0.3, 1.27 + 0.95 * k, 0.25), dir: new THREE.Vector3(-0.15, 1, 0.1).normalize(), face: new THREE.Vector3(0, 0, 1) },
+      look: _a.set(0, 2.6, 6),
+    }
+  }
+  return null
+}
+
 /** The procedural pose for this frame, or null to show the plain clip. */
 export function procPose(c: PoseCtx): ProcPose | null {
+  if (c.pose === 'celebrate' && c.variant) return celebratePose(c)
   switch (c.kind) {
     case 'striker':
       return batterPose(c) ?? (c.pose === 'run' ? leanPose(c) : null)

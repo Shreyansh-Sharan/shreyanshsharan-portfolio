@@ -11,3 +11,6 @@ Universal Animation Library (CC0) and were retargeted onto each body's skeleton;
 actions, keeping and catches are procedural.
 
 Ground textures (grass.webp, pitch.webp, concrete.webp) are ambientCG Grass005, Ground109 and Concrete034 (CC0).
+
+The menu backdrops (menu-hero.webp, menu-loft.webp) are original images made for this project; the players in them
+are invented and wear plain kit with no team, sponsor or maker marks.

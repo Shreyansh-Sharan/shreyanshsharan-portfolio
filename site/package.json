@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:cricket": "node src/cricket/sim/physics.test.ts && node src/cricket/sim/match.test.ts t10 3"
+    "test:cricket": "node src/cricket/sim/physics.test.ts && node src/cricket/sim/deliveries.test.ts && node src/cricket/sim/match.test.ts t10 3"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

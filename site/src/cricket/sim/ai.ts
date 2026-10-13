@@ -175,7 +175,10 @@ export function runningCalls(d: Director) {
     if (!d.anyRunning && d.liveTime > 0.5) d.callRun()
     return
   }
-  if (d.isAirCatchChance()) return
+  if (d.isAirCatchChance()) {
+    if (!d.anyRunning && d.liveTime > 0.25) d.raiseCall('wait', 0)
+    return
+  }
   const tBall = d.estimatedReturnTime()
   if (!d.anyRunning) {
     if (d.liveTime < 0.45) return
@@ -236,17 +239,49 @@ export function chooseBowler(d: Director, rng: Rng) {
   return best
 }
 
+/**
+ * The CPU captain's field: catchers for a new batter, a swinging ball or a turning pitch; the ring sealed in the
+ * powerplay; sweepers out when the batter is set or the chase is easy; the death field at the end.
+ */
 export function choosePreset(d: Director, bowler: Player): FieldPreset {
   const spin = isSpinStyle(bowler.bowl)
   const st = d.state
-  if (isDeath(d)) return 'death'
-  if (st.isPowerplay) return spin ? 'normal' : 'attacking'
-  if (st.current.target > 0) {
+  const inn = st.current
+  const card = inn.batting.find((b) => b.player === inn.striker)
+  const newBatter = !!card && card.balls < 6
+  const set = !!card && card.runs >= 30
+  const ballAge = inn.legalBalls / 6
+  if (isDeath(d)) return newBatter && !st.inSuperOver ? (spin ? 'spin' : 'normal') : 'death'
+  if (st.isPowerplay) {
+    if (spin) return newBatter ? 'spin' : 'normal'
+    return (bowler.bowl === 'swing' && ballAge < 6) || newBatter ? 'attacking' : 'normal'
+  }
+  if (inn.target > 0) {
     const rrr = st.requiredRate
     if (rrr > 10) return spin ? 'spin' : 'attacking'
-    if (rrr < 6) return 'defensive'
+    if (rrr < 6 && !newBatter) return 'defensive'
   }
-  return spin && st.setup.pitch === 'dusty' ? 'spin' : 'normal'
+  if (spin && (st.setup.pitch === 'dusty' || newBatter)) return 'spin'
+  if (set) return 'defensive'
+  if (newBatter && !spin) return 'attacking'
+  return 'normal'
+}
+
+/** Commentary when the CPU captain changes the field. */
+export function fieldLine(d: Director, p: FieldPreset) {
+  const name = d.fieldingTeam.name
+  switch (p) {
+    case 'attacking':
+      return `${name} bring in the catchers: slips and a gully waiting for the edge.`
+    case 'spin':
+      return 'Men round the bat now, a short leg and a slip for the spinner.'
+    case 'defensive':
+      return `${name} spread the field: sweepers out, the singles are there.`
+    case 'death':
+      return 'The death field goes up: five on the rope, fine leg and third man back.'
+    default:
+      return `A balanced field from ${name}: a slip, the ring sealed.`
+  }
 }
 
 export function chooseDelivery(d: Director, rng: Rng): { type: DeliveryType; target: V3; around: boolean } {
@@ -260,9 +295,12 @@ export function chooseDelivery(d: Director, rng: Rng): { type: DeliveryType; tar
       case 'seam':
         return 3
       case 'outswing':
-        return ballAge < 10 ? 2.5 : 1
+        return (ballAge < 10 ? 2.5 : 1) * (bowler.bowl === 'swing' ? 1.8 : 1)
       case 'inswing':
-        return ballAge < 10 ? 1.8 : 0.8
+        return (ballAge < 10 ? 1.8 : 0.8) * (bowler.bowl === 'swing' ? 1.8 : 1)
+      case 'offcutter':
+      case 'legcutter':
+        return (death ? 1.4 : 0.8) * (d.state.setup.pitch === 'dusty' ? 1.5 : 1)
       case 'bouncer':
         return d.state.current.bouncersThisOver < d.state.activeRules.bouncersPerOver ? (death ? 1.2 : 0.8) : 0
       case 'yorker':
@@ -275,8 +313,10 @@ export function chooseDelivery(d: Director, rng: Rng): { type: DeliveryType; tar
       case 'armball':
         return 1
       case 'googly':
+      case 'doosra':
         return 1.4
       case 'topspinner':
+      case 'slider':
         return 0.8
       default:
         return 1
@@ -313,7 +353,12 @@ export function chooseDelivery(d: Director, rng: Rng): { type: DeliveryType; tar
       line = 0.05
       break
     case 'offbreak':
+    case 'offcutter':
       line = 0.32
+      break
+    case 'legcutter':
+    case 'doosra':
+      line = 0.0
       break
     default:
       line = 0.15

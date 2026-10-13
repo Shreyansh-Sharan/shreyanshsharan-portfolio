@@ -3,8 +3,8 @@
 // online guests only display snapshots of it. A port of the original match director with the same rules.
 import { cloneBall, crossesZ, hitsStumps, newBall, predict, step, DT, type BallState } from './ball.ts'
 import { makeEnv, pitchSurface, type Env } from './conditions.ts'
-import { DELIVERIES, deliveriesFor, isSpinStyle, releaseBall, releasePoint, stockKmh, type DeliveryPlan, type DeliveryType } from './delivery.ts'
-import { enforce, presetSpots, spotToWorld, type FieldPreset, type FieldSpot } from './fields.ts'
+import { DELIVERIES, deliveriesFor, isSpinStyle, releaseBall, releasePoint, runUpFor, stockKmh, type DeliveryPlan, type DeliveryType } from './delivery.ts'
+import { customSpots, enforce, presetSpots, spotToWorld, type FieldPreset, type FieldSpot } from './fields.ts'
 import { BatFrame, beyondRope, Geo, inward, poppingZ, stumpsAt, stumpsZ } from './geo.ts'
 import { bowlerCard, cardOf, DISMISSAL_NAMES, emptyOutcome, MatchState, scoreText, type BallOutcome, type Dismissal, type MatchSetup } from './match.ts'
 import { emptyShot, naturalFeet, resolveShot, shotSpec, type Footwork, type ShotInput, type ShotResult, type ShotType, type Timing } from './shots.ts'
@@ -112,6 +112,8 @@ export type Command =
   | { t: 'target'; side: number; off: number; len: number }
   | { t: 'wicketside'; side: number }
   | { t: 'preset'; side: number; preset: FieldPreset }
+  | { t: 'field'; side: number; spots: [number, number][] }
+  | { t: 'wait'; side: number }
   | { t: 'runup'; side: number }
   | { t: 'release'; side: number; meter: number }
   | { t: 'shot'; side: number; shot: ShotType; loft: boolean; feet: Footwork; aim: number; timing?: number }
@@ -127,6 +129,7 @@ export type EvType =
   | 'release' | 'bounce' | 'bathit' | 'edge' | 'beaten' | 'pad' | 'stumps' | 'four' | 'six' | 'wicket' | 'wide' | 'noball' | 'runs' | 'dot' | 'overend'
   | 'inningsend' | 'matchend' | 'appeal' | 'notout' | 'reviewstart' | 'reviewresult' | 'catch' | 'drop' | 'directhit' | 'fielded' | 'throw' | 'signal'
   | 'say' | 'toss' | 'milestone' | 'phase' | 'bowlerchange' | 'banner' | 'prompt' | 'runcomplete' | 'dive' | 'keeper' | 'leave'
+  | 'call' | 'maiden' | 'hattrick' | 'field' | 'gate'
 export interface GameEvent {
   type: EvType
   i?: number
@@ -142,6 +145,8 @@ export interface Runner {
   toEnd: number
   running: boolean
   sliding: boolean
+  /** A full-length dive for the crease (more reach than a slide, and down on the ground for a moment). */
+  diving: boolean
   lane: number
 }
 
@@ -184,6 +189,8 @@ export interface DirectorOptions {
 
 const PATH_STEP = 0.04
 
+export type ReplayKind = 'wicket' | 'six' | 'four' | 'runout' | 'close'
+
 export class Director {
   state: MatchState
   phase: Phase = 'toss'
@@ -205,12 +212,16 @@ export class Director {
   around = false
   meterValue = 0
   meterRunning = false
-  meterGreen = 0.77
+  meterGreen = 0.64
   meterHalfWidth = 0.15
   guard = 0
   charging = false
   preset: FieldPreset = 'normal'
   field: FieldSpot[] = []
+  /** Each team's own field from the field editor (null until set). */
+  customField: (FieldSpot[] | null)[] = [null, null]
+  /** Bumped when the field changes (the HUD's field editor and the radar follow it). */
+  fieldVersion = 0
   review: ReviewInfo = emptyReview()
   banner = ''
   /** A second, smaller line under the banner (how the batter was out, the shot). */
@@ -223,13 +234,17 @@ export class Director {
   lastTiming: Timing = 'noshot'
   lastTimingError = 0
   lastKmh = 0
+  /** The ball just bowled swings late (a perfect release). */
+  lateSwing = false
   /** Batter confidence ("in" meter) per team and player, 0..1. */
   confidence: number[][] = [[], []]
   /** Ball serial (increments on each release), for clients and replays. */
   ballId = 0
   /** Set while a replay-worthy moment is being committed; the game may start a replay. */
   replayWanted = false
-  replayHook: ((kind: 'wicket' | 'six' | 'runout') => boolean) | null = null
+  replayHook: ((kind: ReplayKind) => boolean) | null = null
+  /** A dropped catch or a turned-down appeal this ball: worth a look again. */
+  private closeCall = false
   replayDone = false
   version = 0
   /** Test hooks: the next CPU delivery and CPU shot (consumed when used). */
@@ -244,10 +259,19 @@ export class Director {
   private runUpStart = new V3()
   private runUpEnd = new V3()
   runUpDuration = 1
+  /** Run-up speed profile: the delivery stride's length (s), the integral of the shape and the top speed (m/s). */
+  private runStride = 0.7
+  private runShapeTotal = 1
+  runTopSpeed = 6
+  /** The follow-through after release: speed, direction and time. */
+  private followSpeed = 0
+  private followDir = new V3()
   private released = false
   private crossTimes = [-1, -1, -1, -1]
   private crossPos = [new V3(), new V3(), new V3(), new V3()]
   private crossLate = 0
+  /** Signed sideways movement off the pitch by the time it reaches the batter (+ towards the off side). */
+  crossMove = 0
   private pendingShot: ShotInput | null = null
   private shotResolved = false
   lastShot: ShotResult = emptyShot()
@@ -303,6 +327,13 @@ export class Director {
   private appealGivenOut = false
   private appealEdgeTruth = false
   private lbw: LbwTrack | null = null
+  /** Ball tracking for the last pad impact (for replays): the track and the projected path on to the stumps. */
+  get lbwTrack() {
+    return this.lbw
+  }
+  get lbwProjection() {
+    return this.projectedPath
+  }
   reviewWindowOpen = false
   private reviewDone = false
   reviewSide = 0
@@ -326,8 +357,8 @@ export class Director {
     this.env = makeEnv(setup.pitch, setup.time, new V3(Math.sin(wa) * ws, 0, Math.cos(wa) * ws))
     this.actors[UMP_BOWLER].kind = this.actors[UMP_SQUARE].kind = 'umpire'
     this.runners = [
-      { a: this.actors[STRIKER], atEnd: 1, toEnd: 1, running: false, sliding: false, lane: 1.1 },
-      { a: this.actors[NONSTRIKER], atEnd: 0, toEnd: 0, running: false, sliding: false, lane: -1.1 },
+      { a: this.actors[STRIKER], atEnd: 1, toEnd: 1, running: false, sliding: false, diving: false, lane: 1.1 },
+      { a: this.actors[NONSTRIKER], atEnd: 0, toEnd: 0, running: false, sliding: false, diving: false, lane: -1.1 },
     ]
     if (setup.nets) {
       // Straight into the nets: no toss, team 0 bats.
@@ -459,13 +490,13 @@ export class Director {
         this.updateLive(dt)
         break
       case 'dead':
-        this.updateDead()
+        this.updateDead(dt)
         break
       case 'review':
         this.updateReview()
         break
       case 'replay':
-        if (this.replayDone || this.phaseTime > 12) this.afterBall()
+        if (this.replayDone || this.phaseTime > 30) this.afterBall()
         break
       case 'break':
         if (this.phaseTime > (this.humanBats || this.humanBowls ? 40 : 4)) this.continueFromBreak()
@@ -617,6 +648,7 @@ export class Director {
     this.around = false
     if (!this.humanBowls) this.preset = AI.choosePreset(this, p)
     else if (this.preset === 'spin' && !isSpinStyle(p.bowl)) this.preset = 'normal'
+    else if (this.preset === 'attacking' && isSpinStyle(p.bowl) && !this.customField[1 - this.inn.battingTeam]) this.preset = 'spin'
     this.hasLastMarker = false
     this.raise({ type: 'bowlerchange', i: player, text: `${p.name} (${styleName(p)}) to bowl` })
     this.say(`${p.name} comes on to bowl, ${styleName(p).toLowerCase()}.`)
@@ -650,15 +682,26 @@ export class Director {
     this.ballVisible = false
     this.heldBy = null
     this.replayWanted = false
+    this.closeCall = false
     this.replayDone = false
     this.tvRunOut = null
     this.appeal = 'none'
     this.reviewWindowOpen = this.reviewDone = false
     this.deliveryTrail = []
     this.projectedPath = []
+    this.followSpeed = 0
+    this.huddle = false
+    this.lbw = null
     this.resetLive()
     for (const a of this.actors) a.hasBall = false
 
+    if (!this.humanBowls && inn.bowler >= 0) {
+      const p = AI.choosePreset(this, this.fieldingTeam.players[inn.bowler])
+      if (p !== this.preset) {
+        this.preset = p
+        this.raise({ type: 'say', text: AI.fieldLine(this, p) })
+      }
+    }
     this.applyField()
     this.layoutForDelivery()
     const spec = DELIVERIES[this.selectedDelivery]
@@ -674,13 +717,20 @@ export class Director {
     }
   }
 
+  /** Fielders allowed outside the 30-yard circle right now. */
+  get maxOutside() {
+    const rules = this.state.activeRules
+    if (this.state.inSuperOver) return 5
+    return this.state.isPowerplay ? rules.maxOutsidePowerplay : rules.maxOutside
+  }
+
   applyField() {
     const bowler = this.fieldingTeam.players[this.inn.bowler]
     const spin = isSpinStyle(bowler.bowl)
-    const rules = this.state.activeRules
-    let maxOut = this.state.isPowerplay ? rules.maxOutsidePowerplay : rules.maxOutside
-    if (this.state.inSuperOver) maxOut = 5
-    this.field = enforce(presetSpots(this.preset, spin), maxOut)
+    const custom = this.customField[1 - this.inn.battingTeam]
+    if (this.preset === 'custom' && !custom) this.preset = 'normal'
+    this.field = enforce(this.preset === 'custom' && custom ? custom : presetSpots(this.preset, spin), this.maxOutside)
+    this.fieldVersion++
   }
 
   /** Places everyone for the next ball. */
@@ -706,7 +756,7 @@ export class Director {
     ns.vel = new V3()
     ns.setPose('idle')
 
-    const back = spin ? 0.9 : bp.bowl === 'fast' ? 17 : 12
+    const back = runUpFor(bp.bowl).keeper
     const k = this.fielderFor(this.fieldingTeam.keeper)!
     this.keeperActor = k
     k.kind = 'keeper'
@@ -719,7 +769,7 @@ export class Director {
     const b = this.fielderFor(inn.bowler)!
     this.bowlerActor = b
     b.kind = 'bowler'
-    const runLen = spin ? 6.5 : bp.bowl === 'fast' ? 17 : 12
+    const runLen = runUpFor(bp.bowl).len
     const rel = releasePoint(bowlEnd, bp.leftArm, this.around, spin)
     this.runUpEnd = new V3(rel.x, 0, stumpsZ(bowlEnd) + inward(bowlEnd) * 0.6).sub(bowlerRight.mul(armSide * 0.25))
     this.runUpStart = this.runUpEnd.sub(travel.mul(runLen)).add(bowlerRight.mul(armSide * (spin ? 0.6 : 1.2)))
@@ -792,8 +842,11 @@ export class Director {
     const bowler = this.fieldingTeam.players[this.inn.bowler]
     const spin = isSpinStyle(bowler.bowl)
     const dist = this.runUpStart.dist(this.runUpEnd)
-    const avg = spin ? 3.2 : bowler.bowl === 'fast' ? 6.2 : 5.2
+    const avg = runUpFor(bowler.bowl).speed
     this.runUpDuration = dist / avg + (spin ? 0.25 : 0.35)
+    this.runStride = runUpFor(bowler.bowl).stride
+    this.runShapeTotal = this.runShapeIntegral(this.runUpDuration)
+    this.runTopSpeed = dist / this.runShapeTotal
     this.meterValue = 0
     this.meterRunning = this.humanBowls
     const fatigue = 1 - this.bowlerActor!.stamina / 100
@@ -808,17 +861,45 @@ export class Director {
 
   readonly meterDuration = 1.1
 
+  /** Relative run-up speed: builds through the approach, then the bound and the braced front leg brake it. */
+  private runShape(t: number) {
+    const approach = this.runUpDuration - this.runStride
+    if (t < approach) {
+      const u = clamp01(t / Math.max(0.1, approach))
+      return 0.5 + 0.5 * u * u * (3 - 2 * u)
+    }
+    const u = clamp01((t - approach) / this.runStride)
+    return 1 - 0.62 * u * u * (3 - 2 * u)
+  }
+
+  /** Integral of the run-up speed shape from 0 to t (midpoint rule; 24 samples). */
+  private runShapeIntegral(t: number) {
+    const n = 24
+    const h = t / n
+    let sum = 0
+    for (let i = 0; i < n; i++) sum += this.runShape((i + 0.5) * h)
+    return sum * h
+  }
+
+  /** After release the bowler carries on down the pitch and peels away to the side of the danger area. */
+  private followThrough(dt: number) {
+    const b = this.bowlerActor
+    if (!b || this.followSpeed < 0.05) return
+    this.followSpeed *= Math.exp(-dt * 1.5)
+    b.vel = this.followDir.mul(this.followSpeed)
+    b.pos.addScaledIn(b.vel, dt)
+    b.face(b.pos.add(this.followDir), dt, 240)
+  }
+
   private updateRunUp(dt: number) {
     const bowler = this.fieldingTeam.players[this.inn.bowler]
-    const spin = isSpinStyle(bowler.bowl)
     const b = this.bowlerActor!
-    const t = clamp01(this.phaseTime / this.runUpDuration)
-    const s = t * 0.65 + t * t * 0.35
+    const s = this.runShapeIntegral(Math.min(this.phaseTime, this.runUpDuration)) / this.runShapeTotal
     const prev = b.pos.clone()
     b.pos = this.runUpStart.lerp(this.runUpEnd, s)
     b.vel = b.pos.sub(prev).mul(1 / Math.max(dt, 1e-4))
     b.face(this.runUpEnd.add(this.runUpEnd.sub(this.runUpStart)))
-    const stride = spin ? 0.5 : 0.6
+    const stride = runUpFor(bowler.bowl).stride
     if (this.phaseTime > this.runUpDuration - stride && b.pose === 'runup') b.setPose('deliver', bowler.bowl)
 
     const f = this.frame
@@ -867,22 +948,36 @@ export class Director {
     const fatigue = 1 - b.stamina / 100
     let kmh = stockKmh(bowler.bowl, pace01(bowler)) * spec.speedFactor * lerp(1, 0.94, fatigue)
     kmh *= 1 + this.rng.gauss() * 0.012
+    // The meter: in the green the bowler hits the crease hard (up to 3% more pace), early in the red he is loose and slow.
+    const e = this.plan.releaseError
+    kmh *= Math.abs(e) <= 1 ? 1 + 0.03 * (1 - Math.abs(e)) : e < -1 ? 1 - 0.04 * Math.min(1, -e - 1) : 1
     this.plan.speedKmh = kmh
     this.lastKmh = kmh
-    b.stamina = Math.max(0, b.stamina - (spec.spin ? 0.7 : bowler.bowl === 'fast' ? 1.8 : 1.2))
+    b.stamina = Math.max(0, b.stamina - (spec.spin ? 0.7 : bowler.bowl === 'fast' ? 1.8 : bowler.bowl === 'swing' ? 1.4 : 1.2))
     const ballAge = inn.legalBalls / 6
     const skill = bowl01(bowler) * lerp(1, 0.85, fatigue)
     const r = releaseBall(this.plan, 1 - inn.strikerEnd, this.frame.off, ballAge, skill, this.env, this.rng)
     this.ball = r.ball
+    this.lateSwing = r.late
     this.ballVisible = true
     this.released = true
     this.ballId++
     this.flightAccum = 0
     b.setPose('follow', bowler.bowl)
+    {
+      const be = 1 - inn.strikerEnd
+      const travel = new V3(0, 0, inward(be))
+      const bowlerRight = new V3(travel.z, 0, -travel.x)
+      const armSide = (bowler.leftArm ? 1 : -1) * (this.around ? -1 : 1)
+      // Fast men run on further; everybody veers off the line of the stumps (away from the bowling arm).
+      this.followSpeed = this.runTopSpeed * 0.42
+      this.followDir = travel.add(bowlerRight.mul(-armSide * (spec.spin ? 0.25 : 0.42))).norm()
+    }
     this.predictForBatter()
     this.setPhase('flight')
     this.raise({ type: 'release', i: this.ballId, f: kmh, text: this.plan.type })
-    this.say(C.release(surname(bowler), kmh, spec.spin, this.rng))
+    // (A human batter has to read it himself: the commentary only names the delivery when the CPU is batting.)
+    this.say(C.release(surname(bowler), kmh, spec.spin, this.rng) || (this.humanBats ? '' : C.delivery(this.plan.type, this.lateSwing, kmh, this.rng)))
     if (this.plan.noBall) {
       this.noBallCalled = true
       this.raise({ type: 'noball', text: 'No ball! Overstepped.' })
@@ -937,15 +1032,24 @@ export class Director {
     this.crossTimes[0] = this.crossTimes[np]
     this.crossPos[0] = this.crossPos[np]
     this.crossLate = 0
+    this.crossMove = 0
     if (this.pitchedBeforeBatter && this.crossTimes[0] > 0) {
       const flat = preBounceVel.flat()
       const along = flat.norm().dot(f.fwd)
       if (Math.abs(along) > 0.1) {
         const toPlane = f.offsetFwd(this.crossPos[0]) - f.offsetFwd(this.pitchedAt)
         const straight = this.pitchedAt.add(flat.norm().mul(toPlane / along))
-        this.crossLate = Math.abs(f.offsetOff(this.crossPos[0]) - f.offsetOff(straight))
+        this.crossMove = f.offsetOff(this.crossPos[0]) - f.offsetOff(straight)
+        this.crossLate = Math.abs(this.crossMove)
       }
     }
+  }
+
+  /** Swing still bending the ball late (a late swinger's last 0.1 s), signed towards off: hard to adjust to. */
+  private swingMoveAt(_at: V3) {
+    const b = this.ball
+    if (b.pitched || b.swingCoef === 0 || b.swingLate <= 0) return 0
+    return this.frame.off.dot(b.swingDir) * b.swingCoef * 0.6
   }
 
   private naturalPlane() {
@@ -987,8 +1091,11 @@ export class Director {
       const at = this.crossPoint(feet)
       shown = chooseForAnim(input.aim, feet, this.frame.offsetOff(at) - this.guard, at.y, this.pitchedLength(), DELIVERIES[this.plan.type].spin)
     }
+    let variant: string = shown === 'auto' ? 'drive' : shown
+    // A pull at a ball climbing past the shoulder is a hook.
+    if (variant === 'pull' && this.released && this.crossPoint(feet).y > 1.3) variant = 'hook'
     if (input.type === 'leave') st.setPose('leave')
-    else st.setPose('shot', shown === 'auto' ? 'drive' : shown)
+    else st.setPose('shot', variant)
     this.footTarget = feet === 'front' ? 0.55 : feet === 'back' ? -0.2 : 0
   }
 
@@ -1035,6 +1142,7 @@ export class Director {
       this.checkPlanes(prev, this.ball.pos)
     }
     if (this.phase === 'flight') this.deliveryTrail.push(this.ball.pos.clone())
+    this.followThrough(dt)
     if (this.phase === 'flight' && (this.ball.stopped || this.ball.time > 4)) this.startLive()
     this.keeperTrack(dt)
     this.nonStrikerBackingUp(dt)
@@ -1129,6 +1237,7 @@ export class Director {
       ballVel: this.ball.vel.clone(),
       length: this.pitchedBeforeBatter ? this.frame.offsetFwd(this.pitchedAt) : -1,
       lateMovement: this.crossLate * (spin ? 0.35 : 1),
+      movement: this.crossMove * (spin ? 0.5 : 1) + this.swingMoveAt(at),
       spin,
       batterSkill: bat01(batter),
       batterPower: clamp01(bat01(batter) * 0.6 + (batter.role === 'batter' ? 0.3 : 0.1)),
@@ -1146,7 +1255,7 @@ export class Director {
     this.lastTimingError = input.timingError
     if (r.shot !== 'leave') {
       this.striker.feet = r.feet
-      if (this.striker.pose === 'shot' && this.striker.variant !== r.shot && this.striker.poseTime < 0.12) this.striker.variant = r.shot
+      if (this.striker.pose === 'shot' && this.striker.variant !== r.shot && !(this.striker.variant === 'hook' && r.shot === 'pull') && this.striker.poseTime < 0.12) this.striker.variant = r.shot
     }
     this.bumpConfidence(r)
 
@@ -1364,13 +1473,14 @@ export class Director {
     }
   }
 
-  private updateDead() {
+  private updateDead(dt: number) {
+    this.huddleStep(dt)
     if (!this.committed && this.phaseTime > 0.4) {
       if (this.offerReview()) return
       this.commit()
     }
     const o = this.outcome
-    const wait = o.wicket || o.six || o.four ? 2.4 : 1.3
+    const wait = o.wicket ? 3.2 : o.six ? 2.8 : o.four ? 2.4 : 1.3
     if (this.committed && this.phaseTime > wait) this.afterBall()
   }
 
@@ -1387,11 +1497,18 @@ export class Director {
     const netsOut = this.nets && o.wicket && !(freeHit && o.how !== 'runout')
     if (netsOut) o.wicket = false
     const outPlayer = o.strikerOut ? this.batterId : inn.nonStriker
+    const bowlerIdx = inn.bowler
+    const maidensBefore = bowlerCard(inn, bowlerIdx).maidens
+    const wicketsBefore = bowlerCard(inn, bowlerIdx).wickets
     const rec = this.state.apply(o)
     const shotLine = this.lastShotNote ? `${this.lastShotNote}${this.lastKmh > 0 ? ` · ${Math.round(this.lastKmh)} km/h` : ''}` : ''
     if (rec.wicket || netsOut) {
       const fielderName = o.fielder >= 0 ? surname(this.fieldingTeam.players[o.fielder]) : bowlerName
-      const text = C.wicket(o, this.lastShot.contact === 'edge', batterName, bowlerName, fielderName, this.rng)
+      let text = C.wicket(o, this.lastShot.contact === 'edge', batterName, bowlerName, fielderName, this.rng)
+      if (o.how === 'bowled' && this.lastShot.gate) {
+        text = C.gate(batterName, bowlerName, this.plan.type, this.rng)
+        this.raise({ type: 'gate' })
+      } else if (o.how === 'bowled' && this.lastShot.shot === 'leave') text = C.leftAlone(batterName, this.rng)
       const how = o.how === 'runout' ? 'RUN OUT!' : o.how === 'hitwicket' ? 'HIT WICKET!' : `${DISMISSAL_NAMES[o.how].toUpperCase()}!`
       const card = cardOf(inn, outPlayer)
       const sub = netsOut ? 'Nets: it does not count. Next ball.' : `OUT · ${surname(this.battingTeam.players[outPlayer])} ${card ? this.state.dismissalText(inn, card) : ''}`
@@ -1410,7 +1527,9 @@ export class Director {
       this.showBanner('FOUR!', 2, shotLine)
       this.raise({ type: 'four' })
       this.say(C.four(batterName, this.lastShot, this.rng))
+      this.replayWanted = !this.nets
     } else if (!rec.wicket && !netsOut) {
+      if (this.closeCall) this.replayWanted = true
       const runs = o.runsBat + o.extraRuns
       if (o.extra === 'wide') {
         this.showBanner('WIDE', 1.4, runs > 0 ? `${runs + 1} runs` : '1 run')
@@ -1431,6 +1550,10 @@ export class Director {
       }
     }
     const runsAfter = cardOf(inn, this.batterId)?.runs ?? 0
+    if ((runsBefore < 50 && runsAfter >= 50) || (runsBefore < 100 && runsAfter >= 100)) {
+      const who = this.actors.find((x) => (x.index === STRIKER || x.index === NONSTRIKER) && x.player === this.batterId)
+      who?.setPose('celebrate', 'bat')
+    }
     if (runsBefore < 50 && runsAfter >= 50) {
       this.say(`Fifty for ${batterName}! Raises the bat to the dressing room.`)
       this.raise({ type: 'milestone', i: 50, j: this.batterId })
@@ -1439,21 +1562,72 @@ export class Director {
       this.say(`A hundred for ${batterName}! What an innings!`)
       this.raise({ type: 'milestone', i: 100, j: this.batterId })
     }
+    // The bowler's milestones: a maiden, three and five-wicket hauls, a hat-trick (or the ball for one).
+    const bc = bowlerCard(inn, bowlerIdx)
+    const bName = surname(this.fieldingTeam.players[bowlerIdx])
+    if (bc.maidens > maidensBefore && !this.nets) {
+      this.raise({ type: 'maiden', i: bowlerIdx, text: bName })
+      this.say(`A maiden over from ${bName}. Six balls, nothing given.`)
+    }
+    if (rec.wicket && rec.how !== 'runout' && !this.nets) {
+      if (bc.wickets > wicketsBefore && (bc.wickets === 3 || bc.wickets === 5)) {
+        this.raise({ type: 'milestone', i: bc.wickets, j: bowlerIdx, text: 'bowler' })
+        this.say(bc.wickets === 5 ? `Five wickets for ${bName}! A famous spell.` : `That's three for ${bName}.`)
+      }
+      const mine = inn.log.filter((b) => b.bowler === bowlerIdx && b.extra !== 'wide' && b.extra !== 'noball')
+      const n = mine.length
+      const streak = n >= 3 && mine[n - 1].wicket && mine[n - 2].wicket && mine[n - 3].wicket && mine[n - 3].how !== 'runout' && mine[n - 2].how !== 'runout'
+      const twoInTwo = !streak && n >= 2 && mine[n - 1].wicket && mine[n - 2].wicket && mine[n - 2].how !== 'runout'
+      if (streak) {
+        this.raise({ type: 'hattrick', i: 3, j: bowlerIdx, text: bName })
+        this.say(`HAT-TRICK! Three in three for ${bName}! Unbelievable scenes!`)
+      } else if (twoInTwo) {
+        this.raise({ type: 'hattrick', i: 2, j: bowlerIdx, text: bName })
+        this.say(`Two in two. ${bName} is on a hat-trick!`)
+      }
+    }
     if (o.four || o.six) this.confidence[inn.battingTeam][this.batterId] = clamp(this.confidenceOf(inn.battingTeam, this.batterId) + 0.06, 0, 1)
   }
+
+  private huddle = false
 
   private celebrate() {
     for (const a of this.actors) {
       if (!a.visible || a.team < 0) continue
       if (a.team === 1 - this.inn.battingTeam) a.setPose(this.rng.chance(0.5) ? 'celebrate' : 'appeal')
     }
+    // The bowler roars; the fielders nearby run in to mob him.
+    if (this.bowlerActor && this.outcome.how !== 'runout') this.bowlerActor.setPose('celebrate', 'roar')
+    this.huddle = !this.nets
     this.striker.setPose('dejected')
+  }
+
+  /** After a wicket the close fielders run to the bowler (the ones in the deep stay and clap). */
+  private huddleStep(dt: number) {
+    const b = this.bowlerActor
+    if (!this.huddle || !b) return
+    let n = 0
+    for (const a of this.fielders()) {
+      if (a === b || !a.visible || a.pose === 'dive' || a.pose === 'getup') continue
+      const d = a.pos.flatDist(b.pos)
+      if (d > 38) continue
+      // A ring behind and beside him (the side he faces is left open for the cameras).
+      const ang = b.yaw * DEG + Math.PI * (0.55 + ((n++ * 0.37) % 0.9))
+      const spot = b.pos.add(new V3(Math.sin(ang) * 1.5, 0, Math.cos(ang) * 1.5))
+      const there = a.moveTo(spot, dt, 0.75, 0.4)
+      if (!there && a.speed > 0.8) a.setPose('run')
+      else {
+        a.face(b.pos, dt, 360)
+        if (a.pose === 'run') a.setPose('celebrate')
+      }
+    }
   }
 
   private afterBall() {
     const inn = this.inn
     if (this.phase !== 'replay' && this.replayWanted && this.replayHook) {
-      const kind = this.outcome.six ? 'six' : this.outcome.how === 'runout' ? 'runout' : 'wicket'
+      const o = this.outcome
+      const kind: ReplayKind = o.wicket ? (o.how === 'runout' ? 'runout' : 'wicket') : o.six ? 'six' : o.four ? 'four' : 'close'
       this.replayWanted = false
       if (this.replayHook(kind)) {
         this.replayDone = false
@@ -1562,6 +1736,18 @@ export class Director {
           this.layoutForDelivery()
         }
         break
+      case 'field':
+        if ((this.phase === 'predelivery' || this.phase === 'choosebowler') && bowlSide && inn.bowler >= 0 && Array.isArray(c.spots)) {
+          this.customField[1 - inn.battingTeam] = customSpots(c.spots)
+          this.preset = 'custom'
+          this.applyField()
+          this.layoutForDelivery()
+          this.say(`${this.fieldingTeam.name} reset the field.`)
+        }
+        break
+      case 'wait':
+        if (batSide && this.phase === 'live' && !this.anyRunning) this.raiseCall('wait', 0)
+        break
       case 'runup':
         if (this.phase === 'predelivery' && bowlSide) this.beginRunUp()
         break
@@ -1615,6 +1801,8 @@ export class Director {
   /* ---------------- live ball: fielding and running ---------------- */
 
   private resetLive() {
+    this.lastCall = ''
+    this.lastCallAt = -10
     this.liveTime = 0
     this.runsCompleted = 0
     this.runCrossed = false
@@ -1634,6 +1822,7 @@ export class Director {
     for (const r of this.runners) {
       r.running = false
       r.sliding = false
+      r.diving = false
     }
   }
 
@@ -1940,7 +2129,11 @@ export class Director {
       a.face(this.ball.pos)
       a.vel = this.ball.pos.sub(a.pos).flat().norm().mul(5)
     } else if (nearRope && distBall < 3.5 && a.speed > 5 && this.ball.rolling) a.setPose('slide')
-    else a.setPose(a.speed > 0.5 ? 'run' : 'ready')
+    else if (p.job === 'catch' && tLeft < 0.45 && distBall < 9 && a.speed < 4.5) {
+      // Settling under it: hands up and watching it all the way in.
+      a.setPose('catch')
+      a.face(this.ball.pos, dt, 360)
+    } else if (a.pose !== 'catch' || p.job !== 'catch') a.setPose(a.speed > 0.5 ? 'run' : 'ready')
   }
 
   /** Takes a catch, stops the ball or misfields when it reaches the fielder's hands. */
@@ -2013,6 +2206,7 @@ export class Director {
       this.queueDead(1.2)
     } else {
       this.raise({ type: 'drop', i: a.index, text: 'Dropped!' })
+      this.closeCall = true
       this.say(C.drop(surname(this.fieldingTeam.players[a.player]), this.rng))
       this.dropBall(this.ball.vel.mul(0.25).add(new V3(this.rng.range(-2, 2), 2, this.rng.range(-2, 2))))
       if (a.pose !== 'dive') a.setPose('getup')
@@ -2150,15 +2344,16 @@ export class Director {
         if (a.pose === 'run' || a.pose === 'walk') a.setPose('idle')
         a.vel = moveTowardsV(a.vel, new V3(), 9 * dt)
         a.pos.addScaledIn(a.vel, dt)
-        if (r.sliding && a.pose === 'batslide' && a.poseTime > 0.9) {
+        if (r.sliding && a.pose === 'batslide' && a.poseTime > (r.diving ? 1.4 : 0.9)) {
           r.sliding = false
+          r.diving = false
           a.setPose('idle')
         }
         continue
       }
       const crease = poppingZ(r.toEnd)
       const inw = inward(r.toEnd)
-      a.moveTo(new V3(r.lane, 0, crease - inw * 3), dt, r.sliding ? 0.7 : 1, 0.3)
+      a.moveTo(new V3(r.lane, 0, crease - inw * 3), dt, r.diving ? 0.9 : r.sliding ? 0.7 : 1, 0.3)
       if (!r.sliding) a.setPose('run', 'bat')
       if (this.grounded(r, r.toEnd)) {
         const crossedRun = r.toEnd !== r.atEnd
@@ -2181,13 +2376,13 @@ export class Director {
   }
 
   private grounded(r: Runner, end: number) {
-    const reach = r.sliding ? 1.1 : 0.35
+    const reach = r.sliding ? (r.diving ? 1.45 : 1.1) : 0.35
     return (r.a.pos.z - poppingZ(end)) * -inward(end) + reach >= 0
   }
 
   /** How far short of his ground a runner is (m, positive = short). */
   private shortOf(r: Runner, end: number) {
-    const reach = r.sliding ? 1.1 : 0.35
+    const reach = r.sliding ? (r.diving ? 1.45 : 1.1) : 0.35
     return -((r.a.pos.z - poppingZ(end)) * -inward(end) + reach)
   }
 
@@ -2238,20 +2433,33 @@ export class Director {
     this.queueDead(1.2)
   }
 
+  /** A running call ("yes", "no", "wait"), shouted by the batter who has the call (striker in front of square). */
+  private lastCall = ''
+  private lastCallAt = -10
+  raiseCall(call: 'yes' | 'no' | 'wait', who: number) {
+    if (call === this.lastCall && this.liveTime - this.lastCallAt < 1.2) return
+    this.lastCall = call
+    this.lastCallAt = this.liveTime
+    this.raise({ type: 'call', text: call, i: who })
+  }
+
   callRun() {
     if (this.phase !== 'live' || this.deadQueued || this.caught) return
     if (this.anyRunning) return
     if (this.runners[0].a.pose === 'batslide' && this.runners[0].a.poseTime < 0.5) return
+    this.raiseCall('yes', this.runsCompleted === 0 && this.frame.offsetFwd(this.ball.pos) > 0 ? 0 : 1)
     for (const r of this.runners) {
       r.toEnd = 1 - r.atEnd
       r.running = true
       r.sliding = false
+      r.diving = false
     }
     this.runCrossed = false
   }
 
   callBack() {
     if (this.phase !== 'live') return
+    this.raiseCall('no', 0)
     for (const r of this.runners) {
       if (!r.running || r.toEnd === r.atEnd) continue
       r.toEnd = r.atEnd
@@ -2263,9 +2471,12 @@ export class Director {
     if (this.phase !== 'live') return
     for (const r of this.runners) {
       if (!r.running || r.sliding) continue
-      if (Math.abs(r.a.pos.z - poppingZ(r.toEnd)) < 3) {
+      const d = Math.abs(r.a.pos.z - poppingZ(r.toEnd))
+      if (d < 3) {
         r.sliding = true
-        r.a.setPose('batslide')
+        // Desperate: the throw is already on its way and he is still a stride and a half out.
+        r.diving = this.throwInFlight && d > 1.3 && d < 2.6
+        r.a.setPose('batslide', r.diving ? 'dive' : '')
       }
     }
   }
@@ -2382,6 +2593,7 @@ export class Director {
       this.queueDead(1.4)
     } else {
       this.raise({ type: 'notout', text: 'Not out' })
+      this.closeCall = true
       this.queueDead(1.6)
     }
   }

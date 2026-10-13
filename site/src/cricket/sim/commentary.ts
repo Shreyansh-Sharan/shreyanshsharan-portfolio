@@ -93,6 +93,43 @@ export const C = {
     if (inn.target > 0) return `End of the over: ${score}. They need ${st.runsNeeded} from ${st.ballsLeft} balls.`
     return `End of the over: ${score}, run rate ${((inn.runs * 6) / Math.max(1, inn.legalBalls)).toFixed(2)}.`
   },
+  gate(batter: string, bowler: string, type: string, rng: Rng) {
+    const what = type === 'inswing' ? 'the inswinger' : type === 'offcutter' ? 'the off-cutter' : type === 'googly' ? 'the googly' : type === 'offbreak' ? 'the off-break' : 'that one'
+    return pick(rng, `Through the gate! ${batter} drives, ${what} comes back and the stumps are rearranged.`, `Bat and pad miles apart and ${bowler} has gone straight through the gap. Bowled!`, `Clean through the gate! ${what[0].toUpperCase() + what.slice(1)} nips back and ${batter} is gone.`)
+  },
+  leftAlone(batter: string, rng: Rng) {
+    return pick(rng, `${batter} shoulders arms... and loses his off stump! What a misjudgement.`, `He left it! ${batter} let that go and it came back to hit the top of off.`)
+  },
+  /** What the ball did, said as it is bowled (a quiet line for most balls). */
+  delivery(type: string, late: boolean, kmh: number, rng: Rng) {
+    switch (type) {
+      case 'outswing':
+        return late ? pick(rng, 'Shaped away very late...', 'Holds its line and then bends away late!') : rng.chance(0.4) ? pick(rng, 'Outswinger, curving away...', 'Swinging away from the bat...') : ''
+      case 'inswing':
+        return late ? pick(rng, 'Late inswing, tailing in!', 'Hooping back in very late...') : rng.chance(0.4) ? pick(rng, 'Curling back in towards the pads...', 'Inswinger...') : ''
+      case 'offcutter':
+        return rng.chance(0.5) ? 'Cuts back off the seam...' : ''
+      case 'legcutter':
+        return rng.chance(0.5) ? 'Leg-cutter, grips and goes away...' : ''
+      case 'bouncer':
+        return pick(rng, 'Banged in short!', 'Short one, at the body...')
+      case 'yorker':
+        return pick(rng, 'Fired in full, at the toes...', 'Yorker length...')
+      case 'slower':
+        return rng.chance(0.6) ? pick(rng, 'Slower ball, out of the back of the hand...', 'Takes the pace off...') : ''
+      case 'doosra':
+        return rng.chance(0.5) ? "Out of the front of the hand... it's the doosra!" : ''
+      case 'googly':
+        return rng.chance(0.5) ? 'Wrong one! The googly...' : ''
+      case 'armball':
+      case 'slider':
+        return rng.chance(0.4) ? 'Flatter and quicker, skidding on...' : ''
+      case 'topspinner':
+        return rng.chance(0.4) ? 'Over the top, dipping...' : ''
+      default:
+        return kmh > 147 ? `${Math.round(kmh)} km/h, that was fast!` : ''
+    }
+  },
   release(name: string, kmh: number, spin: boolean, rng: Rng) {
     if (spin) return pick(rng, `${name} gives it some air...`, `${name} tosses it up...`, `Flighted by ${name}...`)
     return kmh > 145 ? pick(rng, `${name} steams in... ${Math.round(kmh)} km/h!`, `Rapid from ${name}, ${Math.round(kmh)} on the gun.`) : ''

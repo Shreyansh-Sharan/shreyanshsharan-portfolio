@@ -17,131 +17,6 @@
   color: #86efac;
 }
 
-/* Scorebug (bottom left, broadcast style) */
-.ck-bug {
-  position: absolute;
-  left: 18px;
-  bottom: 18px;
-  min-width: 360px;
-  max-width: min(560px, calc(100vw - 36px));
-  color: #f8fafc;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
-  background: rgba(8, 12, 24, 0.86);
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.ck-bug-main {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 8px 14px;
-  background: linear-gradient(90deg, var(--ck-team, #1d4ed8), rgba(8, 12, 24, 0.2) 70%);
-}
-
-.ck-bug-team {
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  font-size: 18px;
-}
-
-.ck-bug-score {
-  font-weight: 800;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.ck-bug-overs {
-  font-size: 18px;
-  opacity: 0.9;
-}
-
-.ck-bug-overs small {
-  opacity: 0.6;
-  font-size: 12px;
-}
-
-.ck-bug-rr {
-  margin-left: auto;
-  font-size: 12px;
-  opacity: 0.75;
-}
-
-.ck-bug-row {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  padding: 6px 14px;
-  font-size: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.ck-bug-row small {
-  opacity: 0.6;
-  margin-left: 2px;
-}
-
-.ck-bug-bat {
-  opacity: 0.75;
-}
-
-.ck-bug-bat.is-on {
-  opacity: 1;
-  font-weight: 600;
-}
-
-.ck-bug-bowl {
-  margin-left: auto;
-  padding-left: 10px;
-  border-left: 3px solid var(--ck-team, #b91c1c);
-}
-
-.ck-bug-sub {
-  font-size: 12px;
-  gap: 10px;
-}
-
-.ck-over {
-  display: flex;
-  gap: 4px;
-}
-
-.ck-ball {
-  display: inline-grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.ck-ball-dot {
-  opacity: 0.6;
-}
-
-.ck-ball-four {
-  background: #ca8a04;
-}
-
-.ck-ball-six {
-  background: #a21caf;
-}
-
-.ck-ball-w {
-  background: #dc2626;
-}
-
-.ck-need {
-  color: #fde68a;
-  font-weight: 600;
-}
-
 .ck-chip {
   display: inline-block;
   padding: 2px 6px;
@@ -154,19 +29,6 @@
 
 .ck-chip-hot {
   background: #dc2626;
-}
-
-/* Top bar */
-.ck-topbar {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: 70vw;
 }
 
 .ck-quality {
@@ -189,36 +51,6 @@
 .ck-qbtn.is-on {
   background: rgba(134, 239, 172, 0.25);
   color: #fff;
-}
-
-/* Commentary ticker */
-.ck-comm {
-  position: absolute;
-  top: 14px;
-  left: 18px;
-  max-width: min(560px, 55vw);
-  pointer-events: none;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-}
-
-.ck-comm p {
-  margin: 0 0 4px;
-}
-
-.ck-comm-now {
-  color: #f8fafc;
-  font-size: 15px;
-  font-weight: 600;
-  background: rgba(8, 12, 24, 0.55);
-  padding: 6px 10px;
-  border-left: 3px solid #86efac;
-  border-radius: 4px;
-}
-
-.ck-comm-old {
-  color: rgba(248, 250, 252, 0.6);
-  font-size: 12px;
-  padding-left: 13px;
 }
 
 /* Banners and pop-ups */
@@ -278,69 +110,6 @@
   text-overflow: ellipsis;
 }
 
-/* The delivery card (top centre, after release) */
-.ck-card-delivery {
-  position: absolute;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  color: #f8fafc;
-  background: rgba(8, 12, 24, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
-  pointer-events: none;
-  animation: ck-card-in 0.3s ease-out;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.ck-card-delivery.is-fading {
-  animation: ck-card-out 0.6s ease-in forwards;
-}
-
-.ck-card-bowler {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.ck-card-kmh {
-  font-weight: 800;
-  font-size: 24px;
-  color: #fde047;
-  line-height: 1;
-}
-
-.ck-card-kmh small {
-  font-size: 12px;
-  color: rgba(248, 250, 252, 0.7);
-  font-weight: 600;
-}
-
-.ck-card-type {
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #1d4ed8;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.ck-card-type.is-spin {
-  background: #7e22ce;
-}
-
-.ck-card-words {
-  font-size: 15px;
-  font-weight: 600;
-  color: #67e8f9;
-}
-
 @keyframes ck-card-in {
   from {
     opacity: 0;
@@ -349,13 +118,6 @@
   to {
     opacity: 1;
     transform: translate(-50%, 0);
-  }
-}
-
-@keyframes ck-card-out {
-  to {
-    opacity: 0;
-    transform: translate(-50%, -8px);
   }
 }
 
@@ -424,64 +186,6 @@
     opacity: 0;
     transform: translate(-50%, -20px);
   }
-}
-
-/* Batting HUD */
-.ck-bat,
-.ck-bowl {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  display: flex;
-  gap: 14px;
-  align-items: flex-end;
-  color: #f8fafc;
-  font-size: 13px;
-}
-
-.ck-compass {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 22px);
-  gap: 4px;
-  padding: 8px;
-  border-radius: 10px;
-  background: rgba(8, 12, 24, 0.72);
-}
-
-.ck-cell {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.ck-cell-mid {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.ck-cell.is-on {
-  background: #86efac;
-  box-shadow: 0 0 10px #86efac;
-}
-
-.ck-compass-label {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -18px;
-  text-align: center;
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.ck-bat-info {
-  display: grid;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(8, 12, 24, 0.72);
-  min-width: 170px;
 }
 
 .ck-confidence {
@@ -583,178 +287,6 @@
   color: #fff;
 }
 
-.ck-keys {
-  display: flex;
-  gap: 6px;
-}
-
-.ck-keys button,
-.ck-dl {
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(8, 12, 24, 0.72);
-  color: #f8fafc;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.ck-keys button:hover,
-.ck-dl:hover {
-  border-color: #86efac;
-}
-
-/* Bowling HUD */
-.ck-bowl {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.ck-deliveries {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-  max-width: 560px;
-}
-
-.ck-dl.is-on {
-  background: #166534;
-  border-color: #86efac;
-}
-
-.ck-bowl-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.ck-stamina {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-/* The selected delivery, big, with the marker's length and line in words */
-.ck-dl-big {
-  display: grid;
-  justify-items: end;
-  gap: 2px;
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: rgba(8, 12, 24, 0.72);
-  animation: ck-card-in 0.25s ease-out;
-  text-align: right;
-}
-
-.ck-dl-big-name {
-  font-size: 26px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #fde047;
-  line-height: 1.1;
-}
-
-.ck-dl-big-words {
-  font-size: 13px;
-  font-weight: 600;
-  color: #67e8f9;
-}
-
-.ck-power-wrap {
-  display: grid;
-  gap: 4px;
-  padding: 8px 10px 20px;
-  border-radius: 10px;
-  background: rgba(8, 12, 24, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.ck-power-wrap.is-running {
-  border-color: rgba(253, 224, 71, 0.6);
-}
-
-.ck-power-wrap.is-green,
-.ck-power-wrap[data-green='1'] {
-  border-color: #4ade80;
-  box-shadow: 0 0 18px rgba(74, 222, 128, 0.5);
-}
-
-.ck-power-title {
-  font-size: 13px;
-  opacity: 0.9;
-}
-
-.ck-power-title strong {
-  color: #fde047;
-  letter-spacing: 0.08em;
-}
-
-.ck-power {
-  position: relative;
-  width: 420px;
-  height: 24px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.22));
-  border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.ck-power-zone {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: rgba(34, 197, 94, 0.8);
-  border-radius: 3px;
-}
-
-.ck-power-over {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  background: rgba(220, 38, 38, 0.6);
-  border-radius: 0 5px 5px 0;
-}
-
-.ck-power-needle {
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 5px;
-  margin-left: -2px;
-  border-radius: 2px;
-  background: #fff;
-  box-shadow: 0 0 8px #fff;
-}
-
-.ck-power-tag {
-  position: absolute;
-  top: 100%;
-  margin-top: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.8;
-  white-space: nowrap;
-}
-
-.ck-power-tag-early {
-  left: 4px;
-}
-
-.ck-power-tag-green {
-  transform: translateX(-50%);
-  color: #86efac;
-  opacity: 1;
-}
-
-.ck-power-tag-late {
-  right: 4px;
-  color: #fca5a5;
-}
-
 .ck-hint {
   margin: 0;
   font-size: 12px;
@@ -854,34 +386,6 @@
   display: flex;
   gap: 12px;
   align-items: center;
-}
-
-.ck-replay-tag {
-  position: absolute;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: #fff;
-  font-weight: 800;
-  letter-spacing: 0.25em;
-  background: #b91c1c;
-  padding: 4px 12px;
-  border-radius: 4px;
-}
-
-.ck-overlay {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(3, 6, 14, 0.55);
-}
-
-.ck-overlay .ck-panel {
-  position: relative;
-  transform: none;
-  left: auto;
-  top: auto;
 }
 
 /* DRS */
@@ -1159,29 +663,19 @@
   justify-content: center;
 }
 
-@media (max-width: 760px) {
-  .ck-bug {
-    min-width: 0;
-    left: 8px;
-    bottom: 8px;
-  }
-  .ck-bat,
-  .ck-bowl {
-    right: 8px;
-    bottom: 150px;
-  }
-  .ck-comm {
-    display: none;
-  }
-  .ck-power {
-    width: 240px;
-  }
-  .ck-card-delivery {
-    top: 56px;
-    gap: 8px;
-    padding: 6px 10px;
-  }
-  .ck-card-words {
-    display: none;
-  }
+
+.ck-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 6, 14, 0.55);
+  z-index: 5;
+}
+
+.ck-overlay .ck-panel {
+  position: relative;
+  transform: none;
+  left: auto;
+  top: auto;
 }

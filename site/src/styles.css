@@ -7718,3 +7718,82 @@ p {
   z-index: 20;
   pointer-events: auto;
 }
+
+/* Cricket lobby: the floodlit key art behind the title. */
+.ck-menu-hero {
+  position: relative;
+  display: grid;
+  min-height: 300px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid rgba(134, 239, 172, 0.25);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  background: #050812;
+}
+
+.ck-menu-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 30% 30%;
+}
+
+.ck-menu-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(5, 8, 18, 0) 25%, rgba(5, 8, 18, 0.7) 55%, rgba(5, 8, 18, 0.92));
+}
+
+.ck-menu-copy {
+  position: relative;
+  z-index: 1;
+  justify-self: end;
+  width: min(560px, 100%);
+  padding: 28px 28px 24px;
+  color: #f8fafc;
+}
+
+.ck-menu-title {
+  font-size: clamp(40px, 6vw, 64px);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff7dc;
+  text-shadow: 0 0 24px rgba(252, 211, 77, 0.45), 0 4px 0 rgba(0, 0, 0, 0.5);
+}
+
+.ck-menu-copy .page-lead {
+  color: rgba(248, 250, 252, 0.88);
+}
+
+.ck-menu-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ck-menu-tags li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1c1203;
+  background: linear-gradient(180deg, #fde68a, #f59e0b);
+}
+
+@media (max-width: 720px) {
+  .ck-menu-hero::after {
+    background: linear-gradient(180deg, rgba(5, 8, 18, 0.1) 20%, rgba(5, 8, 18, 0.92) 70%);
+  }
+  .ck-menu-copy {
+    padding: 160px 18px 18px;
+  }
+}

@@ -16,6 +16,8 @@ export interface BallState {
   /** Swing force coefficient; applies along swingDir until the ball first lands or is hit. */
   swingCoef: number
   swingDir: V3
+  /** 0 conventional swing (from the hand), 1 late swing (the ball holds its line, then bends in the last third). */
+  swingLate: number
   /** Sideways jag (radians) on the first bounce on the pitch, rolled at release. */
   seamKick: number
   /** Restitution jitter for the first bounce, rolled at release. */
@@ -36,7 +38,7 @@ export interface StepResult {
 }
 
 export function newBall(pos = new V3()): BallState {
-  return { pos, vel: new V3(), spin: new V3(), swingCoef: 0, swingDir: new V3(), seamKick: 0, bounceJitter: 0, bounces: 0, rolling: false, stopped: false, pitched: false, firstBounce: new V3(), time: 0 }
+  return { pos, vel: new V3(), spin: new V3(), swingCoef: 0, swingDir: new V3(), swingLate: 0, seamKick: 0, bounceJitter: 0, bounces: 0, rolling: false, stopped: false, pitched: false, firstBounce: new V3(), time: 0 }
 }
 
 export function cloneBall(s: BallState): BallState {
@@ -88,7 +90,9 @@ export function step(s: BallState, env: Env, h: number): StepResult {
 
   if (!s.rolling) {
     if (s.swingCoef !== 0) {
-      const k = sideK(env) * s.swingCoef * speed * speed
+      // Late swing: barely moves for the first ~0.2 s, then bends hard (same total movement, all of it late).
+      const shape = s.swingLate > 0 ? lateSwingShape(s.time) : 1
+      const k = sideK(env) * s.swingCoef * speed * speed * shape
       ax += s.swingDir.x * k
       ay += s.swingDir.y * k
       az += s.swingDir.z * k
@@ -222,6 +226,12 @@ function bounce(s: BallState, surf: Surface, firstOnPitch: boolean) {
     s.vel.y = 0
     s.rolling = true
   }
+}
+
+/** The late-swing force profile over time since release (averages ~1 over a pace bowler's flight). */
+export function lateSwingShape(t: number) {
+  const x = clamp((t - 0.12) / 0.26, 0, 1)
+  return 0.1 + 3.3 * x * x * (3 - 2 * x)
 }
 
 /**

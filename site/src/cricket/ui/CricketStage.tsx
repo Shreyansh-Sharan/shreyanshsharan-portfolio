@@ -7,6 +7,9 @@ import { Game, type HudState } from '../game'
 import type { MatchSetup } from '../sim/match'
 import type { Command, GameEvent } from '../sim/director'
 import { PRESET_NAMES } from '../sim/fields'
+import { BowlerCard, BowlMeter, ContextStrip, DeliveryPicker, FeetToggle, Milestone, PipFrame, Radar, ReplayOverlay, RunCall, Scorebug, ShotPad, SpeedGun } from './Hud'
+import { FieldEditor } from './FieldEditor'
+import '../hud.css'
 import { resolveQuality, saveQuality, savedQuality, type QualityTier } from '../quality'
 import { Scorecard } from './Scorecard'
 import { setInputSuspended } from '../../lib/input'
@@ -23,16 +26,13 @@ export interface StageProps {
   onRematch?: () => void
 }
 
-const DIR_LABELS: Record<string, string> = {
-  '0,0': 'Natural',
-  '0,1': 'Straight',
-  '-1,1': 'Off drive',
-  '1,1': 'On drive',
-  '-1,0': 'Square (off)',
-  '1,0': 'Square (leg)',
-  '-1,-1': 'Late cut',
-  '1,-1': 'Fine leg',
-  '0,-1': 'Behind',
+/** Touch-first devices get the big thumb controls. */
+function isTouch() {
+  try {
+    return matchMedia('(pointer: coarse)').matches || new URLSearchParams(window.location.search).has('touch')
+  } catch {
+    return false
+  }
 }
 
 type HowToMode = 'bat' | 'bowl'
@@ -67,6 +67,8 @@ export default function CricketStage(p: StageProps) {
   const [quality, setQualityState] = useState<QualityTier | 'auto'>(savedQuality())
   const [version, setVersion] = useState(0)
   const [howTo, setHowTo] = useState<HowToMode | null>(null)
+  const [editField, setEditField] = useState(false)
+  const [touch] = useState(isTouch)
   const howToShown = useRef<Record<HowToMode, boolean>>({ bat: false, bowl: false })
   const popId = useRef(0)
 
@@ -132,6 +134,31 @@ export default function CricketStage(p: StageProps) {
     // The stage is keyed per match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // G opens the field editor before a ball you are bowling.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      const g = gameRef.current
+      if (!g || e.repeat) return
+      if (e.key.toLowerCase() === 'g' && !editField && g.hudState().canEditField) {
+        e.preventDefault()
+        setEditField(true)
+      }
+    }
+    window.addEventListener('keydown', down)
+    return () => window.removeEventListener('keydown', down)
+  }, [editField])
+
+  // The game is frozen while the field editor is open.
+  useEffect(() => {
+    const g = gameRef.current
+    if (!g) return
+    g.setHold(editField)
+    if (!editField) return
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setEditField(false)
+    window.addEventListener('keydown', esc, { capture: true })
+    return () => window.removeEventListener('keydown', esc, { capture: true })
+  }, [editField])
 
   // Hold Tab for the scorecard.
   useEffect(() => {
@@ -212,56 +239,67 @@ export default function CricketStage(p: StageProps) {
     g?.setQuality(resolveQuality(qq))
   }
 
+  const bowlPhase = h && (h.phase === 'predelivery' || h.phase === 'runup')
+  const showBat = h && h.localBats && !h.replay && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'flight' || h.phase === 'live' || h.phase === 'dead')
+  const showBowl = h && h.localBowls && !h.replay && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'live')
+  const inPlay = h && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'flight' || h.phase === 'live' || h.phase === 'dead' || h.phase === 'replay' || h.phase === 'review')
   return (
-    <div className="racer-stage ck-stage">
+    <div className={`racer-stage ck-stage ${touch ? 'is-touch' : ''} ${h?.hero ? 'is-hero' : ''} ${h?.replay ? 'is-replay' : ''}`}>
       <div ref={host} className="racer-host" />
-      {!h && !error && <div className="vr-loading ck-loading">Building the stadium… {Math.round(loadPct * 100)}%</div>}
+      {!h && !error && (
+        <div className="ck-loadscreen">
+          <img src={`${import.meta.env.BASE_URL}cricket/menu-loft.webp`} alt="" />
+          <div className="ck-loadbar">
+            <span>Building the stadium… {Math.round(loadPct * 100)}%</span>
+            <i style={{ width: `${Math.round(loadPct * 100)}%` }} />
+          </div>
+        </div>
+      )}
       {error && <div className="vr-loading ck-loading">Couldn't load the game: {error}</div>}
       {h && (
         <>
-          <Scorebug h={h} />
+          <div className="ck-letterbox" aria-hidden="true" />
+          {h.pip && <PipFrame pip={h.pip} />}
+          {!h.replay && <Scorebug h={h} />}
+          {!h.replay && inPlay && <ContextStrip h={h} />}
+          {inPlay && !h.hero && !h.replay && <Radar game={g} />}
           <div className="ck-topbar">
-            <button className="pill" onClick={() => g?.setPaused(!h.paused)}>
-              {h.paused ? 'Resume' : 'Pause'}
+            <button className="ck-ibtn" onClick={() => g?.setPaused(!h.paused)} title="Pause (Esc)">
+              {h.paused ? '▶' : '❚❚'}
             </button>
-            <button className="pill" onClick={() => setShowCard((s) => !s)}>
-              Scorecard
+            <button className="ck-ibtn" onClick={() => setShowCard((s) => !s)} title="Scorecard (hold Tab)">
+              Card
             </button>
-            <button className="pill" onClick={() => g?.toggleCamera()}>
-              Camera: {h.camera === 'batter' ? 'Batter' : h.camera === 'broadcast' ? 'Broadcast' : 'High'}
+            <button className="ck-ibtn" onClick={() => g?.toggleCamera()} title="Camera (C)">
+              {h.camera === 'batter' ? 'Bat cam' : h.camera === 'broadcast' ? 'TV cam' : 'High cam'}
             </button>
-            <QualityToggle value={quality} actual={h.quality} onChange={setQuality} />
+            <button className="ck-ibtn" disabled={!h.canReplay} onClick={() => g?.press('replay')} title="Instant replay (I)">
+              ⟲ Replay
+            </button>
+            {h.canEditField && (
+              <button className="ck-ibtn ck-ibtn-hot" onClick={() => setEditField(true)} title="Set the field (G)">
+                Field
+              </button>
+            )}
           </div>
-          <Commentary lines={lines} />
-          {h.card && <DeliveryCard card={h.card} />}
-          {h.banner && <Banner text={h.banner} sub={h.bannerSub} />}
-          {pop && (
+          {!h.hero && !h.replay && <Commentary lines={lines} />}
+          {h.card && !h.replay && <SpeedGun card={h.card} />}
+          {h.bowlerCard && bowlPhase && !h.replay && <BowlerCard c={h.bowlerCard} team={h.fielding.color} bowling={h.localBowls} />}
+          {h.banner && !h.replay && <Banner text={h.banner} sub={h.bannerSub} />}
+          {h.milestone && <Milestone m={h.milestone} />}
+          {h.runCall && !h.replay && <RunCall c={h.runCall} />}
+          {pop && !h.replay && (
             <div key={pop.id} className={`ck-pop ck-pop-${pop.kind}`}>
               {pop.text}
             </div>
           )}
-          {h.localBats && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'flight' || h.phase === 'live' || h.phase === 'dead') && <BattingHud h={h} game={g} />}
-          {h.localBowls && (h.phase === 'predelivery' || h.phase === 'runup' || h.phase === 'live') && <BowlingHud h={h} game={g} />}
+          {showBat && <BattingHud h={h} game={g} touch={touch} />}
+          {showBowl && <BowlingHud h={h} game={g} touch={touch} onField={() => setEditField(true)} />}
+          {h.replay && <ReplayOverlay r={h.replay} onSkip={() => g?.press('skip')} />}
           {howTo && <HowTo mode={howTo} onClose={closeHowTo} />}
+          {editField && g && <FieldEditor game={g} onClose={() => setEditField(false)} />}
           {h.toss && <TossPanel h={h} send={send} side={side} />}
-          {h.chooseBowler && (
-            <div className="ck-panel ck-center">
-              <h3>Choose your bowler</h3>
-              <ul className="ck-list">
-                {h.chooseBowler.options.map((o, i) => (
-                  <li key={o.player}>
-                    <button onClick={() => send({ t: 'bowler', side, player: o.player })}>
-                      <kbd>{i + 1}</kbd> <strong>{o.name}</strong> <span className="muted">{o.style}</span>
-                      <span className="ck-right">
-                        {o.overs} ov · {o.figures}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <p className="muted small">Bowlers can't bowl two overs in a row and have a quota. Enter picks the first.</p>
-            </div>
-          )}
+          {h.chooseBowler && <ChooseBowler h={h} send={send} side={side} />}
           {h.reviewPrompt && (
             <div className="ck-panel ck-review-prompt">
               <strong>{h.reviewPrompt.reviewsLeft > 0 ? 'Review the decision?' : 'No reviews left'}</strong>
@@ -277,12 +315,8 @@ export default function CricketStage(p: StageProps) {
               ) : null}
             </div>
           )}
-          {h.review && <DrsPanel h={h} />}
-          {h.replay && (
-            <div className="ck-replay-tag">
-              REPLAY <span className="muted small">Space to skip</span>
-            </div>
-          )}
+          {h.review && !h.replay && <DrsPanel h={h} />}
+          {h.review && h.replay && h.review.time > h.review.duration - 1.2 && <div className={`ck-tv-verdict ${h.review.finalOut ? 'is-out' : 'is-notout'}`}>{h.review.finalOut ? 'OUT' : 'NOT OUT'}</div>}
           {h.inningsBreak && (
             <div className="ck-panel ck-center ck-break">
               <h3>Innings break</h3>
@@ -328,57 +362,30 @@ export default function CricketStage(p: StageProps) {
                     Quit match
                   </button>
                 </div>
+                <div className="ck-pause-opts">
+                  <span>Graphics</span>
+                  <QualityToggle value={quality} actual={h.quality} onChange={setQuality} />
+                  <span>Replays</span>
+                  <div className="ck-quality" role="radiogroup" aria-label="Automatic replays">
+                    {(
+                      [
+                        ['all', 'All'],
+                        ['key', 'Wickets & sixes'],
+                        ['off', 'Off'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button key={id} role="radio" aria-checked={h.replayPref === id} className={`ck-qbtn ${h.replayPref === id ? 'is-on' : ''}`} onClick={() => g?.setReplayPref(id)}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Help />
               </div>
             </div>
           )}
         </>
       )}
-    </div>
-  )
-}
-
-function Scorebug({ h }: { h: HudState }) {
-  return (
-    <div className="ck-bug" style={{ ['--ck-team' as string]: h.batting.color }}>
-      <div className="ck-bug-main">
-        <span className="ck-bug-team">{h.batting.short}</span>
-        <span className="ck-bug-score">{h.score}</span>
-        <span className="ck-bug-overs">
-          {h.overs}
-          {!h.nets && <small>/{h.maxOvers}</small>}
-        </span>
-        {h.nets && <span className="ck-chip">NETS</span>}
-        {h.powerplay && <span className="ck-chip">P</span>}
-        {h.superOver && <span className="ck-chip ck-chip-hot">SUPER OVER</span>}
-        {h.freeHit && <span className="ck-chip ck-chip-hot">FREE HIT</span>}
-        <span className="ck-bug-rr">RR {h.runRate}</span>
-      </div>
-      <div className="ck-bug-row">
-        {h.batters.map((b) => (
-          <span key={b.name} className={`ck-bug-bat ${b.onStrike ? 'is-on' : ''}`}>
-            {b.onStrike ? '▸ ' : ''}
-            {b.name} <strong>{b.runs}</strong>
-            <small>({b.balls})</small>
-          </span>
-        ))}
-        {h.bowler && (
-          <span className="ck-bug-bowl" style={{ ['--ck-team' as string]: h.fielding.color }}>
-            {h.bowler.name} <strong>{h.bowler.figures}</strong>
-          </span>
-        )}
-      </div>
-      <div className="ck-bug-row ck-bug-sub">
-        <span className="ck-over">
-          {h.thisOver.map((s, i) => (
-            <span key={i} className={`ck-ball ck-ball-${s === 'W' ? 'w' : s === '4' ? 'four' : s === '6' ? 'six' : s === '•' ? 'dot' : 'run'}`}>
-              {s}
-            </span>
-          ))}
-        </span>
-        {h.need ? <span className="ck-need">{h.need}</span> : <span className="muted">P'ship {h.partnership}</span>}
-        {h.lastKmh > 0 && <span className="muted">{h.lastKmh} km/h</span>}
-      </div>
     </div>
   )
 }
@@ -399,21 +406,6 @@ function Banner({ text, sub }: { text: string; sub: string }) {
     <div key={text} className={`ck-banner ck-banner-${kind}`}>
       <span className="ck-banner-text">{text}</span>
       {sub && <span className="ck-banner-sub">{sub}</span>}
-    </div>
-  )
-}
-
-/** What was just bowled: name, speed, type and where it will land, shown for a few seconds after release. */
-function DeliveryCard({ card }: { card: NonNullable<HudState['card']> }) {
-  return (
-    <div className={`ck-card-delivery ${card.age > 2.6 ? 'is-fading' : ''}`}>
-      <span className="ck-card-bowler">{card.bowler}</span>
-      <span className="ck-card-kmh">
-        {card.kmh}
-        <small> km/h</small>
-      </span>
-      <span className={`ck-card-type ${card.spin ? 'is-spin' : ''}`}>{card.type}</span>
-      <span className="ck-card-words">{card.words}</span>
     </div>
   )
 }
@@ -463,29 +455,30 @@ function HowTo({ mode, onClose }: { mode: HowToMode; onClose: (off: boolean) => 
             <li>
               <span className="ck-howto-pip ck-howto-pip-marker" />
               <div>
-                <strong>Watch the marker.</strong> The cyan ring on the pitch is where the ball will land, with its length written under it.
+                <strong>Read the ball.</strong> The cyan ring is where it will pitch. Watch it swing in the air and turn or seam off the pitch: the card up top names
+                the delivery after it is bowled.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip ck-howto-pip-aim" />
               <div>
-                <strong>Hold a direction</strong> with <kbd>W</kbd>
+                <strong>Pick a direction</strong> with <kbd>W</kbd>
                 <kbd>A</kbd>
                 <kbd>S</kbd>
-                <kbd>D</kbd> or the arrows: the wedge on the ground shows where the shot will go. No direction plays the natural shot.
+                <kbd>D</kbd> (8 ways, or the pad). <kbd>Shift</kbd> front foot, <kbd>Space</kbd> back foot: drive, cut, pull, hook, sweep, flick.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip ck-howto-pip-ring" />
               <div>
-                <strong>Press as the ring closes.</strong> The yellow ring shrinks onto the white one as the ball arrives: press <kbd>J</kbd> defend,{' '}
-                <kbd>K</kbd> along the ground or <kbd>L</kbd> lofted when it turns green.
+                <strong>Time it</strong> as the yellow ring closes: <kbd>J</kbd> defend, <kbd>K</kbd> along the ground, <kbd>L</kbd> lofted, <kbd>H</kbd> leave.
+                Driving at the one going away finds the edge; the one coming back goes through the gate.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip" />
               <div>
-                Hold <kbd>Shift</kbd> for the front foot, <kbd>Space</kbd> for the back foot. Then <kbd>R</kbd> runs and <kbd>F</kbd> sends him back.
+                Calls: <kbd>R</kbd> yes, <kbd>F</kbd> no, <kbd>G</kbd> wait. <kbd>I</kbd> instant replay.
               </div>
             </li>
           </ol>
@@ -494,30 +487,31 @@ function HowTo({ mode, onClose }: { mode: HowToMode; onClose: (off: boolean) => 
             <li>
               <span className="ck-howto-pip ck-howto-pip-marker" />
               <div>
-                <strong>Pick a delivery</strong> with <kbd>1</kbd>–<kbd>6</kbd> (or <kbd>Q</kbd>/<kbd>E</kbd>). Its name shows big on the right.
+                <strong>Pick the delivery</strong> with the number keys: swing, cutters, yorker, bouncer, slower ball; or for spinners the stock ball, the other
+                one, the arm ball and the top-spinner.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip ck-howto-pip-aim" />
               <div>
-                <strong>Place the yellow marker</strong> with <kbd>W</kbd>
+                <strong>Aim the marker</strong> with <kbd>W</kbd>
                 <kbd>A</kbd>
                 <kbd>S</kbd>
-                <kbd>D</kbd>. The bands on the pitch are the lengths: yorker, full, good, short.
+                <kbd>D</kbd> or by tapping the pitch: the bands are yorker, full, good and short.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip ck-howto-pip-ring" />
               <div>
-                <strong>Run in and release.</strong> <kbd>Space</kbd> starts the run-up; press <kbd>Space</kbd> again when the needle is in the green. Too
-                late and it is a no-ball.
+                <strong>Run in and release.</strong> <kbd>Space</kbd> runs in; press <kbd>Space</kbd> again as the needle climbs the arc. Green is clean, the bright
+                middle is perfect (full pace, late swing); early red is loose, late red a no-ball.
               </div>
             </li>
             <li>
               <span className="ck-howto-pip" />
               <div>
-                <kbd>F</kbd> changes the field, <kbd>V</kbd> goes round the wicket. While they run, <kbd>J</kbd> throws to the keeper and <kbd>L</kbd> to
-                the bowler.
+                <kbd>G</kbd> field editor, <kbd>F</kbd> next field preset, <kbd>V</kbd> round the wicket. While they run, <kbd>J</kbd> throws to the keeper and{' '}
+                <kbd>L</kbd> to the bowler.
               </div>
             </li>
           </ol>
@@ -537,12 +531,9 @@ function Commentary({ lines }: { lines: string[] }) {
   if (!lines.length) return null
   return (
     <div className="ck-comm" aria-live="polite">
-      <p className="ck-comm-now">{lines[0]}</p>
-      {lines.slice(1, 3).map((l, i) => (
-        <p key={i} className="ck-comm-old">
-          {l}
-        </p>
-      ))}
+      <p key={lines[0]} className="ck-comm-now">
+        {lines[0]}
+      </p>
     </div>
   )
 }
@@ -559,154 +550,146 @@ function QualityToggle({ value, actual, onChange }: { value: QualityTier | 'auto
   )
 }
 
-/** The 8-way direction compass, footwork and timing feedback, the confidence meter and running controls. */
-function BattingHud({ h, game }: { h: HudState; game: Game | null }) {
-  const { x, y, feet } = h.aim
-  // Direction names are from the batter's point of view: on screen the off side flips for a left-hander, so the
-  // sim's aim angle decides the word.
-  const deg = h.aimDeg
-  const label = deg === null ? '' : deg === 0 ? 'Straight' : deg > 0 ? (deg < 60 ? 'Off drive' : deg < 120 ? 'Square (off)' : 'Late cut') : deg > -60 ? 'On drive' : deg > -120 ? 'Square (leg)' : 'Fine leg'
-  const hint = h.phase === 'flight' || h.phase === 'runup' ? (h.toContact > 0.6 || h.toContact < 0 ? 'Wait for the ring…' : h.toContact > 0.12 ? 'Get ready' : 'PLAY NOW') : h.phase === 'predelivery' ? 'Hold a direction, then time the shot' : ''
+/** Batting: the shot pad, footwork, the shot buttons (defend, ground, lofted, leave), timing and the running calls. */
+function BattingHud({ h, game, touch }: { h: HudState; game: Game | null; touch: boolean }) {
+  const hint = h.phase === 'flight' || h.phase === 'runup' ? (h.toContact > 0.6 || h.toContact < 0 ? 'Watch it…' : h.toContact > 0.12 ? 'Get ready' : 'NOW') : h.phase === 'predelivery' ? 'Pick a direction, then time it' : ''
+  const live = h.live || h.phase === 'dead'
   return (
-    <div className="ck-bat">
-      <div className="ck-compass" aria-label="Shot direction">
-        {[-1, 0, 1].map((yy) =>
-          [-1, 0, 1].map((xx) => (
-            <span key={`${xx},${yy}`} className={`ck-cell ${x === xx && y === -yy ? 'is-on' : ''} ${xx === 0 && yy === 0 ? 'ck-cell-mid' : ''}`} />
-          )),
-        )}
-        <span className="ck-compass-label">{label || DIR_LABELS[`${x},${y}`] || 'Natural'}</span>
+    <>
+      <div className="ck-bat2-left">
+        <ShotPad h={h} game={game} touch={touch} />
+        {!live && <FeetToggle h={h} game={game} />}
       </div>
-      <div className="ck-bat-info">
-        <div className="ck-feet">
-          Feet: <strong>{feet === 'auto' ? 'Auto' : feet === 'front' ? 'Front foot' : 'Back foot'}</strong>
-        </div>
-        <div className="ck-confidence" title="Confidence: the batter's timing window widens when he's in">
-          <span>In</span>
-          <div className="ck-meter-bar">
-            <div style={{ width: `${Math.round(h.confidence * 100)}%` }} />
+      <div className="ck-bat2-right">
+        <div className="ck-bat2-info">
+          {h.timing ? <div className={`ck-timing ck-timing-${h.timing.split(' ')[0].toLowerCase()}`}>{h.timing}</div> : hint && <div className={`ck-timing-hint ${hint === 'NOW' ? 'is-now' : ''}`}>{hint}</div>}
+          <div className="ck-confidence" title="Confidence: the timing window widens when he is in">
+            <span>IN</span>
+            <div className="ck-meter-bar">
+              <div style={{ width: `${Math.round(h.confidence * 100)}%` }} />
+            </div>
           </div>
+          {(h.nets || h.timings.length > 0) && <TimingStrip timings={h.timings} />}
         </div>
-        {h.timing ? <div className={`ck-timing ck-timing-${h.timing.split(' ')[0].toLowerCase()}`}>{h.timing}</div> : hint && <div className={`ck-timing-hint ${hint === 'PLAY NOW' ? 'is-now' : ''}`}>{hint}</div>}
-        {(h.nets || h.timings.length > 0) && <TimingStrip timings={h.timings} />}
+        <div className={`ck-actions ${live ? 'is-run' : ''}`}>
+          {live ? (
+            <>
+              <button className="ck-act ck-act-yes" onClick={() => game?.press('run')}>
+                <kbd>R</kbd>
+                <b>YES</b>
+                <span>Run</span>
+              </button>
+              <button className="ck-act ck-act-wait" onClick={() => game?.press('wait')}>
+                <kbd>G</kbd>
+                <b>WAIT</b>
+                <span>Hold</span>
+              </button>
+              <button className="ck-act ck-act-no" onClick={() => game?.press('back')}>
+                <kbd>F</kbd>
+                <b>NO</b>
+                <span>{h.running ? 'Go back' : 'Stay'}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="ck-act ck-act-def" onClick={() => game?.press('defend')}>
+                <kbd>J</kbd>
+                <b>DEFEND</b>
+              </button>
+              <button className="ck-act ck-act-ground" onClick={() => game?.press('ground')}>
+                <kbd>K</kbd>
+                <b>GROUND</b>
+              </button>
+              <button className="ck-act ck-act-loft" onClick={() => game?.press('loft')}>
+                <kbd>L</kbd>
+                <b>LOFT</b>
+              </button>
+              <button className="ck-act ck-act-leave" onClick={() => game?.press('leave')}>
+                <kbd>H</kbd>
+                <b>LEAVE</b>
+              </button>
+            </>
+          )}
+        </div>
       </div>
-      <div className="ck-keys">
-        {h.live ? (
-          <>
-            <button onClick={() => game?.press('run')}>
-              <kbd>R</kbd> Run
-            </button>
-            <button onClick={() => game?.press('back')}>
-              <kbd>F</kbd> {h.running ? 'Back!' : 'Stay'}
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={() => game?.press('defend')}>
-              <kbd>J</kbd> Defend
-            </button>
-            <button onClick={() => game?.press('ground')}>
-              <kbd>K</kbd> Attack
-            </button>
-            <button onClick={() => game?.press('loft')}>
-              <kbd>L</kbd> Lofted
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+    </>
   )
 }
 
-function BowlingHud({ h, game }: { h: HudState; game: Game | null }) {
-  const m = h.meter
-  const selected = h.delivery?.options.find((o) => o.type === h.delivery!.selected)
-  // The needle moves every frame straight on the DOM (the HUD itself renders at 10 Hz).
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const needleRef = useRef<HTMLDivElement>(null)
-  const meterShown = !!m
-  useEffect(() => {
-    if (!game || !meterShown) return
-    game.attachMeter(wrapRef.current, needleRef.current)
-    return () => game.attachMeter(null, null)
-  }, [game, meterShown])
+/** Bowling: the delivery picker, the curved release meter, the field and the angle of approach. */
+function BowlingHud({ h, game, touch, onField }: { h: HudState; game: Game | null; touch: boolean; onField: () => void }) {
+  const pre = h.phase === 'predelivery'
+  const run = h.phase === 'runup'
   return (
-    <div className="ck-bowl">
-      {selected && (h.phase === 'predelivery' || h.phase === 'runup') && (
-        <div key={selected.type} className="ck-dl-big">
-          <span className="ck-dl-big-name">{selected.name}</span>
-          <span className="ck-dl-big-words">{h.markerWords}</span>
-        </div>
-      )}
-      {h.delivery && (
-        <div className="ck-deliveries">
-          {h.delivery.options.map((o) => (
-            <button key={o.type} className={`ck-dl ${o.type === h.delivery!.selected ? 'is-on' : ''}`} onClick={() => game?.submit({ t: 'delivery', side: game.opts.localSide, type: o.type })}>
-              <kbd>{o.key}</kbd> {o.name}
+    <>
+      {h.delivery && (pre || run) && <DeliveryPicker h={h} game={game} />}
+      {h.meter && <BowlMeter h={h} game={game} />}
+      <div className="ck-bowl2">
+        {pre && (
+          <div className="ck-bowl2-row">
+            <button className="pill" onClick={onField} disabled={!h.canEditField}>
+              <kbd>G</kbd> Field: {PRESET_NAMES[h.preset]}
             </button>
-          ))}
-        </div>
-      )}
-      <div className="ck-bowl-row">
-        <button className="pill" onClick={() => game?.press('preset')}>
-          <kbd>F</kbd> Field: {PRESET_NAMES[h.preset]}
-        </button>
-        {h.delivery && (
-          <button className="pill" onClick={() => game?.submit({ t: 'wicketside', side: game.opts.localSide })}>
-            <kbd>V</kbd> {h.delivery.around ? 'Round the wicket' : 'Over the wicket'}
-          </button>
-        )}
-        {h.bowler && (
-          <span className="ck-stamina" title="Stamina">
-            Stamina
-            <span className="ck-meter-bar">
-              <span style={{ width: `${Math.round(h.bowler.stamina)}%` }} />
-            </span>
-          </span>
-        )}
-      </div>
-      {m && (
-        <div ref={wrapRef} className={`ck-power-wrap ${m.running ? 'is-running' : ''}`} data-green={m.running && Math.abs(m.value - m.green) <= m.half ? '1' : '0'}>
-          <div className="ck-power-title">
-            {m.running ? (
-              <>
-                <strong>RELEASE</strong> — press <kbd>Space</kbd> in the green
-              </>
-            ) : h.phase === 'runup' ? (
-              'Released'
-            ) : (
-              <>
-                Run-up meter · <kbd>Space</kbd> to run in
-              </>
+            <button className="pill" onClick={() => game?.press('preset')}>
+              <kbd>F</kbd> Next preset
+            </button>
+            {h.delivery && (
+              <button className="pill" onClick={() => game?.submit({ t: 'wicketside', side: game.opts.localSide })}>
+                <kbd>V</kbd> {h.delivery.around ? 'Round the wicket' : 'Over the wicket'}
+              </button>
             )}
           </div>
-          <div className="ck-power" aria-label="Release meter">
-            <div className="ck-power-zone" style={{ left: `${(m.green - m.half) * 100}%`, width: `${m.half * 200}%` }} />
-            <div className="ck-power-over" style={{ left: `${(m.green + m.half * 1.15) * 100}%` }} />
-            <div ref={needleRef} className="ck-power-needle" style={{ left: `${m.value * 100}%` }} />
-            <span className="ck-power-tag ck-power-tag-early">early = short &amp; slow</span>
-            <span className="ck-power-tag ck-power-tag-green" style={{ left: `${m.green * 100}%` }}>
-              GREEN
-            </span>
-            <span className="ck-power-tag ck-power-tag-late">no ball</span>
-          </div>
-        </div>
-      )}
-      <p className="ck-hint">
-        {h.phase === 'predelivery' ? (
-          <>
-            <kbd>WASD</kbd>/<kbd>Arrows</kbd> move the yellow marker over a length band · <kbd>1</kbd>–<kbd>6</kbd> delivery · <kbd>Space</kbd> run in
-          </>
-        ) : h.phase === 'runup' ? (
-          <>
-            Wait for the needle, then <kbd>Space</kbd> in the green · late = no-ball, early = loose
-          </>
-        ) : (
-          <>
-            <kbd>J</kbd> throw to the keeper · <kbd>L</kbd> to the bowler
-          </>
         )}
-      </p>
+        {(pre || (run && h.meter?.running)) && (
+          <button className="ck-act ck-act-bowl" onClick={() => game?.press('bowl')}>
+            <kbd>Space</kbd>
+            <b>{pre ? 'BOWL' : 'RELEASE'}</b>
+          </button>
+        )}
+        {h.phase === 'live' && (
+          <div className="ck-bowl2-row">
+            <button className="pill" onClick={() => game?.submit({ t: 'throw', side: game.opts.localSide, end: 'keeper' })}>
+              <kbd>J</kbd> Throw to the keeper
+            </button>
+            <button className="pill" onClick={() => game?.submit({ t: 'throw', side: game.opts.localSide, end: 'bowler' })}>
+              <kbd>L</kbd> To the bowler
+            </button>
+          </div>
+        )}
+        {pre && !touch && <p className="ck-hint">WASD or tap the pitch: aim the marker · 1–{h.delivery?.options.length ?? 6} delivery</p>}
+      </div>
+    </>
+  )
+}
+
+/** Choosing the next bowler: cards by type (pace, swing, spin) with figures and the quota left. */
+function ChooseBowler({ h, send, side }: { h: HudState; send: (c: Command) => void; side: number }) {
+  const opts = h.chooseBowler!.options
+  return (
+    <div className="ck-panel ck-center ck-choose">
+      <h3>Choose your bowler</h3>
+      <div className="ck-choose-grid">
+        {opts.map((o, i) => (
+          <button key={o.player} className={`ck-choose-card ck-type-${o.type}`} onClick={() => send({ t: 'bowler', side, player: o.player })}>
+            <span className="ck-choose-tag">
+              <kbd>{i + 1}</kbd> {o.tag}
+            </span>
+            <strong>{o.name}</strong>
+            <span className="ck-choose-bars">
+              <span>
+                Pace <i style={{ width: `${o.pace}%` }} />
+              </span>
+              <span>
+                Skill <i style={{ width: `${o.skill}%` }} />
+              </span>
+            </span>
+            <span className="ck-choose-fig">
+              {o.overs} ov · {o.figures}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="muted small">Fast for pace and bounce, swing for the new ball under lights, spin on a dry pitch. Nobody bowls two overs in a row.</p>
     </div>
   )
 }
