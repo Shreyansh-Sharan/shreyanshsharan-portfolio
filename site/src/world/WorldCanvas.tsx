@@ -5,6 +5,7 @@ import { AdaptiveDpr, PerformanceMonitor, Preload } from '@react-three/drei'
 import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { buildTerrain } from './terrain'
+import { groundMaterial } from './groundMaterial'
 import { groundReport, Landmarks, Scatters, streamState } from './Models'
 import { enterRoom, leaveRoom, ROOMS, type RoomId } from './interiors'
 import { Vegetation } from './Vegetation'
@@ -28,6 +29,7 @@ import { controls } from './controls'
 import { Exhibits } from './Exhibits'
 import { Vehicles } from './Vehicle'
 import { Interiors } from './Interiors'
+import { Countryside } from './Countryside'
 import { car, enterCar, exitCar, sail, ship, board, disembark, stepCar, stepShip } from './rides'
 import { exhibits } from './exhibits'
 import { nearestInteraction } from './interact'
@@ -55,6 +57,8 @@ function weakGpu() {
 function quality() {
   // The user's explicit "low graphics" choice always wins — a guaranteed fallback for weak GPUs.
   if (isLowGraphics()) return 'low'
+  // Test hook: `?hq` forces the full tier (headless checks run on a software GPU that would otherwise pick low).
+  if (new URLSearchParams(window.location.search).has('hq')) return 'high'
   const small = window.innerWidth < 820 || matchMedia('(pointer: coarse)').matches
   const cores = navigator.hardwareConcurrency ?? 4
   const deviceMem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
@@ -64,9 +68,7 @@ function quality() {
 function Terrain({ segments }: { segments: number }) {
   const geo = useMemo(() => buildTerrain(1300, segments), [segments])
   return (
-    <mesh geometry={geo} receiveShadow castShadow={false}>
-      <meshStandardMaterial vertexColors flatShading roughness={0.93} metalness={0} />
-    </mesh>
+    <mesh geometry={geo} material={groundMaterial()} receiveShadow castShadow={false} />
   )
 }
 
@@ -290,8 +292,9 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       </Suspense>
       <Suspense fallback={null}>
         <Landmarks />
-        <Scatters />
-        <Vegetation grass={playing} />
+        <Scatters light={!high} />
+        <Vegetation grass={playing && high} />
+        <Countryside light={!high} playing={playing} />
         <Ambient />
         <Guide />
         {playing && <Player />}

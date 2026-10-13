@@ -6,7 +6,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { REGIONS, WATER_LEVEL, type Biome } from './regions'
-import { heightAt, isNearPad, isOnRoad, mulberry32 } from './terrain'
+import { heightAt, isNearPad, isOnRoad, mulberry32, TRAIL_HALF, trailAt } from './terrain'
 import { blocked } from './colliders'
 import { DENSITY } from './layout'
 import { MISSIONS } from './missions'
@@ -45,7 +45,7 @@ function grassy(x: number, z: number, h: number): [number, number, number] | nul
   if (b?.biome === 'harbour' && b.d < 42) return null
   if (b?.biome === 'cove' && h < 3) return null
   if (b?.biome === 'keep' && b.d < 72) return null
-  if (isOnRoad(x, z, 1)) return null
+  if (isOnRoad(x, z, 1) || trailAt(x, z) < TRAIL_HALF - 0.2) return null
   // Not on steep slopes.
   if (Math.abs(heightAt(x + 1, z) - h) + Math.abs(heightAt(x, z + 1) - h) > 0.8) return null
   return (b && TINT[b.biome]) ?? [1, 1, 1]
@@ -110,30 +110,44 @@ function flowerGeometry(petal: string) {
 
 /* ---------- Grass around the player ---------- */
 
-const CELL = 1.15
-const RADIUS = 24
-const GRASS_N = Math.round(1800 * DENSITY)
-/** Per-cell cache: [x, y, z, scale, yaw, r, g, b] or null where nothing grows. */
-const cells = new Map<number, Float32Array | null>()
+/**
+ * Two rings of tufts follow the player: a dense one close by and a sparser, larger-celled one out to ~80 m whose tufts
+ * shrink away towards its edge (so the grass fades out instead of ending in a line). Path verges grow taller and
+ * thicker. Re-laid out only after the player has moved a few metres, from per-cell caches; no allocation per frame.
+ */
+const RINGS = [
+  { cell: 0.9, inner: 0, outer: 30, p: 0.8 },
+  { cell: 2.1, inner: 28, outer: 80, p: 0.85 },
+]
+const GRASS_N = Math.round(7000 * DENSITY)
+/** Per-ring, per-cell cache: [x, y, z, scale, yaw, r, g, b] or null where nothing grows. */
+const caches = RINGS.map(() => new Map<number, Float32Array | null>())
 
-function cellData(ix: number, iz: number) {
+function cellData(ring: number, ix: number, iz: number) {
+  const cache = caches[ring]
   const key = (ix + 4096) * 8192 + (iz + 4096)
-  let d = cells.get(key)
+  let d = cache.get(key)
   if (d !== undefined) return d
   // Deterministic jitter per cell, so tufts don't swim as the ring moves.
-  const rnd = mulberry32(key)
+  const rnd = mulberry32(key * 3 + ring)
+  const cell = RINGS[ring].cell
   d = null
-  if (rnd() < 0.82) {
-    const x = (ix + rnd()) * CELL, z = (iz + rnd()) * CELL
+  const x = (ix + rnd()) * cell, z = (iz + rnd()) * cell
+  // Verges: thicker and taller along the edges of footpaths and roads.
+  const t = trailAt(x, z)
+  const verge = t > TRAIL_HALF - 0.2 && t < TRAIL_HALF + 2.6 ? 1 : isOnRoad(x, z, 3) ? 0.6 : 0
+  if (rnd() < RINGS[ring].p + verge * 0.2) {
     const h = heightAt(x, z)
     const tint = grassy(x, z, h)
     if (tint && !blocked(x, z, 0.15)) {
-      const v = 0.85 + rnd() * 0.3
-      d = new Float32Array([x, h - 0.03, z, 0.7 + rnd() * 0.7, rnd() * Math.PI * 2, tint[0] * v, tint[1] * v, tint[2] * v])
+      const v = 0.82 + rnd() * 0.36
+      // A little hue drift per tuft: some yellower, some bluer.
+      const warm = (rnd() - 0.5) * 0.12
+      d = new Float32Array([x, h - 0.03, z, (0.7 + rnd() * 0.7) * (1 + verge * 0.35) * (ring ? 1.25 : 1), rnd() * Math.PI * 2, tint[0] * v * (1 + warm), tint[1] * v, tint[2] * v * (1 - warm)])
     }
   }
-  if (cells.size > 40000) cells.clear()
-  cells.set(key, d)
+  if (cache.size > 60000) cache.clear()
+  cache.set(key, d)
   return d
 }
 
@@ -149,7 +163,7 @@ function grassMesh() {
   if (grassRes) return grassRes
   const time = { value: 0 }
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
-  // Wind: sway each tuft by its height, phase-shifted by where it stands.
+  // Wind: sway each tuft by its height, phase-shifted by where it stands; gusts roll across the field.
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = time
     shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
@@ -157,10 +171,12 @@ function grassMesh() {
       `#include <begin_vertex>
 #ifdef USE_INSTANCING
   float ph = instanceMatrix[3].x * 0.35 + instanceMatrix[3].z * 0.27;
+  float gust = 0.6 + 0.4 * sin(uTime * 0.7 + instanceMatrix[3].x * 0.05 + instanceMatrix[3].z * 0.03);
 #else
   float ph = 0.0;
+  float gust = 1.0;
 #endif
-  float bend = position.y * position.y * 2.0;
+  float bend = position.y * position.y * 2.0 * gust;
   transformed.x += sin(uTime * 1.9 + ph) * 0.16 * bend;
   transformed.z += cos(uTime * 1.4 + ph * 1.3) * 0.1 * bend;`,
     )
@@ -188,20 +204,28 @@ function Grass() {
     if (Math.hypot(player.pos.x - L.x, player.pos.z - L.z) < 3) return
     L.x = player.pos.x
     L.z = player.pos.z
-    const cx = Math.round(L.x / CELL), cz = Math.round(L.z / CELL)
-    const span = Math.ceil(RADIUS / CELL)
     let n = 0
-    for (let dz = -span; dz <= span && n < GRASS_N; dz++)
-      for (let dx = -span; dx <= span && n < GRASS_N; dx++) {
-        if (dx * dx + dz * dz > span * span) continue
-        const d = cellData(cx + dx, cz + dz)
-        if (!d) continue
-        ge.set(0, d[4], 0)
-        gm.compose(gp.set(d[0], d[1], d[2]), gq.setFromEuler(ge), gs.set(d[3], d[3] * (0.8 + (d[4] % 0.4)), d[3]))
-        mesh.setMatrixAt(n, gm)
-        mesh.setColorAt(n, gc.setRGB(d[5], d[6], d[7]))
-        n++
-      }
+    for (let ring = 0; ring < RINGS.length; ring++) {
+      const R = RINGS[ring]
+      const cx = Math.round(L.x / R.cell), cz = Math.round(L.z / R.cell)
+      const span = Math.ceil(R.outer / R.cell), hole = R.inner / R.cell
+      for (let dz = -span; dz <= span && n < GRASS_N; dz++)
+        for (let dx = -span; dx <= span && n < GRASS_N; dx++) {
+          const r2 = dx * dx + dz * dz
+          if (r2 > span * span || r2 < hole * hole) continue
+          const d = cellData(ring, cx + dx, cz + dz)
+          if (!d) continue
+          // Shrink away towards the outer edge of the far ring.
+          const dist = Math.sqrt(r2) * R.cell
+          const fade = ring ? Math.min(1, Math.max(0, (R.outer - dist) / (R.outer * 0.3))) : 1
+          if (fade <= 0.05) continue
+          ge.set(0, d[4], 0)
+          gm.compose(gp.set(d[0], d[1], d[2]), gq.setFromEuler(ge), gs.set(d[3] * fade, d[3] * fade * (0.8 + (d[4] % 0.4)), d[3] * fade))
+          mesh.setMatrixAt(n, gm)
+          mesh.setColorAt(n, gc.setRGB(d[5], d[6], d[7]))
+          n++
+        }
+    }
     mesh.count = n
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
