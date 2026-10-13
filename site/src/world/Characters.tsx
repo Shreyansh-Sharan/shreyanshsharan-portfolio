@@ -163,13 +163,14 @@ export const flyPose: Record<string, [number, number, number]> = {
   RightArm: [1.15, 0.0, -0.3],
   LeftForeArm: [0.0, 0.0, 0.0],
   RightForeArm: [0.0, 0.0, 0.0],
-  LeftUpLeg: [0.0, 0.0, 0.0],
-  RightUpLeg: [0.0, 0.0, 0.0],
-  LeftLeg: [0.0, 0.0, 0.0],
-  RightLeg: [0.0, 0.0, 0.0],
-  LeftFoot: [0.5, 0.0, 0.0],
-  RightFoot: [0.5, 0.0, 0.0],
-  Spine02: [-0.15, 0.0, 0.0],
+  LeftUpLeg: [0.18, 0.0, 0.0],
+  RightUpLeg: [0.18, 0.0, 0.0],
+  LeftLeg: [0.35, 0.0, 0.0],
+  RightLeg: [0.35, 0.0, 0.0],
+  LeftFoot: [0.7, 0.0, 0.0],
+  RightFoot: [0.7, 0.0, 0.0],
+  Spine01: [-0.12, 0.0, 0.0],
+  Spine02: [-0.22, 0.0, 0.0],
   neck: [-0.6, 0.0, 0.0],
   Head: [-0.5, 0.0, 0.0],
 }
@@ -681,7 +682,8 @@ export function Player() {
     let yawRate = player.yaw - s.lastYaw
     yawRate = Math.atan2(Math.sin(yawRate), Math.cos(yawRate)) / Math.max(dt, 1e-3)
     s.lastYaw = player.yaw
-    const pitchTo = s.flying ? THREE.MathUtils.clamp(speed / FLY, 0, 1) * 1.22 : s.stomp ? 0.5 : 0
+    // Flat out at speed, superhero style; the pose table arches the back and trails the legs so it is not a plank.
+    const pitchTo = s.flying ? THREE.MathUtils.clamp(speed / FLY, 0, 1) * 1.25 : s.stomp ? 0.5 : 0
     const bankTo = s.flying ? THREE.MathUtils.clamp(-yawRate * 0.18, -0.6, 0.6) : 0
     s.pitch += (pitchTo - s.pitch) * Math.min(1, raw * 5)
     s.bank += (bankTo - s.bank) * Math.min(1, raw * 4)
