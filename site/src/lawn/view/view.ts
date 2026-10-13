@@ -113,7 +113,7 @@ export class LawnView {
     this.scene.add(this.sun, this.sun.target)
     this.hemi = new THREE.HemisphereLight('#e6f2ff', '#b8a98a', 0.4)
     this.scene.add(this.hemi)
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), skyMaterial())
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), skyMaterial(!quality.post))
     this.sky.renderOrder = -10
     this.sky.frustumCulled = false
     this.scene.add(this.sky)
@@ -182,7 +182,10 @@ export class LawnView {
   private applyMood(m: Mood) {
     applySky(this.sky.material, m)
     this.env?.dispose()
-    this.env = bakeEnvironment(this.renderer, m, m.snow ? '#dfe7ef' : '#6c7858')
+    // Low quality skips the image-based light (its per-pixel lookups are the costliest part of shading on weak
+    // GPUs) and leans on a stronger hemisphere fill instead.
+    const ibl = this.quality.post
+    this.env = ibl ? bakeEnvironment(this.renderer, m, m.snow ? '#dfe7ef' : '#6c7858') : null
     this.scene.environment = this.env
     this.scene.environmentIntensity = m.envIntensity
     this.scene.fog = new THREE.Fog(m.fog, m.fogNear, m.fogFar)
@@ -192,7 +195,7 @@ export class LawnView {
     this.sun.intensity = m.sunIntensity
     this.hemi.color.set(m.hemiSky)
     this.hemi.groundColor.set(m.hemiGround)
-    this.hemi.intensity = m.hemiIntensity
+    this.hemi.intensity = m.hemiIntensity + (ibl ? 0 : m.envIntensity * 0.9)
     // Without interior lamps (low quality by day) rooms take more of the sky light so they never go murky.
     indoorAmbient.value = this.quality.lamps > 0 ? m.indoor : Math.max(m.indoor, 0.9)
     this.renderer.toneMappingExposure = this.post ? 1 : m.exposure

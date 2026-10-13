@@ -69,8 +69,8 @@ const surf = (name: string, tint = '#ffffff', extra: THREE.MeshStandardMaterialP
   std(`tex-${name}-${tint}-${bump}`, { map: tiled(name), color: paint(tint, 0.95), roughness: 0.92, ...(bump ? { bumpMap: tiled(name, false), bumpScale: bump } : {}), ...extra })
 /** Ground cover with a second, much larger sample of its texture multiplied in, so the tiling never reads. */
 const ground = (name: string, tint: string, rough: number, bump: number, contrast: number) =>
-  cached(`ground-${name}-${tint}`, () => {
-    const m = new THREE.MeshStandardMaterial({ map: tiled(name), color: paint(tint, 0.95), roughness: rough, bumpMap: tiled(name, false), bumpScale: bump })
+  cached(`ground-${name}-${tint}-${bump}`, () => {
+    const m = new THREE.MeshStandardMaterial({ map: tiled(name), color: paint(tint, 0.95), roughness: rough, ...(bump ? { bumpMap: tiled(name, false), bumpScale: bump } : {}) })
     m.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace(
         '#include <map_fragment>',
@@ -132,9 +132,9 @@ export class World {
   private buildGround() {
     const { w, h } = this.map
     const snowy = this.theme.snow
-    this.flat(w + 80, h + 80, w / 2, 0, h / 2, snowy ? ground('snow', '#f1f5fa', 0.95, 1.5, 0.6) : ground('grass', '#dcebc8', 0.97, 2, 1.4))
+    this.flat(w + 80, h + 80, w / 2, 0, h / 2, snowy ? ground('snow', '#f1f5fa', 0.95, this.quality.post ? 1.5 : 0, 0.6) : ground('grass', '#dcebc8', 0.97, this.quality.post ? 2 : 0, 1.4))
     const road = this.map.road
-    const roadMat = ground('asphalt', snowy ? '#c9ced6' : '#e8e8ea', 0.86, 0.6, 0.8)
+    const roadMat = ground('asphalt', snowy ? '#c9ced6' : '#e8e8ea', 0.86, this.quality.post ? 0.6 : 0, 0.8)
     this.flat(w + 40, road.z1 - road.z0, w / 2, 0.012, (road.z0 + road.z1) / 2, roadMat)
     // Cul-de-sac turnaround at the east end.
     this.flat(0, 0, w - 6, 0.011, (road.z0 + road.z1) / 2, roadMat, 9)
