@@ -406,6 +406,11 @@ export class Actor {
     this.currentName = clip.name
   }
 
+  /** Play one clip once (the lobby's showcase: a dance or a swing); the idle resumes when it ends. */
+  emote(name: string, speed = 1) {
+    this.play(name, 0.2, true, speed)
+  }
+
   /** Per-frame update from the snapshot row. */
   update(dt: number, row: { x: number; y: number; z: number; yaw: number; pitch: number; hp: number; maxHp: number; anim: number; moving: boolean; alive: boolean; blocking: boolean; stunned: boolean; onLadder: boolean; riding: boolean; tool: ToolKind | null }, meId: boolean, hideTags = false) {
     this.clock += dt
