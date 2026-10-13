@@ -17,6 +17,7 @@ export type Route =
   | { name: 'sports'; auto?: boolean }
   | { name: 'plush'; auto?: string; level?: string; join?: string }
   | { name: 'siege'; auto?: string; map?: string; join?: string }
+  | { name: 'lawn'; auto?: string; map?: string; join?: string }
 
 export function parse(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?')
@@ -51,6 +52,11 @@ export function parse(hash: string): Route {
       // `?auto=tdm|capture|br&map=` starts a solo match straight away (tests and deep links).
       const q = new URLSearchParams(query)
       return { name: 'siege', auto: q.get('auto') ?? undefined, map: q.get('map') ?? undefined, join: q.get('join') ?? undefined }
+    }
+    case 'lawn': {
+      // `?auto=destruction|brawl|robots&map=culdesac|snowline&time=night` starts a solo match straight away.
+      const q = new URLSearchParams(query)
+      return { name: 'lawn', auto: q.get('auto') ?? undefined, map: q.get('map') ?? undefined, join: q.get('join') ?? undefined }
     }
     case 'home':
       return { name: 'home', tile: parts[1] }
