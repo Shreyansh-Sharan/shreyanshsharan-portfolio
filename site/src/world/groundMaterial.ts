@@ -4,7 +4,7 @@
 // procedural macro noise, so it never reads as a repeating tile from the air, and the blended detail also bumps the
 // normal. Far away the detail fades into the plain palette.
 import * as THREE from 'three'
-import { TRAIL_HALF, TSEGS } from './terrain'
+import { ROAD_HALF, RSEGS, TRAIL_HALF, TSEGS } from './terrain'
 
 const tex = (name: string) => `${import.meta.env.BASE_URL}world/textures/ground-${name}.webp`
 
@@ -33,17 +33,20 @@ export function groundMaterial() {
   }
   // Footpath segments, tested per pixel (their few-metre width is finer than the terrain's vertices).
   const segs = TSEGS.map((s) => new THREE.Vector4(s.ax, s.az, s.bx, s.bz))
+  const roads = RSEGS.map((s) => new THREE.Vector4(s.ax, s.az, s.bx, s.bz))
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.93, metalness: 0 })
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms, { uTrails: { value: segs } })
+    Object.assign(shader.uniforms, uniforms, { uTrails: { value: segs }, uRoads: { value: roads } })
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
 attribute vec4 surfA;
 attribute float surfB;
+attribute float surfR;
 varying vec4 vSurfA;
 varying float vSurfB;
+varying float vRoad;
 varying vec3 vGPos;
 varying vec3 vGNrm;`,
       )
@@ -52,6 +55,7 @@ varying vec3 vGNrm;`,
         `#include <begin_vertex>
 vSurfA = surfA;
 vSurfB = surfB;
+vRoad = surfR;
 vGPos = position;
 vGNrm = normal;`,
       )
@@ -70,8 +74,10 @@ float gTrail(vec2 p) {
   }
   return abs(best + sin(p.x * 0.05) * sin(p.y * 0.043) * 1.4);
 }
+uniform vec4 uRoads[${RSEGS.length}];
 varying vec4 vSurfA;
 varying float vSurfB;
+varying float vRoad;
 varying vec3 vGPos;
 varying vec3 vGNrm;
 float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -126,6 +132,27 @@ float gDetailL;`,
   float far = smoothstep(260.0, 520.0, length(vViewPosition));
   diffuseColor.rgb = mix(detailed, tint, far) * (0.9 + 0.2 * macro);
   gDetailL *= 1.0 - far;
+  // Roads: tarmac with fine grit, a dashed centre line and a pale kerb, tested per pixel near a road.
+  if (vRoad > 0.0) {
+    float rd = 1e9, along = 0.0;
+    for (int i = 0; i < ${RSEGS.length}; i++) {
+      vec2 a = uRoads[i].xy, ab = uRoads[i].zw - a;
+      float l = length(ab);
+      float t = clamp(dot(uv - a, ab) / (l * l), 0.0, 1.0);
+      float d = length(uv - a - ab * t);
+      if (d < rd) { rd = d; along = t * l; }
+    }
+    float aa = max(fwidth(rd), 0.05);
+    float tar = 1.0 - smoothstep(${ROAD_HALF.toFixed(2)} - aa, ${ROAD_HALF.toFixed(2)} + aa, rd);
+    float kerb = (1.0 - smoothstep(${(ROAD_HALF + 1.0).toFixed(2)} - aa, ${(ROAD_HALF + 1.0).toFixed(2)} + aa, rd)) * (1.0 - tar);
+    vec3 grit = texture2D(tSand, uv * 0.5).rgb;
+    vec3 tarC = vec3(0.029, 0.031, 0.039) * (0.75 + 0.5 * gLum(grit) / ${MEAN.sand.toFixed(4)}) * (0.9 + 0.2 * macro);
+    float dash = (1.0 - smoothstep(0.18, 0.18 + aa, rd)) * step(mod(along, 8.0), 4.0) * (1.0 - far);
+    tarC = mix(tarC, vec3(0.78, 0.55, 0.10), dash * 0.85);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.33, 0.30, 0.25), kerb * 0.75);
+    diffuseColor.rgb = mix(diffuseColor.rgb, tarC, tar);
+    gDetailL = mix(gDetailL, gLum(grit) * 0.4, tar);
+  }
 }`,
       )
       .replace(
@@ -145,7 +172,7 @@ float gDetailL;`,
 }`,
       )
   }
-  mat.customProgramCacheKey = () => 'island-ground-v2'
+  mat.customProgramCacheKey = () => 'island-ground-v3'
   shared = mat
   return mat
 }
