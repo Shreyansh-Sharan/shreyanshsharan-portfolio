@@ -134,15 +134,18 @@ float gDetailL;`,
 {
   // Bump from the blended detail (the derivative trick three.js uses for bump maps).
   vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
-  float hx = dFdx(gDetailL) * 1.6, hy = dFdy(gDetailL) * 1.6;
+  // Only up close: further out a texel (or a path's edge) spans less than a pixel and the slope would flip the normal.
+  float bumpK = 1.6 * (1.0 - smoothstep(40.0, 140.0, length(vViewPosition)));
+  float hx = dFdx(gDetailL) * bumpK, hy = dFdy(gDetailL) * bumpK;
   vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
   float det = dot(dpx, r1);
   vec3 grad = sign(det) * (hx * r1 + hy * r2);
-  normal = normalize(abs(det) * normal - grad);
+  vec3 bumped = normalize(abs(det) * normal - grad);
+  normal = dot(bumped, normal) > 0.4 ? bumped : normal;
 }`,
       )
   }
-  mat.customProgramCacheKey = () => 'island-ground-v1'
+  mat.customProgramCacheKey = () => 'island-ground-v2'
   shared = mat
   return mat
 }

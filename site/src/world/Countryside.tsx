@@ -57,7 +57,7 @@ function shoreline() {
       if (h < WATER_LEVEL - 0.6 || h > WATER_LEVEL + 0.25) continue
       const gx = heightAt(x + 2, z) - heightAt(x - 2, z), gz = heightAt(x, z + 2) - heightAt(x, z - 2)
       const g = Math.hypot(gx, gz)
-      if (g < 0.05) continue
+      if (g < 0.1) continue
       // The strip lies across the slope, its "v" running up towards the land.
       out.push({ x, z, yaw: Math.atan2(gx, gz) })
     }
