@@ -553,6 +553,10 @@ function District({ region }: { region: Region }) {
     // Only the explorer sees the loader, and only when something will actually download.
     const fresh = region.landmarks.some((l) => AVAILABLE_MODELS.has(l.model) && !loadedModels.has(l.model))
     if (!world.get().playing || !fresh) return
+    // Streaming starts well before the district's edge: only cover the screen when the explorer is already inside it
+    // (a teleport, the airship); walking up to it, the buildings stream in silently over the placeholders.
+    const me = world.get().player
+    if (Math.hypot(me.x - region.center[0], me.z - region.center[1]) > region.radius * 1.1) return
     const h = showLoader({ status: `Entering ${region.name}…`, progress: null })
     const ctrl = new AbortController()
     const id = window.setTimeout(() => {

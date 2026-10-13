@@ -9,6 +9,7 @@ import { regionById } from './regions'
 import { heightAt } from './terrain'
 import { world } from './store'
 import { play } from '../lib/sound'
+import { showLoader, type LoaderHandle } from '../lib/loader3d'
 
 export type RoomId = 'arcade' | 'hall'
 
@@ -109,9 +110,30 @@ export function registerRooms(extra: Partial<Record<RoomId, Collider[]>> = {}) {
 
 type Mover = { pos: THREE.Vector3; yaw: number; camYaw?: number }
 
+/** Rooms visited this session, and the loader a door put up for a first visit (the room takes it over). */
+const visited = new Set<RoomId>()
+const doorLoader: Partial<Record<RoomId, LoaderHandle>> = {}
+export function takeRoomLoader(id: RoomId) {
+  const h = doorLoader[id] ?? null
+  delete doorLoader[id]
+  return h
+}
+
 /** Through the door: into the room, facing in. */
 export function enterRoom(id: RoomId, player: Mover) {
   const r = ROOMS[id]
+  if (!visited.has(id)) {
+    visited.add(id)
+    const h = showLoader({ status: `Entering ${r.name}…`, progress: null })
+    doorLoader[id] = h
+    // The room takes the loader over as it mounts; never leave it up if it does not.
+    window.setTimeout(() => {
+      if (doorLoader[id] === h) {
+        delete doorLoader[id]
+        h.release()
+      }
+    }, 3000)
+  }
   const [x, y, z] = roomPoint(r, r.spawn[0], r.spawn[1])
   player.pos.set(x, y, z)
   // Facing north, into the room (the camera sits behind, towards the exit).

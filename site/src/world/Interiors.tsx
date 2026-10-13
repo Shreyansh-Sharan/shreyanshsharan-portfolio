@@ -8,7 +8,7 @@ import { placed, useModel } from './Models'
 import { Cabinet } from './Exhibits'
 import { exhibits, stadiumGate, type Exhibit } from './exhibits'
 import { tiles } from '../data/content'
-import { registerRooms, roomAt, ROOMS, type Room, type RoomId } from './interiors'
+import { registerRooms, roomAt, ROOMS, takeRoomLoader, type Room, type RoomId } from './interiors'
 import { PITCH_HALF, STADIUM_PITCH } from './districts'
 import { regionById, type ModelName } from './regions'
 import { heightAt } from './terrain'
@@ -341,7 +341,9 @@ function RoomMount({ room }: { room: Room }) {
   const [near, setNear] = useState(false)
   const frame = useRef(0)
   useFrame(() => {
-    if (frame.current++ % 10 !== 0) return
+    // Every frame while the player is up here (a door teleports them in), every tenth otherwise.
+    const up = player.pos.y > room.y - 20
+    if (!up && frame.current++ % 10 !== 0) return
     const d = Math.hypot(player.pos.x - room.x, player.pos.y - room.y, player.pos.z - room.z)
     if (!near && d < 60) setNear(true)
     else if (near && d > 90) setNear(false)
@@ -352,10 +354,12 @@ function RoomMount({ room }: { room: Room }) {
   })
   // The first visit downloads the furniture: the explorer gets the loader while it does.
   useEffect(() => {
-    if (!near || loaded.has(room.id)) return
+    if (!near) return
+    // The door already put the loader up (so the first frame inside is never the empty sky); otherwise, on a first
+    // visit, show it now.
+    const h = takeRoomLoader(room.id) ?? (!loaded.has(room.id) && world.get().playing ? showLoader({ status: `Entering ${room.name}…`, progress: null }) : null)
     loaded.add(room.id)
-    if (!world.get().playing) return
-    const h = showLoader({ status: `Entering ${room.name}…`, progress: null })
+    if (!h) return
     const ctrl = new AbortController()
     const id = window.setTimeout(() => {
       trackManager(h, ctrl.signal, 12000).then(() => {

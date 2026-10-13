@@ -58,7 +58,7 @@ export const player = {
 }
 
 /**
- * Meshy rigs come out in real metres (rigged at a known height) but store the body under a 0.01-scaled
+ * The rigs come out in real metres (rigged at a known height) but store the body under a 0.01-scaled
  * armature, so geometry bounds are misleading. Scale from the known rig height instead.
  */
 function prepare(scene: THREE.Object3D, height: number, rigHeight: number) {
@@ -126,7 +126,7 @@ export function Guide() {
 
 /* ---------- Player ---------- */
 
-/** The player character: the low-poly avatar from the profile page (one Meshy rig, all clips on one skeleton). */
+/** The player character: the low-poly avatar from the profile page (one rig, all clips on one skeleton). */
 const AVATAR_URL = `${import.meta.env.BASE_URL}profile/lowpoly.glb`
 const AVATAR_CLIPS = {
   idle: /\|Idle\|/,

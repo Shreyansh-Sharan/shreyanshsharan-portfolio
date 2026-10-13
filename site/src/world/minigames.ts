@@ -53,20 +53,21 @@ function clear(x: number, z: number, r = 0.8): [number, number] {
 
 /** The harbour pier: the nearest shoreline to the hub, with a jetty running out over the water. */
 function findPier() {
+  const hub = region('hub')
   let best: { x: number; z: number; a: number; d: number } | null = null
   for (let deg = 0; deg < 360; deg += 6) {
     const a = (deg * Math.PI) / 180
     for (let d = 16; d < 90; d += 1.5) {
-      const x = Math.cos(a) * d, z = Math.sin(a) * d
+      const x = hub.center[0] + Math.cos(a) * d, z = hub.center[1] + Math.sin(a) * d
       if (heightAt(x, z) < WATER_LEVEL + 0.45) {
         if (!best || d < best.d) best = { x, z, a, d }
         break
       }
     }
   }
-  const p = best ?? { x: 0, z: 40, a: Math.PI / 2, d: 40 }
+  const p = best ?? { x: hub.center[0], z: hub.center[1] + 40, a: Math.PI / 2, d: 40 }
   // The jetty starts a few metres inland and runs 9 m out to sea.
-  const sx = Math.cos(p.a) * (p.d - 3), sz = Math.sin(p.a) * (p.d - 3)
+  const sx = hub.center[0] + Math.cos(p.a) * (p.d - 3), sz = hub.center[1] + Math.sin(p.a) * (p.d - 3)
   return { x: sx, z: sz, a: p.a, length: 12 }
 }
 
