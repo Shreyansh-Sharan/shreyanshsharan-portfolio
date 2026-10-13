@@ -2,7 +2,7 @@
 // batting stance, backlift and strokes (forward and back defence, drives, flick, pull, cut, sweep, lofted shots, the
 // leave), bowling actions for pace and spin, keeping, fielding (ready, catch, dive), appeals and umpire signals.
 import * as THREE from 'three'
-import type { ProcPose } from './rig'
+import { ANKLE, type ProcPose } from './rig'
 import type { Pose } from '../sim/director'
 import type { BowlStyle } from '../sim/delivery'
 import type { Footwork } from '../sim/shots'
@@ -81,8 +81,6 @@ function sample(keys: Key[], t: number): Key {
   }
   return full[full.length - 1]
 }
-
-const ANKLE = 0.086
 
 function toPose(k: Key, extra: Partial<ProcPose> = {}): ProcPose {
   const p: ProcPose = { weight: 1, ...extra }

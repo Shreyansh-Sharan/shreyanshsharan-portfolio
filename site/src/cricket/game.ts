@@ -10,12 +10,13 @@ import { PRESET_ORDER, type FieldPreset } from './sim/fields'
 import { Geo, inward, stumpsZ } from './sim/geo'
 import { ballSymbol, oversText, runRate, scoreText, type MatchSetup } from './sim/match'
 import { PERFECT, shotSpec, type Footwork, type ShotType, type Timing } from './sim/shots'
-import { bat01, styleName, surname, type Team } from './sim/teams'
+import { bat01, hashString, styleName, surname, type Player, type Team } from './sim/teams'
 import { V3 } from './sim/vec'
 import { toView, yawToView } from './view/coords'
 import { procPose, type PoseCtx } from './view/poses'
 import { makeBall, makeMarker, Wicket } from './view/props'
-import { Cricketer, type ClipName, type KitKind } from './view/rig'
+import { Cricketer, type ClipName, type Identity, type KitKind } from './view/rig'
+import { Kits } from './view/kit'
 import { Stadium } from './view/stadium'
 import { Hawkeye } from './view/hawkeye'
 import { Guides, lengthWords, type ShotColour } from './view/guides'
@@ -133,6 +134,7 @@ export class Game {
   audio = new CricketAudio()
   hawk: Hawkeye
   private people: (Cricketer | null)[] = new Array(ACTORS).fill(null)
+  kits: Kits
   private kitTeam = -1
   private ball: THREE.Mesh
   private ballShadow: THREE.Mesh
@@ -207,7 +209,8 @@ export class Game {
     this.scene.add(this.stadium.group)
     this.scene.fog = new THREE.Fog(opts.setup.time === 'night' ? '#0a1020' : opts.setup.time === 'dusk' ? '#e9b38a' : '#cfe3f2', 160, 520)
 
-    this.ball = makeBall()
+    this.kits = new Kits(opts.assets, this.quality.tier === 'low' ? 256 : 512)
+    this.ball = makeBall(opts.assets)
     this.ball.visible = false
     this.scene.add(this.ball)
     this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }))
@@ -219,7 +222,7 @@ export class Game {
     this.trail.frustumCulled = false
     this.trail.visible = false
     this.scene.add(this.trail)
-    this.wickets = [new Wicket(0), new Wicket(1)]
+    this.wickets = [new Wicket(0, opts.assets), new Wicket(1, opts.assets)]
     for (const w of this.wickets) this.scene.add(w.group)
     this.marker = makeMarker()
     this.marker.visible = false
@@ -262,6 +265,8 @@ export class Game {
     this.postToken++
     this.post?.dispose()
     this.guides.dispose()
+    for (const p of this.people) p?.dispose()
+    this.kits.dispose()
     this.stadium.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
@@ -427,19 +432,27 @@ export class Game {
       const a = d.actors[i]
       let kind: KitKind = 'fielder'
       let team = field
-      let skin = 0
+      let player: Player | null = null
       if (i === STRIKER || i === NONSTRIKER) {
         kind = 'batter'
         team = bat
-        skin = bat.players[a.player]?.skin ?? 0
+        player = bat.players[a.player] ?? null
       } else if (i === UMP_BOWLER || i === UMP_SQUARE) {
         kind = 'umpire'
-        skin = i
       } else {
         kind = a.player === field.keeper ? 'keeper' : 'fielder'
-        skin = field.players[a.player]?.skin ?? 0
+        player = field.players[a.player] ?? null
       }
-      const c = new Cricketer(this.opts.assets, kind, kit(team), skin)
+      const number = kind === 'umpire' ? i : Math.max(0, a.player) + 1
+      const who: Identity = {
+        teamName: kind === 'umpire' ? '' : team.name,
+        surname: player ? surname(player) : '',
+        number,
+        body: (hashString(team.id) + number) % 2,
+        skin: kind === 'umpire' ? i % 4 : (player?.skin ?? 0),
+        left: kind !== 'umpire' && a.left,
+      }
+      const c = new Cricketer(this.opts.assets, this.kits, kind, kit(team), who)
       this.scene.add(c.root)
       this.people[i] = c
     }

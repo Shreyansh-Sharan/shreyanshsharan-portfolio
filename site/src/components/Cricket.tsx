@@ -501,6 +501,48 @@ function Controls() {
         <kbd>Y</kbd> review (DRS) · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera (batter's view, broadcast, high) ·{' '}
         <kbd>Esc</kbd> pause. New to it? Start in the practice nets. Build your own XI (names, kit colours, roles and ratings) in the team builder.
       </p>
+      <h2 className="section-title">3D models</h2>
+      <p className="muted small">
+        The players, ball, bat, helmet, stumps and stadium are Sketchfab models by their authors below, used under{' '}
+        <a href={CC_BY} target="_blank" rel="noreferrer">
+          CC BY 4.0
+        </a>{' '}
+        (recoloured kits, rescaled, compressed). Full notes in{' '}
+        <a href={`${import.meta.env.BASE_URL}cricket/CREDITS.md`} target="_blank" rel="noreferrer">
+          CREDITS.md
+        </a>
+        .
+      </p>
+      <ul className="model-credits">
+        {MODEL_CREDITS.map((m) => (
+          <li key={m.url}>
+            <a href={m.url} target="_blank" rel="noreferrer">
+              {m.name}
+            </a>{' '}
+            by{' '}
+            <a href={m.authorUrl} target="_blank" rel="noreferrer">
+              {m.author}
+            </a>
+            {' · '}
+            <a href={CC_BY} target="_blank" rel="noreferrer">
+              CC BY 4.0
+            </a>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
+
+const CC_BY = 'http://creativecommons.org/licenses/by/4.0/'
+
+/** The downloaded models, exactly as credited on Sketchfab (see public/cricket/CREDITS.md). */
+const MODEL_CREDITS = [
+  { name: 'Indian Cricket Player Rigged', author: 'numaan.k99', authorUrl: 'https://sketchfab.com/numaan.k99', url: 'https://sketchfab.com/3d-models/indian-cricket-player-rigged-a1001b602e4f430bb9de68c24d9a4aa7' },
+  { name: 'Indian Cricket Player - Rigged', author: 'numaan.k99', authorUrl: 'https://sketchfab.com/numaan.k99', url: 'https://sketchfab.com/3d-models/indian-cricket-player-rigged-9f6f99e3359d452481a7102c1aa17558' },
+  { name: 'Cricket Ball 3D Photoscan (Low Poly)', author: 'TakeRefuge3D', authorUrl: 'https://sketchfab.com/takerefuge84', url: 'https://sketchfab.com/3d-models/cricket-ball-3d-photoscan-low-poly-f67b784159064375a3b13faa1d2f155a' },
+  { name: 'Cricket Bat India', author: 'AMBROOOSE', authorUrl: 'https://sketchfab.com/AMBROOOSE', url: 'https://sketchfab.com/3d-models/cricket-bat-india-96bab2241d854dbd9c76d9f1aafadcc2' },
+  { name: 'Cricket Helmet_V1', author: 'pradeepaanandhi5420', authorUrl: 'https://sketchfab.com/pradeepaanandhi5420', url: 'https://sketchfab.com/3d-models/cricket-helmet-v1-9b608ca09b8d46fd8579986d22c7ecb7' },
+  { name: 'Stump Bowled', author: 'Piyush Ashok', authorUrl: 'https://sketchfab.com/piyustf', url: 'https://sketchfab.com/3d-models/stump-bowled-8b5d95a8cda24e1694ac286b0e9eadb1' },
+  { name: 'Ekana Stadium Low Poly Lucknow City game asset', author: 'Shayan', authorUrl: 'https://sketchfab.com/mshayan02', url: 'https://sketchfab.com/3d-models/ekana-stadium-low-poly-lucknow-city-game-asset-d088ff7bbb0a477ab6dd492865d38f3b' },
+]

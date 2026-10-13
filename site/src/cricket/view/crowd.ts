@@ -1,10 +1,8 @@
 // An instanced crowd: thousands of simple spectators (torso, head, arms) animated in the vertex shader. They bob
 // when idle, jump and throw their arms up on boundaries and wickets, and run a Mexican wave round the ground.
+// Seats come from the stadium (sampled on the venue model's terraces).
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { Geo } from '../sim/geo'
-
-const ellipse = (angle: number, extra = 0) => new THREE.Vector3(Math.sin(angle) * (Geo.BoundarySquare + extra), 0, Math.cos(angle) * (Geo.BoundaryStraight + extra))
 
 function personGeometry() {
   const parts: THREE.BufferGeometry[] = []
@@ -37,8 +35,7 @@ export class Crowd {
   private exciteHold = 0
   private waveT = -1
 
-  constructor(count: number, colors: [string, string], night: boolean) {
-    const seats = seatPositions(count, 7)
+  constructor(seats: Float32Array, colors: [string, string], night: boolean) {
     const n = seats.length / 4
     const geo = personGeometry()
     const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: night ? '#2a3044' : '#000000' })
@@ -145,14 +142,11 @@ export class Crowd {
   }
 }
 
-/** Seat positions on the tiers for the crowd: [x, y, z, facing angle]. */
-function seatPositions(count: number, seed = 1): Float32Array {
+/** Seat positions on a plain elliptical ring of tiers (the fallback venue): [x, y, z, facing angle]. */
+export function ringSeats(count: number, seed: number, rx: number, rz: number, depth: number, y0: number, rise: number): Float32Array {
   const out = new Float32Array(count * 4)
   let s = seed >>> 0
   const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296)
-  const inner = 9
-  const depth = 26
-  const rise = 15
   const rows = 14
   let i = 0
   let guard = 0
@@ -160,13 +154,14 @@ function seatPositions(count: number, seed = 1): Float32Array {
     const a = rnd() * Math.PI * 2
     if (Math.abs(Math.sin(a)) < 0.18) continue
     const r = Math.floor(rnd() * rows)
-    const d = inner + ((r + 0.55) / rows) * depth
-    const y = 1.2 + ((r + 1) / rows) * rise
-    const p = ellipse(a, d)
-    out[i * 4] = p.x
+    const d = ((r + 0.55) / rows) * depth
+    const y = y0 + ((r + 1) / rows) * rise
+    const x = Math.sin(a) * (rx + d)
+    const z = Math.cos(a) * (rz + d)
+    out[i * 4] = x
     out[i * 4 + 1] = y
-    out[i * 4 + 2] = p.z
-    out[i * 4 + 3] = Math.atan2(-p.x, -p.z)
+    out[i * 4 + 2] = z
+    out[i * 4 + 3] = Math.atan2(-x, -z)
     i++
   }
   return out.subarray(0, i * 4)
