@@ -12,13 +12,14 @@ export interface InputFrame {
   fire: boolean
   dash: boolean
   super: boolean
+  power: boolean
   /** Whether the aim stick is deflected (sticks fire while held). */
   aiming: boolean
   touch: boolean
   pad: boolean
 }
 
-const KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight']
+const KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight']
 
 export class SiegeInput {
   enabled = true
@@ -27,6 +28,8 @@ export class SiegeInput {
   private keys = new Set<string>()
   private pressed = new Set<string>()
   private mouseDown = false
+  /** Right mouse button pressed since the last poll (signature power). */
+  private rightPressed = false
   private pointer: { x: number; y: number } | null = null
   private padPrev: boolean[] = []
   private padUsed = false
@@ -35,7 +38,7 @@ export class SiegeInput {
   private touchHeld = new Set<string>()
   private touchPressed = new Set<string>()
   private isTouch = false
-  private frame: InputFrame = { mx: 0, mz: 0, aimDir: null, pointer: null, fire: false, dash: false, super: false, aiming: false, touch: false, pad: false }
+  private frame: InputFrame = { mx: 0, mz: 0, aimDir: null, pointer: null, fire: false, dash: false, super: false, power: false, aiming: false, touch: false, pad: false }
 
   constructor(el: HTMLElement) {
     this.el = el
@@ -136,6 +139,7 @@ export class SiegeInput {
     }
     this.pointer = this.ndc(e)
     if (e.button === 0) this.mouseDown = true
+    if (e.button === 2) this.rightPressed = true
   }
 
   private onPointerMove = (e: PointerEvent) => {
@@ -163,7 +167,9 @@ export class SiegeInput {
     f.pointer = this.pointer
     f.fire = this.mouseDown || k.has('KeyF') || k.has('KeyJ')
     f.dash = p.has('Space') || p.has('ShiftLeft') || p.has('ShiftRight') || tp.has('dash')
-    f.super = p.has('KeyQ') || p.has('KeyE') || p.has('KeyK') || tp.has('super')
+    f.super = p.has('KeyQ') || p.has('KeyK') || tp.has('super')
+    f.power = p.has('KeyE') || p.has('KeyR') || p.has('KeyL') || this.rightPressed || tp.has('power')
+    this.rightPressed = false
     f.aiming = false
     f.touch = this.isTouch
     f.pad = false
@@ -186,7 +192,7 @@ export class SiegeInput {
     this.touchPressed.clear()
     if (!this.enabled) {
       f.mx = f.mz = 0
-      f.fire = f.dash = f.super = false
+      f.fire = f.dash = f.super = f.power = false
     }
     return f
   }
@@ -217,7 +223,8 @@ export class SiegeInput {
     }
     if (b(7) || b(5)) f.fire = true
     if (hit(0) || hit(6) || hit(4)) f.dash = true
-    if (hit(3) || hit(2) || hit(1)) f.super = true
+    if (hit(3)) f.super = true
+    if (hit(2) || hit(1)) f.power = true
     this.padPrev = gp.buttons.map((x) => x.pressed)
   }
 }

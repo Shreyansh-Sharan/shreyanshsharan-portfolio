@@ -1,10 +1,14 @@
 // Gear screen: equip cards, merge two of the same type and rarity into the next tier, buy a chest with coins or
-// watch a rewarded ad for a free one.
+// watch a rewarded ad for a free one. The loadout panel shows what the cards do to the selected hero's kit.
 import { useState } from 'react'
-import { Gift, Package, Sparkles } from 'lucide-react'
+import { Gift, Package, Sparkles, Zap } from 'lucide-react'
 import { rewardedAd, adsEnabled, GAME_ADS } from '../lib/ads'
 import { play as uiSound } from '../lib/sound'
+import { HEROES } from './engine/heroes'
+import { POWERS } from './engine/powers'
 import { CHEST_COST, GEAR_INFO, GEAR_TYPES, MAX_TIER, TIER_COLORS, TIER_NAMES, equip, gearMods, mergeCards, openChest, type GearCard, type Profile } from './engine/progress'
+import { POWER_ICONS } from './icons'
+import { portrait } from './portraits'
 
 export function GearScreen({ profile, onProfile }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void }) {
   const [sel, setSel] = useState<string | null>(null)
@@ -41,11 +45,46 @@ export function GearScreen({ profile, onProfile }: { profile: Profile; onProfile
       },
     })
   }
+  const hero = HEROES[profile.hero]
+  const power = POWERS[hero.power]
+  const PowerIcon = POWER_ICONS[hero.power]
+  const dps = (hero.weapon.dmg * hero.weapon.count) / hero.weapon.cooldown
+  const row = (label: string, base: number, mul: number, unit = '', digits = 0, lowerIsBetter = false) => {
+    const v = base * mul
+    const better = lowerIsBetter ? v < base - 1e-6 : v > base + 1e-6
+    return (
+      <li>
+        <span>{label}</span>
+        <strong className={better ? 'is-up' : ''}>
+          {v.toFixed(digits)}
+          {unit}
+        </strong>
+        <em>{better ? `${lowerIsBetter ? '−' : '+'}${Math.abs(Math.round((mul - 1) * 100))}%` : 'base'}</em>
+      </li>
+    )
+  }
   return (
     <div className="sg-gear" data-testid="sg-gear">
+      <div className="sg-loadout" style={{ ['--sg-accent' as string]: hero.colors[0] }} data-testid="sg-loadout">
+        <img src={portrait(profile.hero)} alt="" />
+        <div>
+          <h4>
+            {hero.name} with this loadout
+          </h4>
+          <ul>
+            {row('Health', hero.hp, mods.hp)}
+            {row('Speed', hero.speed, mods.speed, ' m/s', 2)}
+            {row('Damage / s', dps, mods.dmg)}
+            {row(power.name, power.cooldown, 1 / Math.sqrt(mods.charge), ' s', 1, true)}
+            {row('Super fill', 100, mods.charge, '%')}
+          </ul>
+          <p className="sg-power small" style={{ ['--sg-c' as string]: power.color }}>
+            <PowerIcon size={13} /> <strong>{power.name}</strong> · <Zap size={12} /> <strong>{hero.superName}</strong>
+          </p>
+        </div>
+      </div>
       <p className="muted small">
-        Equip one card per slot. Tap two cards of the same type and rarity to merge them. Current loadout: HP ×{mods.hp.toFixed(2)}, speed ×{mods.speed.toFixed(2)}, damage ×
-        {mods.dmg.toFixed(2)}, super charge ×{mods.charge.toFixed(2)}.
+        Equip one card per slot. Tap two cards of the same type and rarity to merge them. Capacitors also shorten the power cooldown.
       </p>
       <div className="sg-slots">
         {GEAR_TYPES.map((t) => {

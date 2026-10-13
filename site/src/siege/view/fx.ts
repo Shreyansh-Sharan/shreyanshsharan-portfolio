@@ -14,6 +14,10 @@ export interface FloatText {
   life: number
   vy: number
   size: number
+  /** Second line under the main text (counter popups). */
+  sub?: string
+  /** Big banner style (counter popups). */
+  banner?: boolean
 }
 
 export class Fx {
@@ -111,6 +115,15 @@ export class Fx {
     this.texts.push({ x: x + (Math.random() - 0.5) * 0.6, z, y: 1.9, text, color, life: 1, vy: 1.6, size })
   }
 
+  /** A big two-line popup (BROKEN! / COUNTERED! over the rule's label). */
+  banner(x: number, z: number, word: string, sub: string, color: string) {
+    if (this.texts.length > 60) this.texts.shift()
+    // Stack on top of a fresh banner nearby instead of printing over it.
+    let y = 2.6
+    for (const t of this.texts) if (t.banner && t.life > 0.9 && Math.hypot(t.x - x, t.z - z) < 3) y = Math.max(y, t.y + 0.9)
+    this.texts.push({ x, z, y, text: word, sub, color, life: 1.35, vy: 1.1, size: 1.5, banner: true })
+  }
+
   /* ---------- Presets ---------- */
 
   muzzle(x: number, z: number, aim: number, color: string, big = false, y = 1.3) {
@@ -130,7 +143,40 @@ export class Fx {
     this.burst(x, 1, z, 7, color, 4, 0.3, 0.35, 8)
   }
 
-  explosion(x: number, z: number, r: number, kind: 'grenade' | 'mine' | 'pulse' | 'crate') {
+  explosion(x: number, z: number, r: number, kind: 'grenade' | 'mine' | 'pulse' | 'crate' | 'vent' | 'reveal' | 'purge' | 'toxin') {
+    if (kind === 'vent') {
+      // Heat Vent: a white-hot core, an orange shock ring and embers thrown wide.
+      this.ring(x, z, r, '#fb923c', 0.55)
+      this.ring(x, z, r * 0.6, '#fde68a', 0.35)
+      this.burst(x, 0.6, z, 46, '#ff7a1a', 9, 0.6, 0.7, 3, 2)
+      this.burst(x, 0.9, z, 20, '#fff7d6', 5, 0.3, 0.9)
+      this.light(x, z, '#ff8a3d', 18)
+      this.shake = Math.max(this.shake, 0.45)
+      return
+    }
+    if (kind === 'reveal') {
+      // Scan pulse: two thin cyan rings and a scatter of data motes.
+      this.ring(x, z, r, '#22d3ee', 0.7)
+      this.ring(x, z, r * 0.55, '#a5f3fc', 0.5)
+      this.burst(x, 1.2, z, 22, '#67e8f9', 4, 0.6, 0.35, -1, 1)
+      this.light(x, z, '#22d3ee', 9)
+      return
+    }
+    if (kind === 'purge') {
+      this.ring(x, z, r, '#f9a8d4', 0.6)
+      this.ring(x, z, r * 0.5, '#ffffff', 0.4)
+      this.burst(x, 0.5, z, 34, '#fbcfe8', 3.5, 0.9, 0.45, -3, 3)
+      this.light(x, z, '#f472b6', 10)
+      return
+    }
+    if (kind === 'toxin') {
+      this.ring(x, z, r, '#a3e635', 0.5)
+      this.burst(x, 0.4, z, 30, '#bef264', 5, 0.7, 0.8, 2, 1.5)
+      this.burst(x, 0.6, z, 14, '#4d7c0f', 2.5, 1.2, 1.3, -0.5, 1)
+      this.light(x, z, '#a3e635', 10)
+      this.shake = Math.max(this.shake, 0.25)
+      return
+    }
     if (kind === 'pulse') {
       this.ring(x, z, r, '#fb923c', 0.5)
       this.burst(x, 0.8, z, 30, '#fb923c', 7, 0.5, 0.5)
@@ -162,6 +208,41 @@ export class Fx {
     this.ring(x, z, 2.4, color, 0.6)
     this.burst(x, 0.3, z, 36, color, 3, 0.9, 0.5, -2, 4)
     this.light(x, z, color, 12)
+  }
+
+  /** A counter landed: glassy shards for BROKEN!, a bright deflect star for COUNTERED!. */
+  counter(x: number, z: number, color: string, broken: boolean) {
+    if (broken) {
+      this.burst(x, 1.2, z, 34, '#ffffff', 7, 0.55, 0.45, 10, 3)
+      this.burst(x, 1.2, z, 26, color, 6, 0.7, 0.55, 8, 2)
+      this.ring(x, z, 2.2, color, 0.45)
+      this.ring(x, z, 1.1, '#ffffff', 0.3)
+      this.shake = Math.max(this.shake, 0.3)
+    } else {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2
+        this.emit(x, 1.3, z, Math.cos(a) * 6, 0.5, Math.sin(a) * 6, i % 2 ? color : '#ffffff', 0.35, 0.9)
+      }
+      this.ring(x, z, 1.8, color, 0.4)
+    }
+    this.light(x, z, color, 12)
+  }
+
+  /** Blink: a streak of violet motes from where the runner was to where it lands. */
+  blink(x0: number, z0: number, x1: number, z1: number) {
+    const n = Math.max(6, Math.round(Math.hypot(x1 - x0, z1 - z0) * 4 * this.budget))
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      this.emit(x0 + (x1 - x0) * t, 0.6 + Math.random() * 1.1, z0 + (z1 - z0) * t, (Math.random() - 0.5) * 0.6, 0.4, (Math.random() - 0.5) * 0.6, i % 3 ? '#c084fc' : '#f0abfc', 0.5 + t * 0.3, 0.6)
+    }
+    this.ring(x1, z1, 1.3, '#c084fc', 0.35)
+    this.burst(x0, 1, z0, 12, '#e9d5ff', 2, 0.4, 0.5)
+  }
+
+  /** A slow drifting puff (toxin clouds, scorch embers, status motes). */
+  puff(x: number, y: number, z: number, color: string, size: number, life: number, rise = 0.4) {
+    if (Math.random() > this.budget) return
+    this.emit(x, y, z, (Math.random() - 0.5) * 0.5, rise, (Math.random() - 0.5) * 0.5, color, life, size)
   }
 
   dash(x: number, z: number, color: string) {

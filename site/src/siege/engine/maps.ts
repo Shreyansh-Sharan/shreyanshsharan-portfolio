@@ -24,6 +24,27 @@ export interface MapDef {
   /** Accent colours: [neon, floor tint]. */
   colors: [string, string]
   br: boolean
+  /** Power-up pads in metres. Mirrored pads share a slot (same rotation of kinds); centre pads run their own. */
+  pads: PadSpot[]
+}
+
+export interface PadSpot {
+  x: number
+  z: number
+  slot: number
+  centre: boolean
+}
+
+/** Pads from cell coordinates on the left half (mirrored across x), the top-left quadrant (`both`), plus centre pads. */
+function pads(w: number, h: number, half: [number, number][], centre: [number, number][], both = false): PadSpot[] {
+  const out: PadSpot[] = []
+  const m = (c: number) => (c + 0.5) * CELL
+  half.forEach(([cx, cz], slot) => {
+    out.push({ x: m(cx), z: m(cz), slot, centre: false }, { x: m(w - 1 - cx), z: m(cz), slot, centre: false })
+    if (both) out.push({ x: m(cx), z: m(h - 1 - cz), slot, centre: false }, { x: m(w - 1 - cx), z: m(h - 1 - cz), slot, centre: false })
+  })
+  centre.forEach(([cx, cz], i) => out.push({ x: m(cx), z: m(cz), slot: 100 + i, centre: true }))
+  return out
 }
 
 export const CELL = 2
@@ -141,6 +162,7 @@ export const MAPS: Record<MapId, MapDef> = {
     zone: 3.2,
     colors: ['#f0abfc', '#1a1030'],
     br: false,
+    pads: pads(24, 18, [[8, 4], [8, 13]], [[11.5, 8]]),
   },
   helipad: {
     id: 'helipad',
@@ -153,6 +175,7 @@ export const MAPS: Record<MapId, MapDef> = {
     zone: 3.2,
     colors: ['#22d3ee', '#0f1a2a'],
     br: false,
+    pads: pads(24, 18, [[7, 7], [7, 10]], [[11.5, 8]]),
   },
   underpass: {
     id: 'underpass',
@@ -165,6 +188,7 @@ export const MAPS: Record<MapId, MapDef> = {
     zone: 3.2,
     colors: ['#facc15', '#171a22'],
     br: false,
+    pads: pads(24, 18, [[6, 4], [6, 13]], [[11.5, 2], [11.5, 15]]),
   },
   sector: {
     id: 'sector',
@@ -177,6 +201,7 @@ export const MAPS: Record<MapId, MapDef> = {
     zone: 0,
     colors: ['#f0abfc', '#120c22'],
     br: true,
+    pads: pads(48, 48, [[6, 4], [11, 13], [21, 21]], [[23.5, 23.5]], true),
   },
 }
 

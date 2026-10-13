@@ -1,5 +1,5 @@
 // Offline bot-only matches: every mode on every map, at 60 steps per simulated second. Reports the result, how
-// long it took, kills, damage, supers used and whether anything got stuck.
+// long it took, kills, supers, powers, counters landed, power-ups taken and whether anything got stuck.
 // Run: node src/siege/engine/sim.test.ts [matches-per-mode]
 declare const process: { argv: string[]; exitCode?: number }
 import { HERO_IDS } from './heroes.ts'
@@ -26,7 +26,8 @@ for (const mode of ['tdm', 'capture', 'br'] as ModeId[]) {
     for (let m = 0; m < per; m++) {
       const seed = 1000 + m * 17 + map.length
       const sim = new Sim({ map, mode, seed, roster: roster(mode, m) })
-      const counts = { kills: 0, supers: 0, dashes: 0, crates: 0, pickups: 0, grids: 0 }
+      const counts = { kills: 0, supers: 0, dashes: 0, crates: 0, pickups: 0, grids: 0, powers: 0, counters: 0, powerups: 0 }
+      const rules: Record<string, number> = {}
       let steps = 0
       const maxSteps = 60 * 420
       const t0 = Date.now()
@@ -42,6 +43,12 @@ for (const mode of ['tdm', 'capture', 'br'] as ModeId[]) {
           if (e.t === 'explode' && e.kind === 'crate') counts.crates++
           if (e.t === 'pickup') counts.pickups++
           if (e.t === 'grid') counts.grids++
+          if (e.t === 'power') counts.powers++
+          if (e.t === 'powerup') counts.powerups++
+          if (e.t === 'counter') {
+            counts.counters++
+            rules[e.rule] = (rules[e.rule] ?? 0) + 1
+          }
           if (e.t === 'death' || e.t === 'hit' || e.t === 'score') lastEventAt = sim.time
         }
         if (sim.phase === 'play' && sim.time - lastEventAt > 45 && !stuck) stuck = `no hits for 45 s at t=${sim.time.toFixed(0)}`
@@ -51,11 +58,13 @@ for (const mode of ['tdm', 'capture', 'br'] as ModeId[]) {
       const line =
         `${mode.padEnd(7)} ${map.padEnd(9)} seed ${seed}: ${sim.phase === 'over' ? 'ended' : 'TIMEOUT'} at ${sim.time.toFixed(0)} s, ` +
         (mode === 'br' ? `alive ${alive}, winner #${sim.winner} ${sim.fighter(sim.winner)?.hero.id ?? '-'}, grid stage ${sim.br?.stage}` : `score ${sim.score[0]}-${sim.score[1]}, winner team ${sim.winner}`) +
-        `, kills ${counts.kills}, supers ${counts.supers}, dashes ${counts.dashes}, crates ${counts.crates}, loot ${counts.pickups}` +
+        `, kills ${counts.kills}, supers ${counts.supers}, powers ${counts.powers}, counters ${counts.counters}, power-ups ${counts.powerups}, dashes ${counts.dashes}, crates ${counts.crates}, loot ${counts.pickups}` +
         ` (${ms} ms real, ${(steps / 60 / (ms / 1000)).toFixed(0)}x realtime)` +
         (stuck ? ` STUCK: ${stuck}` : '')
       console.log(line)
+      console.log(`  counters: ${Object.entries(rules).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`)
       if (sim.phase !== 'over') failures++
+      if (counts.powers === 0 || counts.powerups === 0 || counts.counters === 0) failures++
       if (mode === 'br' && alive > 1) failures++
       if (counts.kills === 0) failures++
       if (counts.supers === 0) failures++
