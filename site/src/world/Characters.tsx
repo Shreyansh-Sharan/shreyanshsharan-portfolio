@@ -18,6 +18,7 @@ import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type Hi
 import { emit, SHAPE, type Emit } from './particles'
 import { MISSIONS, INTERACT_DISTANCE } from './missions'
 import { lastCast } from './spells'
+import { travelSpot, yawToward } from './travel'
 import { car, DECK, exitCar, inTransit, ship } from './rides'
 import { world } from './store'
 
@@ -75,13 +76,19 @@ function prepare(scene: THREE.Object3D, height: number, rigHeight: number) {
   return root
 }
 
-/** Place the player by the beacon of the region the visitor was looking at, facing its landmark. */
+/**
+ * Place the player by the beacon of the region the visitor was looking at, facing its landmark; or, when the home
+ * screen asked to explore a particular tile (world.arrive), at that tile's spot (see travel.ts).
+ */
 export function spawnPlayer() {
+  const arrive = world.get().arrive
+  const spot = arrive ? travelSpot(arrive) : null
   const r = regionForTile(world.get().focus)
   const bx = r.center[0] + r.beacon[0], bz = r.center[1] + r.beacon[1]
-  // Stand a few metres beyond the beacon, on the side away from the landmark.
-  const away = new THREE.Vector2(bx - r.center[0], bz - r.center[1]).normalize()
-  let x = bx + away.x * 5, z = bz + away.y * 5
+  // Look at: the tile's exhibit, or the region's landmark (standing a few metres beyond the beacon, away from it).
+  const lookX = spot ? spot.lookX : r.center[0], lookZ = spot ? spot.lookZ : r.center[1]
+  const away = spot ? new THREE.Vector2(spot.x - lookX, spot.z - lookZ).normalize() : new THREE.Vector2(bx - r.center[0], bz - r.center[1]).normalize()
+  let x = spot ? spot.x : bx + away.x * 5, z = spot ? spot.z : bz + away.y * 5
   // Never start inside a prop: walk a widening ring around the intended spot until it is clear for the
   // player and for the camera a few metres behind them.
   const clear = (px: number, pz: number) => !blocked(px, pz, 0.8) && !blocked(px + away.x * 7.5, pz + away.y * 7.5, 1.2, heightAt(px, pz) + 1)
@@ -100,9 +107,13 @@ export function spawnPlayer() {
   }
   player.pos.set(x, heightAt(x, z), z)
   // Camera behind the player, looking towards the landmark.
-  player.camYaw = Math.atan2(x - r.center[0], z - r.center[1])
+  player.camYaw = yawToward(x, z, lookX, lookZ)
   player.yaw = player.camYaw + Math.PI
   player.camPitch = 0.28
+  if (spot) {
+    world.set({ arrive: null })
+    world.notify(`Fast travel: ${spot.label}`)
+  }
 }
 
 /* ---------- Guide NPC ---------- */
@@ -377,6 +388,10 @@ export function Player() {
       s.teleportN = tp.n
       player.pos.set(tp.x, heightAt(tp.x, tp.z), tp.z)
       s.flying = false
+      if (tp.yaw !== undefined) {
+        player.camYaw = tp.yaw
+        player.yaw = tp.yaw + Math.PI
+      }
     }
 
     // Photo mode: time stands still; Space / click take the picture.

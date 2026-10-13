@@ -1,9 +1,10 @@
 // DOM panels over the world: the arcade's game tiles (the PS5-style hub, in-world), the exhibit reader, the
 // airship's destination board and the 3D-model credits.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Gamepad2, MapPin, Play, X } from 'lucide-react'
 import { tiles, type Tile } from '../data/content'
-import { TileArt } from '../components/TileArt'
+import { TileRow } from '../components/home/TileRow'
+import { HeroBackdrop } from '../components/home/HeroBackdrop'
 import { accentVars } from '../lib/style'
 import { externalGameUrl, openGame } from '../data/gameLinks'
 import { navigate } from '../lib/router'
@@ -13,6 +14,7 @@ import { GAME_IDS } from './exhibits'
 import { airshipStops } from './interact'
 import { sail } from './rides'
 import { MODEL_CREDITS } from './credits'
+import { teleportTo } from './travel'
 import { world, useWorld } from './store'
 
 type Section = 'games' | 'districts' | 'profile'
@@ -34,21 +36,16 @@ function tilesFor(section: Section): Tile[] {
   }
 }
 
-/** Walk (well, blink) to a tile's district: the beacon, facing its landmark. */
-function fastTravel(tileId: string) {
-  const r = regionForTile(tileId)
-  const x = r.center[0] + r.beacon[0] + 3, z = r.center[1] + r.beacon[1] + 4
-  world.set({ teleport: { x, z, n: (world.get().teleport?.n ?? 0) + 1 }, panel: 'none', hubTile: null })
-  world.notify(`Fast travel: ${r.name}`)
-}
+/** Blink to a tile's spot: its cabinet, the stadium gate, its plaque or board (see travel.ts). */
+const fastTravel = teleportTo
 
 function primaryFor(tile: Tile): { label: string; icon: 'play' | 'pin' | 'link'; run: () => void } {
   if (isGame(tile)) {
     const url = externalGameUrl(tile.id)
-    if (url) return { label: 'Play', icon: 'link', run: () => openGame(url) }
+    if (url) return { label: 'Play Game', icon: 'link', run: () => openGame(url) }
     if (tile.action.kind === 'route') {
       const to = tile.action.to
-      return { label: tile.action.label, icon: 'play', run: () => navigate(to) }
+      return { label: 'Play Game', icon: 'play', run: () => navigate(to) }
     }
     if (tile.action.kind === 'iframe') {
       const url = tile.action.url
@@ -62,6 +59,7 @@ function primaryFor(tile: Tile): { label: string; icon: 'play' | 'pin' | 'link';
   return { label: `Travel to ${regionForTile(tile.id).name}`, icon: 'pin', run: () => fastTravel(tile.id) }
 }
 
+/** The arcade's game tiles: the same console layout as the site's home screen, over the island. */
 export function ArcadeHub({ onClose }: { onClose: () => void }) {
   const hubTile = useWorld((s) => s.hubTile)
   const [section, setSection] = useState<Section>(() => {
@@ -72,12 +70,11 @@ export function ArcadeHub({ onClose }: { onClose: () => void }) {
   const [index, setIndex] = useState(() => Math.max(0, list.findIndex((t) => t.id === hubTile)))
   const tile = list[Math.min(index, list.length - 1)]
   const primary = primaryFor(tile)
-  const rowRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'ArrowRight') setIndex((i) => (i + 1) % list.length)
-      else if (e.code === 'ArrowLeft') setIndex((i) => (i - 1 + list.length) % list.length)
+      if (e.code === 'ArrowRight') setIndex((i) => Math.min(list.length - 1, i + 1))
+      else if (e.code === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1))
       else if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
         const k = SECTIONS.findIndex((s) => s.id === section)
         setSection(SECTIONS[(k + (e.code === 'ArrowDown' ? 1 : SECTIONS.length - 1)) % SECTIONS.length].id)
@@ -92,77 +89,68 @@ export function ArcadeHub({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [list.length, section, primary])
 
-  useEffect(() => {
-    rowRef.current?.querySelector<HTMLElement>('.tile.is-selected')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
-  }, [index, section])
-
+  const Icon = primary.icon === 'play' ? Play : primary.icon === 'link' ? ExternalLink : MapPin
   return (
-    <div className="hub-overlay" style={accentVars(tile.accent)} role="dialog" aria-label="Arcade">
-      <div className="hub-top">
-        <div className="hub-brand">
-          <Gamepad2 size={18} /> <span>Games Plaza · Arcade</span>
-        </div>
-        <nav className="tabs" aria-label="Sections">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              className={`tab ${s.id === section ? 'is-active' : ''}`}
-              onClick={() => {
-                setSection(s.id)
-                setIndex(0)
-                play('move')
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </nav>
-        <button className="icon-btn hub-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
-        </button>
-      </div>
-      <div className="tile-row hub-tiles" ref={rowRef} role="listbox">
-        {list.map((t, i) => (
-          <button
-            key={t.id}
-            role="option"
-            aria-selected={i === index}
-            className={`tile ${i === index ? 'is-selected' : ''}`}
-            onMouseEnter={() => i !== index && setIndex(i)}
-            onClick={() => (i === index ? primary.run() : setIndex(i))}
-          >
-            <TileArt tile={t} variant="tile" />
-          </button>
-        ))}
-      </div>
-      <section className="hub-hero" key={tile.id}>
-        <div className="hero-info">
-          <div className="hero-meta">
-            <span className="genre">{tile.genre}</span>
-          </div>
-          <h1 className="hero-title">
-            {tile.title} <span className="hero-tagline">{tile.tagline}</span>
-          </h1>
-          <p className="hero-org">
-            {tile.org} · {tile.period}
-          </p>
-          <p className="hero-blurb">{tile.blurb}</p>
-          <div className="hero-actions">
-            <button className="btn btn-primary" onClick={primary.run}>
-              {primary.icon === 'play' ? <Play size={16} /> : primary.icon === 'link' ? <ExternalLink size={16} /> : <MapPin size={16} />} {primary.label}
-            </button>
-            {isGame(tile) && tile.id !== 'sports-complex' && (
-              <button className="btn btn-secondary" onClick={() => fastTravel('arena')}>
-                <MapPin size={16} /> Back to the plaza
+    <div className={`hub-overlay ps-home ps-hub kind-${isGame(tile) ? 'game' : 'career'}`} style={accentVars(tile.accent)} role="dialog" aria-label="Arcade">
+      <HeroBackdrop tile={tile} />
+      <div className="ps-scrim" aria-hidden="true" />
+      <header className="ps-top">
+        <div className="ps-hub-left">
+          <span className="hub-brand">
+            <Gamepad2 size={18} /> <span>Games Plaza · Arcade</span>
+          </span>
+          <nav className="ps-tabs" aria-label="Sections">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                className={`ps-tab ${s.id === section ? 'is-active' : ''}`}
+                aria-current={s.id === section ? 'page' : undefined}
+                onClick={() => {
+                  setSection(s.id)
+                  setIndex(0)
+                  play('move')
+                }}
+              >
+                {s.label}
               </button>
-            )}
-            {tile.tab === 'career' && (
-              <span className="hub-hint">The district tells this chapter on its plaques and exhibit boards.</span>
-            )}
-          </div>
+            ))}
+          </nav>
         </div>
-        <div className="hero-key">
-          <TileArt tile={tile} variant="key" />
+        <button className="ps-icon-btn" onClick={onClose} aria-label="Close the arcade">
+          <X size={20} />
+        </button>
+      </header>
+      <TileRow
+        tiles={list}
+        index={Math.min(index, list.length - 1)}
+        focused
+        label={`${SECTIONS.find((s) => s.id === section)?.label} tiles`}
+        onSelect={(i) => {
+          setIndex(i)
+          play('move')
+        }}
+        onActivate={() => primary.run()}
+      />
+      <section className="ps-info" key={tile.id} aria-labelledby="ps-hub-title">
+        <p className="ps-meta">
+          <span className="ps-chip">{isGame(tile) ? 'Game' : tile.tab === 'career' ? 'District' : 'Profile'}</span>
+          <span>{tile.genre}</span>
+        </p>
+        <h1 className="ps-title" id="ps-hub-title">
+          {tile.title}
+        </h1>
+        <p className="ps-tagline">{tile.tagline}</p>
+        <p className="ps-blurb">{tile.blurb}</p>
+        <div className="ps-actions">
+          <button className="ps-btn ps-btn-primary is-focused" onClick={primary.run}>
+            <Icon size={18} /> {primary.label}
+          </button>
+          {isGame(tile) && (
+            <button className="ps-btn ps-btn-secondary" onClick={() => fastTravel(tile.id)}>
+              <MapPin size={18} /> {tile.id === 'cricket' || tile.id === 'sports-complex' ? 'Walk to the stadium gate' : 'Go to its cabinet'}
+            </button>
+          )}
+          {tile.tab === 'career' && <span className="hub-hint">The district tells this chapter on its plaques and exhibit boards.</span>}
         </div>
       </section>
       <div className="hub-foot">

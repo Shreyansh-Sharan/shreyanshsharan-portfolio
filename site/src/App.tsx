@@ -156,7 +156,7 @@ export default function App() {
       screen = <Boot onAccent={setAccent} canExplore={use3D} />
       break
     case 'home':
-      screen = <Home key={route.tile ?? ''} initialTile={route.tile} onAccent={setAccent} onExplore={use3D ? () => setPlaying(true) : undefined} />
+      screen = <Home key={route.tile ?? ''} initialTile={route.tile} onAccent={setAccent} canExplore={use3D} />
       break
     case 'game':
       screen = <GameHub id={route.id} onAccent={setAccent} />

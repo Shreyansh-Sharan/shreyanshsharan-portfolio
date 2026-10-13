@@ -78,6 +78,11 @@ export interface Tile {
   accent: [string, string]
   // Optional cover image in /public (e.g. generated art). Falls back to the gradient art.
   cover?: string
+  // Home screen art in /public: the square tile thumbnail (512 px WebP; 1024 px and AVIF copies beside it) and the
+  // 16:9 hero backdrop (1920 px WebP; 1280/2560/3840 and AVIF beside it), subject on the right, the left kept clear
+  // for the title. See lib/art.ts.
+  thumb?: string
+  hero?: string
   // Also listed under another tab.
   alsoIn?: TabId
   action: TileAction
@@ -90,6 +95,8 @@ export interface Tile {
 export const tiles: Tile[] = [
   {
     id: 'omni-studio',
+    thumb: 'home/tiles/omni-studio.webp',
+    hero: 'home/hero/omni-studio.webp',
     tab: 'career',
     title: 'Omni Studio',
     tagline: "Director's Cut",
@@ -144,6 +151,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'diageo-devops',
+    thumb: 'home/tiles/diageo-devops.webp',
+    hero: 'home/hero/diageo-devops.webp',
     tab: 'career',
     title: 'Spirits Major',
     tagline: 'The DevOps Saga',
@@ -196,6 +205,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'platform-suite',
+    thumb: 'home/tiles/platform-suite.webp',
+    hero: 'home/hero/platform-suite.webp',
     tab: 'career',
     title: 'Platform Suite',
     tagline: 'Four Products, One Bar',
@@ -244,6 +255,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'connected-governance',
+    thumb: 'home/tiles/connected-governance.webp',
+    hero: 'home/hero/connected-governance.webp',
     tab: 'career',
     title: 'Connected Governance',
     tagline: 'Lineage to Lake Insight',
@@ -274,6 +287,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'datanexus',
+    thumb: 'home/tiles/datanexus.webp',
+    hero: 'home/hero/datanexus.webp',
     tab: 'career',
     title: 'Datanexus',
     tagline: 'Platform Modernization',
@@ -314,6 +329,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'architect-mode',
+    thumb: 'home/tiles/architect-mode.webp',
+    hero: 'home/hero/architect-mode.webp',
     tab: 'career',
     title: 'Architect Mode',
     tagline: 'Pre-Sales & Migrations',
@@ -357,6 +374,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'lakehouse-logistics',
+    thumb: 'home/tiles/lakehouse-logistics.webp',
+    hero: 'home/hero/lakehouse-logistics.webp',
     tab: 'career',
     title: 'Lakehouse Logistics',
     tagline: 'Inventory Intelligence',
@@ -397,6 +416,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'qlik-legends',
+    thumb: 'home/tiles/qlik-legends.webp',
+    hero: 'home/hero/qlik-legends.webp',
     tab: 'career',
     title: 'Qlik Legends',
     tagline: '30 Clients Campaign',
@@ -451,6 +472,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'wipro-origins',
+    thumb: 'home/tiles/wipro-origins.webp',
+    hero: 'home/hero/wipro-origins.webp',
     tab: 'career',
     title: 'Wipro',
     tagline: 'Origins',
@@ -488,6 +511,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'nit-academy',
+    thumb: 'home/tiles/nit-academy.webp',
+    hero: 'home/hero/nit-academy.webp',
     tab: 'career',
     title: 'NIT Jalandhar',
     tagline: 'Academy',
@@ -503,6 +528,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'footballiq',
+    thumb: 'home/tiles/footballiq.webp',
+    hero: 'home/hero/footballiq.webp',
     tab: 'showcase',
     title: 'FootballIQ',
     tagline: 'Every match, understood live',
@@ -534,6 +561,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'arena',
+    thumb: 'home/tiles/arena.webp',
+    hero: 'home/hero/arena.webp',
     tab: 'extras',
     title: 'Dunes Arena',
     tagline: 'Multiplayer FPS',
@@ -550,6 +579,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'cricket',
+    thumb: 'home/tiles/cricket.webp',
+    hero: 'home/hero/cricket.webp',
     tab: 'extras',
     title: 'Cricket',
     tagline: 'Realistic Cricket',
@@ -567,6 +598,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'volt-riot',
+    thumb: 'home/tiles/volt-riot.webp',
+    hero: 'home/hero/volt-riot.webp',
     tab: 'extras',
     title: 'VOLT RIOT',
     tagline: 'Combat Racer',
@@ -583,6 +616,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'bogey-brawl',
+    thumb: 'home/tiles/bogey-brawl.webp',
+    hero: 'home/hero/bogey-brawl.webp',
     tab: 'extras',
     title: 'BOGEY BRAWL',
     tagline: 'Battle Golf',
@@ -599,6 +634,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'plush-panic',
+    thumb: 'home/tiles/plush-panic.webp',
+    hero: 'home/hero/plush-panic.webp',
     tab: 'extras',
     title: 'PLUSH PANIC',
     tagline: 'Party Brawler',
@@ -616,6 +653,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'neon-siege',
+    thumb: 'home/tiles/neon-siege.webp',
+    hero: 'home/hero/neon-siege.webp',
     tab: 'extras',
     title: 'NEON SIEGE',
     tagline: 'Arena Shooter',
@@ -633,6 +672,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'lawn-wars',
+    thumb: 'home/tiles/lawn-wars.webp',
+    hero: 'home/hero/lawn-wars.webp',
     tab: 'extras',
     title: 'LAWN WARS',
     tagline: 'Family Brawler',
@@ -650,6 +691,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'trophies',
+    thumb: 'home/tiles/trophies.webp',
+    hero: 'home/hero/trophies.webp',
     tab: 'extras',
     alsoIn: 'profile',
     title: 'Trophies',
@@ -666,6 +709,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'skill-tree',
+    thumb: 'home/tiles/skill-tree.webp',
+    hero: 'home/hero/skill-tree.webp',
     tab: 'extras',
     alsoIn: 'profile',
     title: 'Skill Tree',
@@ -682,6 +727,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'profile',
+    thumb: 'home/tiles/profile.webp',
+    hero: 'home/hero/profile.webp',
     tab: 'profile',
     alsoIn: 'career',
     title: 'Player Profile',
@@ -701,6 +748,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'resume',
+    thumb: 'home/tiles/resume.webp',
+    hero: 'home/hero/resume.webp',
     tab: 'extras',
     alsoIn: 'profile',
     title: 'Resume',
@@ -717,6 +766,8 @@ export const tiles: Tile[] = [
   },
   {
     id: 'sports-complex',
+    thumb: 'home/tiles/sports-complex.webp',
+    hero: 'home/hero/sports-complex.webp',
     tab: 'extras',
     title: 'Sports Complex',
     tagline: 'Play now',
