@@ -9,8 +9,10 @@ import { ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
 import { GUIDE_SPOT } from './layout'
-import { blocked, resolve } from './colliders'
+import { blocked, resolve, roofAt } from './colliders'
 import { animals } from './wildlife'
+import { aimedCreature, HERO_HP, hitCreatures, MOUNT, nearestWild, pushOutOfCreatures, ride, saddleHeight, stepCreatures, throwSphere, toggleRide } from './creatures'
+import { flightAllowed, parkourBoots, photo, playerLocked, requestSnap, stepMinigames, togglePhoto } from './minigames'
 import { controls, flyAxis, moveAxes, pollPad } from './controls'
 import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type HitShape } from './combat'
 import { emit, SHAPE, type Emit } from './particles'
@@ -41,6 +43,17 @@ export const player = {
   ground: 0,
   /** The clip playing on the body (test hook). */
   anim: '',
+  /** Health (creatures.ts hurts it, regen refills it), the hit timers and the knock-out countdown. */
+  hp: HERO_HP,
+  maxHp: HERO_HP,
+  invuln: 0,
+  hurt: 0,
+  calm: 10,
+  ko: 0,
+  /** The last mission beacon stood next to: where a knocked-out player wakes up. */
+  beacon: { x: MISSIONS[0].x, z: MISSIONS[0].z },
+  /** Jumps taken since leaving the ground (the parkour boots allow a second one). */
+  jumps: 0,
 }
 
 /**
@@ -341,7 +354,7 @@ export function Player() {
     s.moveT = 0
     s.queued = false
     s.swing = newSwing()
-    const e = nearestEnemy(player.pos.x, player.pos.z, 4.5)
+    const e = nearestEnemy(player.pos.x, player.pos.z, 4.5) ?? nearestWild(player.pos.x, player.pos.z, 4.5)
     if (e) player.yaw = Math.atan2(e.pos.x - player.pos.x, e.pos.z - player.pos.z)
     player.swoosh = { n: player.swoosh.n + 1, move: m }
     playMove(m, MOVES[m].dur)
@@ -364,7 +377,38 @@ export function Player() {
       s.flying = false
     }
 
-    const modalOpen = world.get().open !== null
+    // Photo mode: time stands still; Space / click take the picture.
+    if (controls.photo) {
+      controls.photo = false
+      if (world.get().open === null && world.get().panel === 'none' && !s.move && player.ko <= 0) togglePhoto(player.camYaw, player.camPitch)
+    }
+    if (photo.active) {
+      if (controls.attack || controls.jump) requestSnap()
+      controls.attack = controls.jump = controls.spin = controls.fly = controls.throw = controls.ride = false
+      return
+    }
+    // The ride: on and off a pal, with the mount's speeds (a flyer replaces the double-tap flight).
+    if (controls.ride) {
+      controls.ride = false
+      if (world.get().open === null && !s.move && player.ko <= 0) {
+        if (!ride.pal && s.flying) s.flying = false
+        toggleRide(player)
+        if (ride.pal && ride.pal.spec.ride !== 'fly') s.flying = false
+      }
+    }
+    const mount = ride.pal
+    const speeds = mount ? (mount.spec.ride === 'fly' ? MOUNT.fly : MOUNT.run) : null
+    const WALK_NOW = speeds ? speeds.walk : WALK
+    const RUN_NOW = speeds ? speeds.run : RUN
+    const FLY_NOW = mount && mount.spec.ride === 'fly' ? MOUNT.fly.fly : FLY
+    const BOOST_NOW = mount && mount.spec.ride === 'fly' ? MOUNT.fly.boost : FLY_BOOST
+    // A Spark Sphere at the creature in front of the camera.
+    if (controls.throw) {
+      controls.throw = false
+      if (world.get().open === null && player.ko <= 0) throwSphere(player, aimedCreature(player))
+    }
+
+    const modalOpen = world.get().open !== null || world.get().panel !== 'none' || playerLocked() || player.ko > 0
     const { x, y, run } = modalOpen ? { x: 0, y: 0, run: false } : moveAxes()
     const mag = Math.min(1, Math.hypot(x, y))
     // Input direction relative to the camera: forward is (-sin, -cos) of its yaw, right is perpendicular.
@@ -377,12 +421,13 @@ export function Player() {
     // ---- Take off / land. ----
     if (controls.fly) {
       controls.fly = false
-      if (!modalOpen && !s.flying && !s.move) {
+      const canFly = flightAllowed() && (!mount || mount.spec.ride === 'fly')
+      if (!modalOpen && !s.flying && !s.move && canFly) {
         s.flying = true
         s.grounded = false
         s.stomp = false
         s.vy = Math.max(s.vy, 7)
-        const sp = (run ? RUN : WALK) * mag
+        const sp = (run ? RUN_NOW : WALK_NOW) * mag
         s.flyVel.set(dx * sp, 0, dz * sp)
         puff(14, player.pos.x, player.pos.y + 0.2, player.pos.z, dust, 3, 0.7, 0.6, true)
         puff(10, player.pos.x, player.pos.y + 1, player.pos.z, wind, 4, 0.4, 0.18, false)
@@ -390,8 +435,8 @@ export function Player() {
     }
 
     // ---- Attacks. ----
-    const wantAttack = controls.attack && !modalOpen
-    const wantSpin = controls.spin && !modalOpen
+    const wantAttack = controls.attack && !modalOpen && !mount
+    const wantSpin = controls.spin && !modalOpen && !mount
     controls.attack = controls.spin = false
     if (wantAttack || wantSpin) {
       if (s.flying || !s.grounded) {
@@ -416,7 +461,7 @@ export function Player() {
     const prevX = player.pos.x, prevZ = player.pos.z
     if (s.flying) {
       // ---- Flight: fastest way across the island, with altitude control and a hover. ----
-      const max = run ? FLY_BOOST : FLY
+      const max = run ? BOOST_NOW : FLY_NOW
       const k = Math.min(1, dt * 2.4)
       s.flyVel.x += (dx * max * mag - s.flyVel.x) * k
       s.flyVel.z += (dz * max * mag - s.flyVel.z) * k
@@ -427,7 +472,7 @@ export function Player() {
       const target = axis * 10 + (axis === 0 ? Math.sin(performance.now() / 420) * 0.35 : 0)
       s.vy += (target - s.vy) * Math.min(1, dt * 4)
       player.pos.y += s.vy * dt
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
+      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const ceiling = Math.min(ground + FLY_CEILING, FLY_MAX_Y)
       if (player.pos.y > ceiling) {
         player.pos.y = ceiling
@@ -444,7 +489,7 @@ export function Player() {
         } else s.vy = Math.max(s.vy, 0)
       }
       speed = Math.hypot(s.flyVel.x, s.flyVel.z)
-      s.moveSpeed = s.moveTarget = Math.min(speed, RUN)
+      s.moveSpeed = s.moveTarget = Math.min(speed, RUN_NOW)
       if (speed > 1) player.yaw = turnTowards(player.yaw, Math.atan2(s.flyVel.x, s.flyVel.z), dt * 6)
     } else {
       // ---- On foot. ----
@@ -452,7 +497,7 @@ export function Player() {
       // Ease between standing, walking and running instead of snapping: the short ramp reads as weight, and
       // a half-pressed stick never flips the animation at a threshold. The heading is remembered so the
       // slow-down after releasing the keys carries on in the direction of travel.
-      s.moveTarget = (run ? RUN : WALK) * mag * (spec ? spec.move : 1)
+      s.moveTarget = (run ? RUN_NOW : WALK_NOW) * mag * (spec ? spec.move : 1)
       const ramp = s.moveTarget > s.moveSpeed ? 45 : 60
       s.moveSpeed = s.moveTarget > s.moveSpeed ? Math.min(s.moveTarget, s.moveSpeed + ramp * dt) : Math.max(s.moveTarget, s.moveSpeed - ramp * dt)
       speed = s.moveSpeed
@@ -519,6 +564,8 @@ export function Player() {
         player.pos.z = a.pos.z + (az / d) * r
       }
     }
+    // Creatures are solid too (the one being ridden is under you, not in the way).
+    pushOutOfCreatures(player.pos, PLAYER_RADIUS)
     // Never get shoved into deep water on foot: keep last frame's (already resolved) spot instead.
     if (!s.flying && heightAt(player.pos.x, player.pos.z) < WATER_LEVEL - 0.9) {
       player.pos.x = prevX
@@ -527,10 +574,18 @@ export function Player() {
 
     // ---- Gravity, jumping, bouncing off an animal's back, and the stomp landing. ----
     if (!s.flying) {
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9)
+      // Roofs (the neon blocks, the parkour pads) are floors too when the feet are at their level.
+      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9, roofAt(player.pos.x, player.pos.z, player.pos.y))
+      const boots = parkourBoots()
       if (controls.jump && s.grounded && !modalOpen && !s.move) {
-        s.vy = 7.5
+        s.vy = boots ? 10 : 7.5
         s.grounded = false
+        player.jumps = 1
+      } else if (controls.jump && !s.grounded && !s.stomp && boots && player.jumps < 2 && !modalOpen) {
+        // The trial boots: one more jump from the air.
+        s.vy = 8.5
+        player.jumps = 2
+        puff(10, player.pos.x, player.pos.y + 0.1, player.pos.z, wind, 3, 0.4, 0.3, false)
       }
       controls.jump = false
       if (player.bounce > 0) {
@@ -553,6 +608,7 @@ export function Player() {
         player.pos.y = ground
         s.vy = 0
         s.grounded = true
+        player.jumps = 0
         if (s.stomp) {
           // Ground stomp: a shockwave that pops everything around.
           s.stomp = false
@@ -567,6 +623,7 @@ export function Player() {
           hitShape.lift = 7
           hitShape.swing = newSwing()
           hitEnemies(hitShape)
+          hitCreatures(hitShape)
           impact(0.05, 0.55)
           player.stomp = { n: player.stomp.n + 1 }
           puff(22, player.pos.x, ground + 0.15, player.pos.z, dust, 6, 0.8, 0.7, true)
@@ -598,6 +655,7 @@ export function Player() {
         hitShape.lift = spec.lift
         hitShape.swing = s.swing
         hitEnemies(hitShape)
+        hitCreatures(hitShape)
       }
       if (s.moveT >= spec.dur) {
         const next = s.queued ? spec.next : undefined
@@ -608,10 +666,13 @@ export function Player() {
 
     // ---- Body: position, facing, and the flight tilt (nose-down when flying fast, banking into turns). ----
     g.position.copy(player.pos)
+    // In the saddle: the body sits on the mount's back.
+    const saddle = mount ? saddleHeight(mount) : 0
+    g.position.y += saddle
     g.rotation.y = player.yaw
     // The contact shadow stays on the ground below, shrinking with altitude.
     player.ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
-    const alt = player.pos.y - player.ground
+    const alt = player.pos.y - player.ground + saddle
     if (shadow.current) {
       shadow.current.position.y = 0.03 - alt
       shadow.current.scale.setScalar(Math.max(0.35, 1 - alt * 0.03))
@@ -679,6 +740,8 @@ export function Player() {
       if (actions.jump) actions.jump.timeScale = 1.1
     } else if (s.cheering > 0 || s.casting > 0) {
       // Keep playing it.
+    } else if (mount) {
+      fadeTo('idle')
     } else {
       // Pick the clip from what the input asks for (so a key press goes straight to its clip without a pass
       // through the one in between) with a dead band around each threshold, and pace it to the eased speed.
@@ -695,14 +758,17 @@ export function Player() {
     }
     player.anim = s.current
 
-    // The mission fight (enemies, waves) runs off the player's clock.
+    // The mission fight (enemies, waves), the wild creatures and the mini-game run off the player's clock.
     stepCombat(dt, raw, player)
+    stepCreatures(dt, player)
+    stepMinigames(dt, player)
 
     // Nearest mission within reach.
     let near: string | null = null
     let best = INTERACT_DISTANCE
     for (const m of MISSIONS) {
       const d = Math.hypot(m.x - player.pos.x, m.z - player.pos.z)
+      if (d < 8) player.beacon = { x: m.x, z: m.z }
       if (d < best) {
         best = d
         near = m.tile.id

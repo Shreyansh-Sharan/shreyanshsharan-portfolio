@@ -19,8 +19,11 @@ export const feel = {
   shake: 0,
 }
 
-/** Delta time for gameplay: zero during hit-stop so a landed blow lands with weight. */
-export const gameDt = (dt: number) => (feel.hitStop > 0 ? 0 : dt)
+/** Time stands still (photo mode). */
+export const freeze = { value: false }
+
+/** Delta time for gameplay: zero during hit-stop so a landed blow lands with weight, and while time is frozen. */
+export const gameDt = (dt: number) => (feel.hitStop > 0 || freeze.value ? 0 : dt)
 
 export function impact(stop: number, shake: number) {
   feel.hitStop = Math.max(feel.hitStop, stop)

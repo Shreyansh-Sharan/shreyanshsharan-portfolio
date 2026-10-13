@@ -10,7 +10,9 @@ import { WATER_LEVEL } from './regions'
 import { animals, dryLand, pickWander, type Animal, type AnimalKind } from './wildlife'
 import { resolve } from './colliders'
 import { castSpell, castZap, IMPACT, randomSpell } from './spells'
-import { damage, fight, impact, nearestEnemy } from './combat'
+import { damage, fight, freeze, impact, nearestEnemy } from './combat'
+import { damageCreature, nearestWild } from './creatures'
+import { bottleTarget, knockBottle } from './minigames'
 import { emit, SHAPE, type Emit } from './particles'
 import { player } from './Characters'
 import { controls } from './controls'
@@ -676,7 +678,7 @@ function applyPose(rig: Rig, a: Animal) {
 
 function useAnimalFrame(a: Animal, rig: Rig) {
   useFrame(({ clock }, rawDt) => {
-    if (world.get().open !== null) return
+    if (world.get().open !== null || freeze.value) return
     think(a, Math.min(rawDt, 0.05), clock.elapsedTime)
     applyPose(rig, a)
   })
@@ -747,6 +749,25 @@ function Caster() {
       castZap(player.pos, zapTo, player.yaw)
       const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) || 1
       damage(e, 1, (e.pos.x - player.pos.x) / d, (e.pos.z - player.pos.z) / d, 6, 4)
+      impact(0.05, 0.2)
+      return
+    }
+    // At the target range the zap knocks the bottle in front; otherwise a wild creature close by takes it.
+    const bottle = bottleTarget(player.pos.x, player.pos.z, player.yaw)
+    if (bottle) {
+      zapTo.set(bottle.x, bottle.y, bottle.z)
+      castZap(player.pos, zapTo, player.yaw)
+      knockBottle(bottle.i)
+      impact(0.03, 0.15)
+      return
+    }
+    const c = nearestWild(player.pos.x, player.pos.z, 18)
+    if (c) {
+      zapTo.set(c.pos.x, c.pos.y + c.spec.height * c.size * 0.5, c.pos.z)
+      player.yaw = Math.atan2(c.pos.x - player.pos.x, c.pos.z - player.pos.z)
+      castZap(player.pos, zapTo, player.yaw)
+      const d = Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) || 1
+      damageCreature(c, 14, (c.pos.x - player.pos.x) / d, (c.pos.z - player.pos.z) / d, 5, 3)
       impact(0.05, 0.2)
       return
     }

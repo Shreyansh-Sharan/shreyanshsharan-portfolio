@@ -6868,3 +6868,605 @@ p {
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ---------- Explore mode: creatures, pals and mini-games ---------- */
+
+.party {
+  position: absolute;
+  left: 18px;
+  bottom: 64px;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.vitals {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  background: rgba(6, 8, 20, 0.62);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fb7185;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.vitals-bar {
+  width: 150px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.vitals-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #fb7185, #f43f5e);
+  transition: width 0.15s linear;
+}
+
+.vitals-num {
+  color: var(--text);
+  font-size: 13px;
+  min-width: 26px;
+  text-align: right;
+}
+
+.vitals.is-low .vitals-bar i {
+  animation: vitals-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.vitals.is-hurt {
+  border-color: rgba(244, 63, 94, 0.7);
+}
+
+@keyframes vitals-pulse {
+  to {
+    filter: brightness(1.6);
+  }
+}
+
+.hurt-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(180, 0, 30, 0) 45%, rgba(180, 0, 30, 0.55) 100%);
+}
+
+.ko-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  background: rgba(8, 4, 12, 0.72);
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+  animation: fade-in 0.4s var(--ease), cheer-out 0.5s ease-in 2.1s forwards;
+}
+
+.ko-overlay strong {
+  font-size: 34px;
+  letter-spacing: -0.01em;
+}
+
+.ko-overlay span {
+  color: var(--muted);
+}
+
+.reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.reticle-ring {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--c, #fff);
+  box-shadow: 0 0 12px var(--c, #fff);
+  animation: reticle-in 0.3s var(--ease);
+}
+
+@keyframes reticle-in {
+  from {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.reticle-card {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(6, 8, 20, 0.7);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  text-align: center;
+}
+
+.reticle-card strong {
+  font-size: 13px;
+}
+
+.reticle-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.reticle-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.12s linear;
+}
+
+.reticle-capture {
+  color: #7ef5c8;
+  font-weight: 650;
+}
+
+.pal-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pal-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  min-width: 140px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: rgba(6, 8, 20, 0.62);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--c, #fff);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 12px;
+}
+
+.pal-card.is-riding {
+  border-color: #fbbf24;
+}
+
+.pal-card.is-resting {
+  opacity: 0.55;
+}
+
+.pal-icon {
+  grid-row: 1 / 3;
+  font-size: 20px;
+}
+
+.pal-name {
+  font-weight: 650;
+}
+
+.pal-name em {
+  font-style: normal;
+  color: #fbbf24;
+  font-size: 11px;
+}
+
+.pal-sub {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pal-ride {
+  position: absolute;
+  inset: 0;
+  background: none;
+  border: 0;
+}
+
+.party-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.pals-panel {
+  max-width: 560px;
+}
+
+.pals-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 12px;
+}
+
+.pals-tabs button {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pals-tabs button.is-on {
+  background: #fff;
+  color: #0a0b14;
+}
+
+.pals-empty {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.pal-list,
+.bestiary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.pal-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--c, #fff);
+}
+
+.pal-row-main {
+  display: grid;
+  gap: 4px;
+}
+
+.pal-row-main input {
+  font: inherit;
+  font-weight: 650;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--border);
+  padding: 2px 0;
+  width: 160px;
+}
+
+.pal-row-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.xp-bar {
+  width: 160px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.xp-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7dd3fc, #a78bfa);
+}
+
+.pal-row .btn {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.bestiary li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--c, #fff);
+}
+
+.bestiary li.is-unknown {
+  opacity: 0.6;
+  filter: grayscale(1);
+}
+
+.bestiary li p {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.bestiary-habitat {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bestiary-badges {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.bestiary-badges b {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.bestiary-badges b.is-on {
+  color: #0a0b14;
+  background: #4ade80;
+  border-color: #4ade80;
+}
+
+.game-hud {
+  border-color: rgba(125, 211, 252, 0.5);
+  padding-right: 40px;
+}
+
+.game-hud.is-below {
+  top: 128px;
+}
+
+.game-hud .fight-wave {
+  color: #7dd3fc;
+}
+
+.game-meter i {
+  background: linear-gradient(90deg, #7dd3fc, #4ade80);
+  transition: none;
+}
+
+.game-meter.is-cast {
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.5) 0 35%, rgba(74, 222, 128, 0.6) 35% 65%, rgba(244, 63, 94, 0.5) 65%);
+}
+
+.game-quit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.game-card {
+  max-width: 420px;
+  text-align: center;
+}
+
+.game-card .briefing-stats {
+  justify-content: center;
+}
+
+.game-card.is-won .briefing-title {
+  color: #4ade80;
+}
+
+.game-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 156px;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(6, 8, 20, 0.7);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 13px;
+  pointer-events: none;
+  animation: prompt-in 0.35s var(--ease);
+}
+
+.game-tip strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.game-tip p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.game-tip span {
+  color: #7dd3fc;
+  font-size: 12px;
+}
+
+.fish-touch {
+  position: absolute;
+  left: 50%;
+  bottom: 150px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+}
+
+.treasure-map {
+  position: absolute;
+  top: 330px;
+  right: 18px;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  transform: rotate(-3deg);
+}
+
+.photo-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.photo-corner {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+}
+
+.photo-corner.tl {
+  top: 26px;
+  left: 26px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.photo-corner.tr {
+  top: 26px;
+  right: 26px;
+  border-left: 0;
+  border-bottom: 0;
+}
+
+.photo-corner.bl {
+  bottom: 26px;
+  left: 26px;
+  border-right: 0;
+  border-top: 0;
+}
+
+.photo-corner.br {
+  bottom: 26px;
+  right: 26px;
+  border-left: 0;
+  border-top: 0;
+}
+
+.photo-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(6, 8, 20, 0.7);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.photo-touch {
+  position: absolute;
+  right: 22px;
+  bottom: 90px;
+  display: flex;
+  gap: 14px;
+  pointer-events: auto;
+}
+
+.world-toasts {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  pointer-events: none;
+}
+
+.world-toast {
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(10, 12, 26, 0.82);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 14px;
+  font-weight: 650;
+  animation: spell-pop 0.28s var(--ease);
+}
+
+@media (pointer: coarse), (max-width: 760px) {
+  .party {
+    left: 22px;
+    bottom: 156px;
+  }
+
+  .vitals-bar {
+    width: 100px;
+  }
+
+  .pal-card {
+    min-width: 0;
+  }
+
+  .game-tip {
+    bottom: 250px;
+  }
+
+  .treasure-map {
+    top: 220px;
+    right: 100px;
+    width: 110px !important;
+    height: 110px !important;
+  }
+
+  .photo-bar {
+    white-space: normal;
+    text-align: center;
+    max-width: calc(100vw - 40px);
+  }
+
+  .game-hud.is-below {
+    top: 110px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ko-overlay,
+  .reticle-ring,
+  .vitals.is-low .vitals-bar i {
+    animation: none;
+  }
+}

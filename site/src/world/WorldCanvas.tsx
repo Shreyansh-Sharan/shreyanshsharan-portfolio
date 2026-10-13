@@ -17,6 +17,13 @@ import { Animals } from './Animals'
 import { SpellFx } from './SpellFx'
 import { Enemies } from './Enemies'
 import { endFight, enemies, fight, results } from './combat'
+import { bestiary, captureChance, captureOverride, clearCreatures, creatures, damageCreature, dismount, ride, roster, setActive, simulate, spawnCreature, spawns, sphere, throwSphere, toggleRide, type SpeciesId } from './creatures'
+import { Creatures } from './Creatures'
+import { Minigames } from './Minigames'
+import { closeMinigame, completeMinigame, GAMES, gameState, photo, pressKey, startMinigame, type GameId } from './minigames'
+import { dayClock } from './clock'
+import { heightAt } from './terrain'
+import { controls } from './controls'
 import { PlayerFx } from './PlayerFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
@@ -166,9 +173,17 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
   }, [tier])
 
   useEffect(() => {
+    dayClock.running = playing
     if (playing) spawnPlayer()
-    // Leaving explore mode abandons any mission fight in progress.
-    else if (fight) endFight()
+    else {
+      // Leaving explore mode abandons any mission fight, mini-game and the creatures around (the roster stays).
+      if (fight) endFight()
+      closeMinigame()
+      clearCreatures()
+      if (photo.active) world.set({ photo: false })
+      player.hp = player.maxHp
+      player.ko = 0
+    }
   }, [playing])
 
   useEffect(() => {
@@ -215,7 +230,27 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         if (new URLSearchParams(window.location.search).has('snap')) {
           const w = window as unknown as { __r3f: unknown; __world: unknown }
           w.__r3f = state
-          w.__world = { player, flyPose, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results }
+          w.__world = {
+            player, flyPose, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results,
+            // Creatures and pals: step the fixed-rate simulation, spawn, hurt, capture and ride from a script.
+            creatures, spawns, spawnCreature: (sp: SpeciesId, x: number, z: number, alpha = false) => spawnCreature(sp, x, z, alpha),
+            damage: (id: number, amount: number) => damageCreature(creatures[id], amount, 0, 1, 2, 2),
+            step: (seconds: number) => simulate(seconds, player),
+            sphere, throwAt: (id: number, force: boolean | null = null) => {
+              captureOverride.force = force
+              const ok = throwSphere(player, creatures[id])
+              captureOverride.force = null
+              return ok
+            },
+            chance: (id: number) => captureChance(creatures[id]),
+            roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
+            clock: dayClock, photo, store: world, heightAt, controls,
+            place: (x: number, z: number) => {
+              player.pos.set(x, heightAt(x, z), z)
+              player.beacon = { x, z }
+            },
+            minigame: { list: () => GAMES().map((g) => ({ id: g.id, name: g.name, x: g.x, z: g.z })), start: (id: GameId) => startMinigame(id, player), state: gameState, finish: completeMinigame, close: closeMinigame, key: pressKey },
+          }
         }
         // Recover from a lost WebGL context instead of leaving a permanent black canvas.
         const canvas = state.gl.domElement
@@ -249,6 +284,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         <Animals casting={playing} />
         {playing && <SpellFx />}
         {playing && <Enemies />}
+        {playing && <Creatures />}
+        {playing && <Minigames />}
         {playing && <PlayerFx />}
         <Preload all />
       </Suspense>

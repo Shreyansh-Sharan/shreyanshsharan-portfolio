@@ -90,6 +90,12 @@ export function setScatterFactor(name: ModelName, factor: number) {
   buildScatter()
 }
 
+/** Temporary solids (a mini-game's platforms); an empty list removes them. */
+export function setExtraColliders(key: string, list: Collider[]) {
+  seed()
+  setGroup(`extra:${key}`, list)
+}
+
 /* ---------- Spatial grid ---------- */
 
 const CELL = 8
@@ -177,6 +183,24 @@ function pushOut(c: Collider, p: { x: number; z: number }, radius: number) {
   p.x = c.x + lx * c.cos + lz * c.sin
   p.z = c.z - lx * c.sin + lz * c.cos
   return true
+}
+
+/**
+ * The roof under a point: the highest box collider (a neon block, a platform) whose footprint holds (x, z) and whose
+ * top is no higher than `feet` + `tolerance`, or -Infinity. Lets the player land on and walk across roofs.
+ */
+export function roofAt(x: number, z: number, feet: number, tolerance = 0.6): number {
+  if (dirty) rebuild()
+  let top = -Infinity
+  const cell = cellOf(z) * N + cellOf(x)
+  for (let k = cellStart[cell], end = cellStart[cell + 1]; k < end; k++) {
+    const c = all[cellItems[k]]
+    if (!c.box || c.top === Infinity || c.top > feet + tolerance || c.top <= top) continue
+    const dx = x - c.x, dz = z - c.z
+    const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos
+    if (Math.abs(lx) <= c.hx + 0.2 && Math.abs(lz) <= c.hz + 0.2) top = c.top
+  }
+  return top
 }
 
 const probe = { x: 0, z: 0 }

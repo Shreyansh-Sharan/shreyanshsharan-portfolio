@@ -15,6 +15,10 @@ export const controls = {
   spin: false,
   /** Take off / land was requested (double-tap Space, X, gamepad LB). */
   fly: false,
+  /** Throw a Spark Sphere (G), mount / dismount a pal (R), photo mode (P); consumed per frame. */
+  throw: false,
+  ride: false,
+  photo: false,
   /** Ascend / descend held while flying (Space / Ctrl or C, or the touch buttons). */
   up: false,
   down: false,
@@ -49,6 +53,9 @@ export function attachControls() {
     if (e.code === 'KeyJ') controls.attack = true
     if (e.code === 'KeyQ') controls.spin = true
     if (e.code === 'KeyX') controls.fly = true
+    if (e.code === 'KeyG') controls.throw = true
+    if (e.code === 'KeyR') controls.ride = true
+    if (e.code === 'KeyP') controls.photo = true
     if (e.code.startsWith('Arrow')) e.preventDefault()
   }
   const up = (e: KeyboardEvent) => controls.keys.delete(e.code)
