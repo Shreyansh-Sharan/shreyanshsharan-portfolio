@@ -7832,10 +7832,10 @@ p {
   }
 
   .touch-buttons {
-    right: 12px;
+    right: 16px;
     bottom: 12px;
-    gap: 8px;
-    max-width: 210px;
+    gap: 6px;
+    max-width: 202px;
   }
 
   .touch-btn {
@@ -7931,13 +7931,37 @@ p {
   }
 
   .objective.drive-hud {
-    top: 64px;
+    top: 96px;
   }
 
+  /* The objective is hidden while a fight or a mini-game runs: their cards take its place beside the map. */
   .fight-hud,
   .game-hud,
   .game-hud.is-below {
-    top: 168px;
+    top: 12px;
+    left: 12px;
+    transform: none;
+    min-width: 0;
+    width: calc(100vw - 168px);
+  }
+
+  .touch-buttons {
+    right: 16px;
+    bottom: 24px;
+    gap: 10px;
+    max-width: 238px;
+  }
+
+  .touch-btn {
+    width: 52px;
+    height: 52px;
+    font-size: 20px;
+  }
+
+  .joystick {
+    left: 14px;
+    width: 110px;
+    height: 110px;
   }
 
   .prompt {

@@ -310,6 +310,121 @@ export function colorAt(x: number, z: number, h: number, flat: number, out: THRE
   return out
 }
 
+/* ---------- Footpaths ---------- */
+
+/** Dirt footpaths across the countryside between districts (painted only: the ground keeps its shape). */
+export const TRAILS: [number, number][][] = [
+  [[20, 150], [90, 128], [170, 118], [250, 104], [316, 92]],
+  [[290, -128], [240, -190], [190, -250], [130, -300], [96, -322]],
+  [[272, 262], [210, 226], [140, 205], [70, 176], [24, 158]],
+  [[-250, 300], [-282, 250], [-300, 205], [-306, 170]],
+  [[-110, -236], [-160, -214], [-210, -194], [-236, -182]],
+  [[300, -110], [330, -60], [352, 10], [350, 60]],
+]
+export const TSEGS: { ax: number; az: number; bx: number; bz: number; len: number }[] = []
+for (const line of TRAILS)
+  for (let i = 0; i + 1 < line.length; i++) {
+    const [ax, az] = line[i], [bx, bz] = line[i + 1]
+    TSEGS.push({ ax, az, bx, bz, len: Math.hypot(bx - ax, bz - az) })
+  }
+
+/** Distance to the nearest footpath's (gently wandering) centreline. */
+export function trailAt(x: number, z: number) {
+  let best = Infinity
+  for (const s of TSEGS) {
+    const dx = s.bx - s.ax, dz = s.bz - s.az
+    let t = ((x - s.ax) * dx + (z - s.az) * dz) / (s.len * s.len)
+    t = t < 0 ? 0 : t > 1 ? 1 : t
+    const d = Math.hypot(x - (s.ax + dx * t), z - (s.az + dz * t))
+    if (d < best) best = d
+  }
+  // The path meanders a metre or so either side of the straight line (the ground shader uses the same formula).
+  return Math.abs(best + trailWobble(x, z))
+}
+
+export function trailWobble(x: number, z: number) {
+  return Math.sin(x * 0.05) * Math.sin(z * 0.043) * 1.4
+}
+
+export const TRAIL_HALF = 1.4
+
+/* ---------- Surfaces (the ground shader's splat weights) ---------- */
+
+/**
+ * How much of each ground texture shows at a point: dirt (paths, farm tracks, bare patches), rock (steep slopes,
+ * canyon terraces), sand (beaches, sea bed, road grit), paving (town squares, plazas, courtyards) and, separately,
+ * how dry the grass is (fields, autumn hills). Lush grass fills whatever is left.
+ */
+export function surfaceAt(x: number, z: number, h: number, flat: number, out: { a: [number, number, number, number]; dry: number }) {
+  let dirt = 0, rock = 1 - smoothstep(0.6, 0.84, flat), sand = 0, paved = 0, dry = 0
+  const v = fbm(x * 0.03, z * 0.03) * 0.5 + 0.5
+  for (const r of REGIONS) {
+    const d = Math.hypot(x - r.center[0], z - r.center[1])
+    if (d > r.radius * 1.4) continue
+    const inner = smoothstep(r.radius * 1.4, r.radius * 0.9, d)
+    switch (r.biome) {
+      case 'harbour':
+        if (d < 34) paved = Math.max(paved, smoothstep(34, 28, d))
+        break
+      case 'arcade':
+        if (d < 58) paved = Math.max(paved, smoothstep(58, 52, d))
+        break
+      case 'stadium':
+        if (d < 86) paved = Math.max(paved, smoothstep(86, 80, d) * 0.6)
+        break
+      case 'neon':
+        if (d < r.radius * 1.05) paved = Math.max(paved, 0.55)
+        break
+      case 'keep':
+        if (d < 72) paved = Math.max(paved, smoothstep(72, 64, d))
+        dry = Math.max(dry, 0.25 * inner)
+        break
+      case 'canyon':
+        rock = Math.max(rock, 0.55 * inner)
+        dry = Math.max(dry, 0.8 * inner)
+        break
+      case 'plains': {
+        // Fields: ripe ones dry, ploughed ones bare earth.
+        const cx = Math.floor((x + 1000) / 15), cz = Math.floor((z + 1000) / 11)
+        const k = (cx * 7 + cz * 13 + ((cx * cz) & 3)) % 5
+        if (k === 2) dirt = Math.max(dirt, 0.85 * inner)
+        else if (k !== 1) dry = Math.max(dry, 0.75 * inner)
+        break
+      }
+      case 'temple':
+        dry = Math.max(dry, 0.45 * inner)
+        if (Math.abs(x - r.center[0]) < 7 && z > r.center[1] - 10) dirt = Math.max(dirt, 0.9 * inner)
+        break
+      case 'highland':
+        // Bare earth under the thickest woods.
+        if (v < 0.32) dirt = Math.max(dirt, smoothstep(0.32, 0.18, v) * 0.6 * inner)
+        break
+      case 'cove':
+        sand = Math.max(sand, smoothstep(3.6, 2.2, h))
+        break
+    }
+  }
+  // Roads: the sand texture as fine grit over the tarmac colour. (Footpaths are drawn per pixel by the shader.)
+  const road = roadAt(x, z)
+  if (road.d < ROAD_HALF + 1.2 && h > WATER_LEVEL + 0.8) {
+    sand = Math.max(sand, smoothstep(ROAD_HALF + 1.2, ROAD_HALF, road.d) * 0.9)
+    paved = Math.min(paved, 0.1)
+  }
+  // Beaches and the sea bed.
+  if (h < WATER_LEVEL + 1.4) sand = Math.max(sand, smoothstep(WATER_LEVEL + 1.4, WATER_LEVEL + 0.5, h))
+  // Scree breaks up big lush fields a little.
+  if (v > 0.8) dirt = Math.max(dirt, (v - 0.8) * 1.2)
+  // Normalise so the weights never exceed 1 (lush grass is the remainder).
+  const sum = dirt + rock + sand + paved
+  const k = sum > 1 ? 1 / sum : 1
+  out.a[0] = dirt * k
+  out.a[1] = rock * k
+  out.a[2] = sand * k
+  out.a[3] = paved * k
+  out.dry = Math.min(1, dry)
+  return out
+}
+
 /* ---------- Mesh ---------- */
 
 export function buildTerrain(size: number, segments: number) {
@@ -328,6 +443,17 @@ export function buildTerrain(size: number, segments: number) {
     colors[i * 3 + 2] = c.b
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  // Splat weights for the ground shader.
+  const surfA = new Float32Array(pos.count * 4)
+  const surfB = new Float32Array(pos.count)
+  const sf = { a: [0, 0, 0, 0] as [number, number, number, number], dry: 0 }
+  for (let i = 0; i < pos.count; i++) {
+    surfaceAt(pos.getX(i), pos.getZ(i), pos.getY(i), nrm.getY(i), sf)
+    surfA.set(sf.a, i * 4)
+    surfB[i] = sf.dry
+  }
+  geo.setAttribute('surfA', new THREE.BufferAttribute(surfA, 4))
+  geo.setAttribute('surfB', new THREE.BufferAttribute(surfB, 1))
   return geo
 }
 
@@ -344,6 +470,11 @@ export function isNearPad(x: number, z: number, margin = 2) {
 }
 
 /** True on or next to a road (nothing grows there). */
+/** On a footpath (or within `margin` of its edge). */
+export function isOnTrail(x: number, z: number, margin = 0.5) {
+  return trailAt(x, z) < TRAIL_HALF + margin
+}
+
 export function isOnRoad(x: number, z: number, margin = 2) {
   return roadAt(x, z).d < ROAD_HALF + margin
 }

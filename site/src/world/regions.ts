@@ -92,6 +92,18 @@ export type ModelName =
   | 'armour-stand'
   | 'weapon-rack'
   | 'prize-counter'
+  | 'fern'
+  | 'rock-cluster'
+  | 'reeds'
+  | 'log'
+  | 'bush-bloom'
+  | 'windmill'
+  | 'tree-oak-lod'
+  | 'tree-birch-lod'
+  | 'tree-round-lod'
+  | 'tree-poplar-lod'
+  | 'tree-fir-lod'
+  | 'tree-fir-wide-lod'
   | 'car'
   // Low-poly city props from the site owner's licensed asset library.
   | 'taxi'
@@ -123,6 +135,8 @@ export const AVAILABLE_MODELS = new Set<ModelName>([
   'cyber-tower', 'cyber-shop', 'scifi-tower', 'neon-sign', 'metal-bridge', 'hover-car', 'metro-train', 'drone-bot', 'airship', 'shipwreck', 'cabin',
   'burrow-house', 'stone-lantern', 'tree-oak', 'tree-birch', 'tree-round', 'tree-poplar', 'tree-fir', 'tree-fir-wide', 'car',
   'throne', 'banquet-table', 'chandelier', 'fireplace', 'armour-stand', 'weapon-rack', 'prize-counter',
+  'fern', 'rock-cluster', 'reeds', 'log', 'bush-bloom', 'windmill',
+  'tree-oak-lod', 'tree-birch-lod', 'tree-round-lod', 'tree-poplar-lod', 'tree-fir-lod', 'tree-fir-wide-lod',
   'taxi', 'box-truck', 'led-streetlight', 'neon-shop-sign', 'hotel-neon-blade', 'giant-billboard', 'media-facade', 'transit-shelter',
   'corner-shop', 'metro-headhouse', 'retail-infill', 'neon-storefront', 'security-bollard', 'service-dumpster', 'generator-unit', 'barrel-stack', 'supply-crate',
 ])
@@ -455,6 +469,7 @@ export const REGIONS: Region[] = [
       { model: 'warehouse', at: [-22, -8], height: 8, rot: 15, pad: 12 },
       { model: 'box-truck', at: [-30, 10], height: 3, rot: 120, pad: 3 },
       { model: 'supply-crate', at: [-12, 12], height: 1.2, rot: 20, pad: 1 },
+      { model: 'windmill', at: [30, -34], height: 16, rot: 200, pad: 6, foot: [7, 7] },
     ],
     scatter: [
       { model: 'bush', count: 50, height: [0.6, 1.2], radius: 78 },

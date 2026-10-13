@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { AVAILABLE_MODELS, REGIONS, type Landmark, type ModelName, type Region } from './regions'
 import { heightAt } from './terrain'
 import { scatterLayout, type ScatterName } from './layout'
@@ -198,6 +199,12 @@ export function groundReport(extra: Iterable<{ name: string; region: string; obj
 
 /** Per scattered model (one per instanced chunk): checks every instance's base against the terrain. */
 const scatterChecks = new Map<string, () => { checked: number; bad: { name: string; region: string; float: number; buried: number }[] }>()
+
+/** Other instanced dressing (fences, walls, the scarecrows) reports its own grounding check here. */
+export function registerGroundCheck(key: string, check: (() => { checked: number; bad: { name: string; region: string; float: number; buried: number }[] }) | null) {
+  if (check) scatterChecks.set(key, check)
+  else scatterChecks.delete(key)
+}
 
 /* ---------- Walkable sets: walls and floors measured from the mesh ---------- */
 
@@ -606,24 +613,105 @@ export function Landmarks() {
 
 /* ---------- Scatter (instanced) ---------- */
 
+/* ---------- Foliage: wind, levels of detail, culling ---------- */
+
+/** Shared wind clock for every swaying instanced model. */
+const wind = { value: 0 }
+
+/** Sway (metres at the top) per model; trees bend gently, ferns and reeds more. */
+const SWAY: Partial<Record<ScatterName, number>> = {
+  'tree-oak': 0.22, 'tree-birch': 0.3, 'tree-round': 0.2, 'tree-poplar': 0.3, 'tree-fir': 0.25, 'tree-fir-wide': 0.25, pine: 0.2,
+  palm: 0.35, 'autumn-tree': 0.18, fern: 0.08, reeds: 0.18, 'bush-bloom': 0.04,
+}
+/** Far versions swapped in beyond LOD_DIST. */
+const LOD: Partial<Record<ScatterName, ModelName>> = {
+  'tree-oak': 'tree-oak-lod', 'tree-birch': 'tree-birch-lod', 'tree-round': 'tree-round-lod', 'tree-poplar': 'tree-poplar-lod',
+  'tree-fir': 'tree-fir-lod', 'tree-fir-wide': 'tree-fir-wide-lod',
+}
+const LOD_DIST = 170
+/** Wide, low things (a log, a boulder pile) get a footprint as wide as they really are. */
+const MAX_FACTOR: Partial<Record<ScatterName, number>> = { log: 2.2, 'rock-cluster': 0.75 }
+/** Small foliage is only drawn within this distance of the camera (per 110 m chunk, measured to its centre). */
+const CULL: Partial<Record<ScatterName, number>> = { fern: 150, reeds: 170, 'bush-bloom': 190, mushroom: 110, pebble: 110, log: 220, 'rock-cluster': 260 }
+/** Small things neither cast shadows nor need them (cheap). */
+const NO_SHADOW = new Set<ScatterName>(['fern', 'reeds', 'mushroom', 'pebble', 'bush-bloom'])
+/** Foliage that streams in once the island has settled (never part of the first paint). */
+export const LATE = new Set<ScatterName>(['fern', 'reeds', 'log', 'rock-cluster', 'bush-bloom', 'mushroom', 'pebble'])
+
+const swayCache = new Map<string, THREE.Material>()
+/** A copy of a material that bends with the wind: the higher above the instance's base, the further it sways. */
+function swaying(mat: THREE.Material, key: string, amp: number, localH: number) {
+  const k = `${key}:${mat.uuid}`
+  let m = swayCache.get(k)
+  if (m) return m
+  m = mat.clone()
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uWind = wind
+    shader.vertexShader = 'uniform float uWind;\n' + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+mvPosition = instanceMatrix * mvPosition;
+float hN = clamp((mvPosition.y - instanceMatrix[3].y) / max(0.001, length(instanceMatrix[1].xyz) * ${localH.toFixed(4)}), 0.0, 1.2);
+float ph = instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17;
+float sw = hN * hN * ${amp.toFixed(3)} * (0.75 + 0.25 * sin(uWind * 0.31 + ph * 0.1));
+mvPosition.x += sin(uWind * 1.3 + ph) * sw;
+mvPosition.z += cos(uWind * 1.05 + ph * 1.3) * sw * 0.7;
+#endif
+mvPosition = modelViewMatrix * mvPosition;
+gl_Position = projectionMatrix * mvPosition;`,
+    )
+  }
+  m.customProgramCacheKey = () => `sway-${amp}-${localH.toFixed(3)}`
+  swayCache.set(k, m)
+  return m
+}
+
+type Part = { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; local: THREE.Matrix4 }
+
+/** Normalise a model to 1 m tall, centred, resting on y = 0 (per-instance scale then sets the height). */
+function partsOf(scene: THREE.Object3D, name: ScatterName): Part[] {
+  scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(scene)
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const s = 1 / Math.max(size.y, 1e-3)
+  const norm = new THREE.Matrix4().makeScale(s, s, s).premultiply(new THREE.Matrix4().makeTranslation(-center.x * s, -box.min.y * s, -center.z * s))
+  const list: Part[] = []
+  const amp = SWAY[name]
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    const sy = new THREE.Vector3().setFromMatrixScale(m.matrixWorld).y || 1
+    const localH = size.y / sy
+    const material = amp ? (Array.isArray(m.material) ? m.material.map((x) => swaying(x, name, amp, localH)) : swaying(m.material, name, amp, localH)) : m.material
+    list.push({ geometry: m.geometry, material, local: norm.clone().multiply(m.matrixWorld) })
+  })
+  return list
+}
+
 function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.Matrix4[] }) {
+  const lodName = LOD[name]
   const gltf = useGLTF(modelUrl(name), false, true)
-  const parts = useMemo(() => {
-    const scene = gltf.scene
-    scene.updateMatrixWorld(true)
-    const box = new THREE.Box3().setFromObject(scene)
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    // Normalise to 1 m tall, centred, resting on y = 0; per-instance scale then sets the height.
-    const s = 1 / Math.max(size.y, 1e-3)
-    const norm = new THREE.Matrix4().makeScale(s, s, s).premultiply(new THREE.Matrix4().makeTranslation(-center.x * s, -box.min.y * s, -center.z * s))
-    const list: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; local: THREE.Matrix4 }[] = []
-    scene.traverse((o) => {
-      const m = o as THREE.Mesh
-      if (m.isMesh) list.push({ geometry: m.geometry, material: m.material, local: norm.clone().multiply(m.matrixWorld) })
-    })
-    return list
-  }, [gltf])
+  const lodGltf = useGLTF(modelUrl(lodName ?? name), false, true)
+  const lodParts = useMemo(() => (lodName ? partsOf(lodGltf.scene, name) : null), [lodGltf, lodName, name])
+  const nearRef = useRef<THREE.Group>(null)
+  const farRef = useRef<THREE.Group>(null)
+  const centre = useMemo(() => {
+    const c = new THREE.Vector3()
+    for (const m of matrices) c.add(new THREE.Vector3(m.elements[12], m.elements[13], m.elements[14]))
+    return c.divideScalar(Math.max(1, matrices.length))
+  }, [matrices])
+  const tick = useRef(Math.floor(Math.random() * 15))
+  const cull = CULL[name]
+  useFrame(({ camera }) => {
+    if (tick.current++ % 15 !== 0) return
+    const d = Math.hypot(camera.position.x - centre.x, camera.position.z - centre.z) - CHUNK * 0.5
+    const shown = cull === undefined || d < cull
+    if (nearRef.current) nearRef.current.visible = shown && (!lodParts || d < LOD_DIST)
+    if (farRef.current) farRef.current.visible = shown && !!lodParts && d >= LOD_DIST
+  })
+  const parts = useMemo(() => partsOf(gltf.scene, name), [gltf, name])
 
   // The model's base footprint (vertices in the bottom 4 cm of the 1 m model): every instance is set down on the
   // lowest ground under it (corners, edges and centre), a little sunk, so no root flare floats on a slope.
@@ -694,14 +782,24 @@ function InstancedModel({ name, matrices }: { name: ModelName; matrices: THREE.M
         if (vtx.y < 0.1) r = Math.max(r, Math.hypot(vtx.x, vtx.z))
       }
     }
-    if (r > 0) setScatterFactor(name, THREE.MathUtils.clamp(r * 0.9, 0.04, 0.3))
+    if (r > 0) setScatterFactor(name, THREE.MathUtils.clamp(r * 0.9, 0.04, MAX_FACTOR[name] ?? 0.3))
   }, [parts, name])
 
+  const shadow = !NO_SHADOW.has(name)
   return (
     <>
-      {parts.map((p, i) => (
-        <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={grounded} />
-      ))}
+      <group ref={nearRef}>
+        {parts.map((p, i) => (
+          <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={grounded} shadow={shadow} />
+        ))}
+      </group>
+      {lodParts && (
+        <group ref={farRef} visible={false}>
+          {lodParts.map((p, i) => (
+            <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={grounded} shadow={shadow} />
+          ))}
+        </group>
+      )}
     </>
   )
 }
@@ -711,22 +809,24 @@ function InstancedPart({
   material,
   local,
   matrices,
+  shadow = true,
 }: {
   geometry: THREE.BufferGeometry
   material: THREE.Material | THREE.Material[]
   local: THREE.Matrix4
   matrices: THREE.Matrix4[]
+  shadow?: boolean
 }) {
   const mesh = useMemo(() => {
     const im = new THREE.InstancedMesh(geometry, material, matrices.length)
     const m = new THREE.Matrix4()
     matrices.forEach((mat, i) => im.setMatrixAt(i, m.copy(mat).multiply(local)))
-    im.castShadow = true
+    im.castShadow = shadow
     im.receiveShadow = true
     im.instanceMatrix.needsUpdate = true
     im.computeBoundingSphere()
     return im
-  }, [geometry, material, local, matrices])
+  }, [geometry, material, local, matrices, shadow])
   return <primitive object={mesh} />
 }
 
@@ -735,18 +835,124 @@ const BUSH = new THREE.IcosahedronGeometry(0.6, 0)
 const ROCK_MAT = new THREE.MeshStandardMaterial({ color: '#8a8379', roughness: 0.95, flatShading: true })
 const BUSH_MAT = new THREE.MeshStandardMaterial({ color: '#4f8f3c', roughness: 0.9, flatShading: true })
 
-function InstancedPrimitive({ kind, matrices }: { kind: 'rock' | 'bush'; matrices: THREE.Matrix4[] }) {
+/** A toadstool: pale stem, red spotted cap (vertex coloured). */
+function mushroomGeometry() {
+  const parts: THREE.BufferGeometry[] = []
+  const paint = (g: THREE.BufferGeometry, hex: string) => {
+    const c = new THREE.Color(hex)
+    const n = g.attributes.position.count
+    const arr = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) arr.set([c.r, c.g, c.b], i * 3)
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+    g.deleteAttribute('uv')
+    return g.index ? g.toNonIndexed() : g
+  }
+  const stem = new THREE.CylinderGeometry(0.06, 0.08, 0.32, 6)
+  stem.translate(0, 0.16, 0)
+  parts.push(paint(stem, '#efe6d2'))
+  const cap = new THREE.SphereGeometry(0.2, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+  cap.scale(1, 0.7, 1)
+  cap.translate(0, 0.3, 0)
+  parts.push(paint(cap, '#d8432f'))
+  for (let i = 0; i < 4; i++) {
+    const dot = new THREE.SphereGeometry(0.035, 4, 3)
+    const a = i * 1.7
+    dot.translate(Math.cos(a) * 0.11, 0.41, Math.sin(a) * 0.11)
+    parts.push(paint(dot, '#fff7ea'))
+  }
+  // A second, smaller one beside it.
+  const s2 = mergeGeometries(parts.map((g) => g.clone()))!
+  s2.scale(0.6, 0.6, 0.6)
+  s2.translate(0.22, 0, 0.1)
+  return mergeGeometries([...parts, s2])!
+}
+
+const MUSHROOM = mushroomGeometry()
+/** Three pebbles in a little scatter. */
+const PEBBLE = (() => {
+  const gs: THREE.BufferGeometry[] = []
+  for (let i = 0; i < 3; i++) {
+    const g = new THREE.DodecahedronGeometry(0.12 + i * 0.04, 0)
+    g.scale(1.3, 0.55, 1)
+    g.translate(Math.cos(i * 2.2) * 0.25, 0.04, Math.sin(i * 2.2) * 0.25)
+    g.deleteAttribute('uv')
+    gs.push(g)
+  }
+  return mergeGeometries(gs)!
+})()
+const MUSHROOM_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 })
+const PEBBLE_MAT = new THREE.MeshStandardMaterial({ color: '#9a948b', roughness: 0.95, flatShading: true })
+
+type PrimitiveKind = 'rock' | 'bush' | 'mushroom' | 'pebble'
+const PRIMS: Record<PrimitiveKind, { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number; shadow: boolean }> = {
+  rock: { geo: ROCK, mat: ROCK_MAT, lift: 0.35, shadow: true },
+  bush: { geo: BUSH, mat: BUSH_MAT, lift: 0.35, shadow: true },
+  mushroom: { geo: MUSHROOM, mat: MUSHROOM_MAT, lift: 0, shadow: false },
+  pebble: { geo: PEBBLE, mat: PEBBLE_MAT, lift: 0, shadow: false },
+}
+export const PRIMITIVES = new Set<string>(Object.keys(PRIMS))
+
+function InstancedPrimitive({ kind, matrices }: { kind: PrimitiveKind; matrices: THREE.Matrix4[] }) {
+  const spec = PRIMS[kind]
   const mesh = useMemo(() => {
-    const im = new THREE.InstancedMesh(kind === 'rock' ? ROCK : BUSH, kind === 'rock' ? ROCK_MAT : BUSH_MAT, matrices.length)
-    const lift = new THREE.Matrix4().makeTranslation(0, 0.35, 0)
+    const im = new THREE.InstancedMesh(spec.geo, spec.mat, matrices.length)
+    const lift = new THREE.Matrix4().makeTranslation(0, spec.lift, 0)
     matrices.forEach((m, i) => im.setMatrixAt(i, m.clone().multiply(lift)))
-    im.castShadow = true
+    im.castShadow = spec.shadow
     im.receiveShadow = true
     im.instanceMatrix.needsUpdate = true
     im.computeBoundingSphere()
     return im
-  }, [kind, matrices])
-  return <primitive object={mesh} />
+  }, [spec, matrices])
+  // Grounding check: the base footprint of the (lifted) geometry under every instance.
+  useEffect(() => {
+    const key = `prim:${kind}:${matrices.length}:${matrices[0]?.elements[12] ?? 0}`
+    const pos = spec.geo.attributes.position as THREE.BufferAttribute
+    let minY = Infinity
+    for (let i = 0; i < pos.count; i++) minY = Math.min(minY, pos.getY(i) + spec.lift)
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+    for (let i = 0; i < pos.count; i++)
+      if (pos.getY(i) + spec.lift < minY + 0.05) {
+        x0 = Math.min(x0, pos.getX(i))
+        x1 = Math.max(x1, pos.getX(i))
+        z0 = Math.min(z0, pos.getZ(i))
+        z1 = Math.max(z1, pos.getZ(i))
+      }
+    scatterChecks.set(key, () => {
+      const bad: { name: string; region: string; float: number; buried: number }[] = []
+      const w = new THREE.Vector3()
+      for (const m of matrices) {
+        const baseY = w.set((x0 + x1) / 2, minY, (z0 + z1) / 2).applyMatrix4(m).y
+        let float = -Infinity, buried = -Infinity
+        for (const sx of [x0, (x0 + x1) / 2, x1])
+          for (const sz of [z0, (z0 + z1) / 2, z1]) {
+            w.set(sx, minY, sz).applyMatrix4(m)
+            const g = heightAt(w.x, w.z)
+            float = Math.max(float, baseY - g)
+            buried = Math.max(buried, g - baseY)
+          }
+        // Rocks are meant to sit partly sunk; only a gap underneath is a fault.
+        if (float > 0.15 || (kind !== 'rock' && buried > 1)) bad.push({ name: kind, region: `scatter@${m.elements[12].toFixed(0)},${m.elements[14].toFixed(0)}`, float: +float.toFixed(2), buried: +buried.toFixed(2) })
+      }
+      return { checked: matrices.length, bad }
+    })
+    return () => {
+      scatterChecks.delete(key)
+    }
+  }, [spec, matrices, kind])
+  const ref = useRef<THREE.InstancedMesh>(null)
+  const centre = useMemo(() => {
+    const c = new THREE.Vector3()
+    for (const m of matrices) c.add(new THREE.Vector3(m.elements[12], 0, m.elements[14]))
+    return c.divideScalar(Math.max(1, matrices.length))
+  }, [matrices])
+  const tick = useRef(Math.floor(Math.random() * 15))
+  const cull = CULL[kind]
+  useFrame(({ camera }) => {
+    if (cull === undefined || tick.current++ % 15 !== 0 || !ref.current) return
+    ref.current.visible = Math.hypot(camera.position.x - centre.x, camera.position.z - centre.z) - CHUNK * 0.5 < cull
+  })
+  return <primitive ref={ref} object={mesh} />
 }
 
 /** Side of the square chunks props are batched in: each chunk is frustum-culled on its own (camera and shadows). */
@@ -768,14 +974,19 @@ function chunkLayout() {
   return out
 }
 
-export function Scatters() {
+export function Scatters({ light = false }: { light?: boolean }) {
   const chunks = useMemo(chunkLayout, [])
-
+  // Undergrowth, logs and boulders stream in after the island has settled; the low graphics tier skips the tiniest.
+  const [late, setLate] = useState(false)
+  useFrame(({ clock }) => {
+    wind.value = clock.elapsedTime
+    if (!late && settled()) setLate(true)
+  })
   return (
     <>
       {chunks.map(({ key, name, matrices }) =>
-        name === 'rock' || name === 'bush' ? (
-          <InstancedPrimitive key={key} kind={name} matrices={matrices} />
+        (LATE.has(name) && !late) || (light && (name === 'pebble' || name === 'mushroom')) ? null : PRIMITIVES.has(name) ? (
+          <InstancedPrimitive key={key} kind={name as PrimitiveKind} matrices={matrices} />
         ) : (
           <Suspense key={key} fallback={null}>
             <InstancedModel name={name as ModelName} matrices={matrices} />
