@@ -10,7 +10,7 @@ export const GEAR_INFO: Record<GearType, { name: string; stat: string; perTier: 
   plating: { name: 'Plating', stat: 'HP', perTier: 0.06, blurb: 'Extra armour plates.' },
   servo: { name: 'Servo', stat: 'Speed', perTier: 0.04, blurb: 'Faster leg actuators.' },
   overclock: { name: 'Overclock', stat: 'Damage', perTier: 0.05, blurb: 'Hotter blaster coils.' },
-  capacitor: { name: 'Capacitor', stat: 'Super charge', perTier: 0.1, blurb: 'Supers fill faster.' },
+  capacitor: { name: 'Capacitor', stat: 'Super charge', perTier: 0.1, blurb: 'Supers fill faster and powers cool down sooner.' },
 }
 export const TIER_NAMES = ['', 'Common', 'Rare', 'Epic', 'Mythic']
 export const TIER_COLORS = ['', '#9ca3af', '#38bdf8', '#c084fc', '#fbbf24']
@@ -239,17 +239,22 @@ export interface MatchResult {
   damage: number
   supers: number
   placement: number
+  /** Coins from shards picked up during the match. */
+  coins?: number
 }
 
 export interface Reward {
   coins: number
   xp: number
   questsDone: string[]
+  /** Part of `coins` that came from shards. */
+  shards: number
 }
 
 /** Apply a finished match: coins, XP and quest progress. */
 export function applyMatch(p: Profile, r: MatchResult): { profile: Profile; reward: Reward } {
-  let coins = 25 + r.kills * 6
+  const shards = r.coins ?? 0
+  let coins = 25 + r.kills * 6 + shards
   let xp = 40 + r.kills * 10 + Math.round(r.damage / 400)
   if (r.mode === 'br') {
     const placeBonus = r.placement === 1 ? 120 : r.placement <= 3 ? 60 : r.placement <= 8 ? 25 : 0
@@ -279,6 +284,6 @@ export function applyMatch(p: Profile, r: MatchResult): { profile: Profile; rewa
   })
   return {
     profile: { ...p, coins: p.coins + coins, xp: p.xp + xp, matches: p.matches + 1, wins: p.wins + (r.win ? 1 : 0), kills: p.kills + r.kills, quests: { ...p.quests, list } },
-    reward: { coins, xp, questsDone },
+    reward: { coins, xp, questsDone, shards },
   }
 }

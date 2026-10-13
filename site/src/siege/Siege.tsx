@@ -1,7 +1,7 @@
 // NEON SIEGE page: the menu (modes, maps, heroes, skins, gear, quests, settings, online rooms) and the stage where
 // the engine runs a match. The engine is a separate chunk loaded on demand.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Crosshair, Globe, LogIn, Sparkles, Swords, Users, Zap } from 'lucide-react'
+import { Crosshair, Globe, LogIn, ShieldAlert, Sparkles, Swords, Users, Zap } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { setInputSuspended } from '../lib/input'
@@ -12,6 +12,7 @@ import { GearShelf } from '../components/GearShelf'
 import { Loader3D } from '../components/Loader3D'
 import { loadSiegeAssets, type SiegeAssets } from './engine/assets'
 import { HEROES, HERO_IDS, type HeroId } from './engine/heroes'
+import { COUNTER_RULES, MATCHUPS, POWERS, POWERUPS, POWERUP_KINDS, weakAgainst } from './engine/powers'
 import { ARENA_MAPS, MAPS, type MapId } from './engine/maps'
 import { MODE_INFO, type ModeId } from './engine/sim'
 import { buySkin, level, loadProfile, ownsSkin, saveProfile, selectSkin, SKINS, SKIN_IDS, xpForLevel, type Profile, type Settings } from './engine/progress'
@@ -21,6 +22,7 @@ import type { NetSession } from './engine/net'
 import { SiegeHud } from './Hud'
 import { GearScreen } from './Gear'
 import { heroCard, portrait } from './portraits'
+import { POWERUP_ICONS, POWER_ICONS } from './icons'
 import { CC_BY, CHARACTER_CREDITS, ENVIRONMENT_CREDITS } from './credits'
 import './siege.css'
 
@@ -123,8 +125,9 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
           <p className="eyebrow">Games · Top-down arena shooter</p>
           <h1 className="page-title sg-title">NEON SIEGE</h1>
           <p className="page-lead">
-            Six heroes, three neon arenas and a shrinking grid. Fight 3v3 for takedowns or the core, or drop solo into Grid Royale with sixteen rivals.
-            Earn coins, merge gear, pick a palette, finish the daily jobs.
+            Six heroes, three neon arenas and a shrinking grid. Every hero has a signature power, and every power counters
+            two others and falls to two more. Fight 3v3 for takedowns or the core, or drop solo into Grid Royale with
+            sixteen rivals. Grab power-ups off the pads, earn coins, merge gear, pick a palette, finish the daily jobs.
           </p>
           <p className="sg-wallet">
             <Sparkles size={16} /> {profile.coins} coins · Level {lvl} ({lvlPct}%) · {profile.wins} wins / {profile.matches} matches
@@ -198,9 +201,9 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
           <h2 className="section-title">Controls</h2>
           <ul className="keys">
             <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · mouse aims · <kbd>LMB</kbd> fire (or auto-fire)</li>
-            <li><kbd>Space</kbd> dash · <kbd>Q</kbd>/<kbd>E</kbd> super</li>
-            <li>Gamepad: left stick move, right stick aim + fire, A dash, Y super</li>
-            <li>Touch: left stick move, right stick aim + fire, buttons for dash and super</li>
+            <li><kbd>E</kbd> or <kbd>RMB</kbd> power · <kbd>Q</kbd> super · <kbd>Space</kbd> dash</li>
+            <li>Gamepad: left stick move, right stick aim + fire, X power, Y super, A dash</li>
+            <li>Touch: left stick move, right stick aim + fire, buttons for power, super and dash</li>
           </ul>
           <h2 className="section-title">Settings</h2>
           <div className="sg-settings">
@@ -229,10 +232,15 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
           </div>
           <h2 className="section-title">How it plays</h2>
           <ul className="sg-rules">
+            <li><strong>Powers counter powers.</strong> Heat melts shields and gadgets; scans strip cloaks and decoys; knockback breaks channels and charges; gas chokes dashes and flames; cleanses lift poison, slows and marks; scorch blocks healing; walls stop direct fire but not lobbed shells.</li>
             <li><strong>Supers charge from damage.</strong> Each hero has one: a shield dash, a sentry, a shockwave, a cloak, a minefield, a heal zone.</li>
+            <li>
+              <strong>Power-up pads</strong> recharge on a timer, shown on the pad and the minimap. Takedowns drop coin shards worth 10 coins.
+            </li>
             <li><strong>Cover matters.</strong> Walls stop everything; low cover stops bullets but not grenades; crates break.</li>
             <li><strong>Grid Royale.</strong> The neon grid shrinks every half minute and burns anyone outside. Crack loot crates for gear.</li>
           </ul>
+          <PowerUpList />
           <Credits />
         </section>
       </div>
@@ -244,42 +252,102 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
 
 function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void }) {
   const hero = HEROES[profile.hero]
+  const power = POWERS[hero.power]
+  const PowerIcon = POWER_ICONS[hero.power]
   const skin = profile.skins[profile.hero] ?? 'default'
-  const stat = (label: string, v: number, max: number) => (
+  const pick = (id: HeroId) => onProfile((p) => ({ ...p, hero: id }))
+  const stat = (label: string, v: number, max: number, unit = '', invert = false, digits = 1) => (
     <div className="sg-stat">
       <span>{label}</span>
       <i>
-        <b style={{ width: `${Math.min(100, (v / max) * 100)}%` }} />
+        <b style={{ width: `${Math.min(100, ((invert ? max - v : v) / max) * 100)}%` }} />
       </i>
-      <em>{Math.round(v)}</em>
+      <em>
+        {Math.round(v * 10 ** digits) / 10 ** digits}
+        {unit}
+      </em>
     </div>
   )
-  const dps = (hero.weapon.dmg * hero.weapon.count) / Math.max(hero.weapon.cooldown, hero.weapon.kind === 'needler' ? hero.weapon.cooldown : hero.weapon.cooldown)
+  const dps = (hero.weapon.dmg * hero.weapon.count) / hero.weapon.cooldown
+  const strong = MATCHUPS[profile.hero]
+  const weak = weakAgainst(profile.hero)
   return (
     <>
       <div className="sg-heroes">
-        {HERO_IDS.map((id) => (
-          <button key={id} className={`sg-herocard ${profile.hero === id ? 'is-on' : ''}`} style={{ ['--sg-accent' as string]: HEROES[id].colors[0] }} onClick={() => onProfile((p) => ({ ...p, hero: id }))} data-testid={`sg-hero-${id}`}>
-            <img src={portrait(id)} alt="" loading="lazy" />
-            <strong>{HEROES[id].name}</strong>
-            <span>{HEROES[id].role}</span>
-          </button>
-        ))}
+        {HERO_IDS.map((id) => {
+          const Icon = POWER_ICONS[HEROES[id].power]
+          return (
+            <button key={id} className={`sg-herocard ${profile.hero === id ? 'is-on' : ''}`} style={{ ['--sg-accent' as string]: HEROES[id].colors[0] }} onClick={() => pick(id)} data-testid={`sg-hero-${id}`}>
+              <img src={portrait(id)} alt="" loading="lazy" />
+              <strong>{HEROES[id].name}</strong>
+              <span>{HEROES[id].role}</span>
+              <small className="sg-herocard-power" title={POWERS[HEROES[id].power].name}>
+                <Icon size={12} /> {POWERS[HEROES[id].power].name}
+              </small>
+            </button>
+          )
+        })}
       </div>
-      <div className="sg-herosheet" style={{ ['--sg-accent' as string]: hero.colors[0] }}>
+      <div className="sg-herosheet" style={{ ['--sg-accent' as string]: hero.colors[0] }} data-testid="sg-herosheet">
         <img className="sg-herocardimg" src={heroCard(profile.hero)} alt={`${hero.name}, the ${hero.role.toLowerCase()}`} />
         <div>
           <h3 className="sg-sub" style={{ color: hero.colors[1] }}>
             {hero.name} · {hero.role}
           </h3>
           <p className="muted small">{hero.blurb}</p>
-          {stat('Health', hero.hp, 2800)}
-          {stat('Speed', hero.speed, 7)}
-          {stat('Damage / s', dps, 900)}
-          {stat('Range', hero.weapon.range, 22)}
-          <p className="sg-super">
-            <Zap size={14} /> <strong>{hero.superName}</strong> · {hero.superBlurb}
-          </p>
+          {stat('Health', hero.hp, 2800, '', false, 0)}
+          {stat('Speed', hero.speed, 7, ' m/s')}
+          {stat('Damage / s', dps, 900, '', false, 0)}
+          {stat('Range', hero.weapon.range, 22, ' m')}
+          {stat('Power', power.cooldown, 14, ' s', true)}
+        </div>
+      </div>
+      <div className="sg-kit">
+        <p className="sg-power" style={{ ['--sg-c' as string]: power.color }}>
+          <PowerIcon size={16} />
+          <span>
+            <strong>{power.name}</strong> <em>power · every {power.cooldown} s</em>
+            <br />
+            {power.blurb}
+          </span>
+        </p>
+        <p className="sg-super">
+          <Zap size={16} />
+          <span>
+            <strong>{hero.superName}</strong> <em>super</em>
+            <br />
+            {hero.superBlurb}
+          </span>
+        </p>
+      </div>
+      <div className="sg-counters" data-testid="sg-counters">
+        <div className="sg-counterlist is-strong">
+          <h4>
+            <Swords size={13} /> Strong against
+          </h4>
+          {strong.map((m) => (
+            <button key={m.beats} className="sg-counterchip" onClick={() => pick(m.beats)} title={`${COUNTER_RULES[m.rule].word} ${COUNTER_RULES[m.rule].label}`} style={{ ['--sg-accent' as string]: HEROES[m.beats].colors[0] }}>
+              <img src={portrait(m.beats)} alt="" />
+              <span>
+                <strong>{HEROES[m.beats].name}</strong>
+                <em>{m.why}</em>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="sg-counterlist is-weak">
+          <h4>
+            <ShieldAlert size={13} /> Weak against
+          </h4>
+          {weak.map((m) => (
+            <button key={m.by} className="sg-counterchip" onClick={() => pick(m.by)} title={`${COUNTER_RULES[m.rule].word} ${COUNTER_RULES[m.rule].label}`} style={{ ['--sg-accent' as string]: HEROES[m.by].colors[0] }}>
+              <img src={portrait(m.by)} alt="" />
+              <span>
+                <strong>{HEROES[m.by].name}</strong>
+                <em>{m.why}</em>
+              </span>
+            </button>
+          ))}
         </div>
       </div>
       <h3 className="sg-sub">Palette</h3>
@@ -311,6 +379,28 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
         })}
       </div>
     </>
+  )
+}
+
+/** The power-up list with icons (shown under the rules). */
+export function PowerUpList() {
+  return (
+    <ul className="sg-pulist">
+      {POWERUP_KINDS.map((k) => {
+        const Icon = POWERUP_ICONS[k]
+        return (
+          <li key={k} style={{ ['--sg-c' as string]: POWERUPS[k].color }}>
+            <Icon size={14} />
+            <strong>{POWERUPS[k].name}</strong>
+            <span>
+              {POWERUPS[k].blurb}
+              {POWERUPS[k].dur ? ` · ${POWERUPS[k].dur} s` : ''}
+              {POWERUPS[k].brOnly ? ' · Royale' : ''}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

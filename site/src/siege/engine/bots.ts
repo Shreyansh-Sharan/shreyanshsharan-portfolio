@@ -1,14 +1,20 @@
 // Bot brains: pick a target (nearest, preferring the weakest), hold the hero's preferred range, strafe, seek cover
 // when low, chase last-seen positions, flock to the objective, loot and stay inside the grid in the royale, and
-// spend supers when they will land. Paths come from a small A* over the 2 m grid.
+// spend supers when they will land. Powers are played into the counter web: walls against snipers, scan darts on
+// cloakers and decoys, heat vents on shields and gadgets, blinks out of slows, toxin on channels and charges,
+// purges when poisoned or marked. Bots also contest the power-up pads, sweep up coin shards, step out of enemy gas
+// and can be fooled by decoys like anyone else. Paths come from a small A* over the 2 m grid.
 import { CELL } from './maps.ts'
 import { SUPER } from './heroes.ts'
-import type { Fighter, Sim } from './sim.ts'
+import { POWER } from './powers.ts'
+import type { Deployable, Fighter, Sim } from './sim.ts'
 
-export type BotMode = 'roam' | 'fight' | 'chase' | 'flee' | 'objective' | 'loot' | 'grid'
+export type BotMode = 'roam' | 'fight' | 'chase' | 'flee' | 'objective' | 'loot' | 'grid' | 'pad'
 
 export interface BotState {
   target: number
+  /** Enemy decoy currently drawing this bot's fire (0 = none). */
+  decoy: number
   /** Waypoints in metres, in walking order. */
   path: { x: number; z: number }[]
   pathAt: number
@@ -23,42 +29,56 @@ export interface BotState {
   seenZ: number
   /** Per-bot personality 0..1 (aggression, timing). */
   jitter: number
+  /** Next time the bot weighs its power. */
+  powerAt: number
+}
+
+/** What the bot is fighting: a fighter, or the decoy it thinks is one. */
+interface Foe {
+  x: number
+  z: number
+  vx: number
+  vz: number
+  f: Fighter
+  decoy: Deployable | null
 }
 
 const THINK = 0.2
 const VIEW = 17
 
-export function thinkBot(sim: Sim, f: Fighter, dt: number) {
+export function thinkBot(sim: Sim, f: Fighter, _dt: number) {
   const b = f.bot!
   const now = sim.time
   const inp = f.input
   inp.dash = false
   inp.super = false
+  inp.power = false
   const diff = sim.difficulty
-  // Targets.
-  const target = sim.fighter(b.target)
   if (now >= b.thinkAt) {
     b.thinkAt = now + THINK * (0.7 + b.jitter * 0.6)
     pickTarget(sim, f)
     decide(sim, f)
   }
-  const t = target && target.alive && (b.target === target.id) ? target : sim.fighter(b.target)
-  const visible = t && t.alive && canSee(sim, f, t)
+  const t = sim.fighter(b.target)
+  const foe = foeOf(sim, f)
+  const visible = !!foe && (foe.decoy ? canSeePoint(sim, f, foe.x, foe.z) : canSee(sim, f, foe.f))
   // Aim.
-  if (t && t.alive && (visible || now - b.seenAt < 1.5)) {
-    const dist = Math.hypot(t.x - f.x, t.z - f.z)
+  if (foe && (visible || now - b.seenAt < 1.5)) {
+    const dist = Math.hypot(foe.x - f.x, foe.z - f.z)
     const lead = Math.min(0.6, dist / f.hero.weapon.speed)
-    const tx = visible ? t.x + t.vx * lead : b.seenX
-    const tz = visible ? t.z + t.vz * lead : b.seenZ
+    const tx = visible ? foe.x + foe.vx * lead : b.seenX
+    const tz = visible ? foe.z + foe.vz * lead : b.seenZ
     let a = Math.atan2(tz - f.z, tx - f.x)
     a += Math.sin(now * 3.1 + b.jitter * 20) * (1 - diff) * 0.22
     inp.ax = Math.cos(a)
     inp.az = Math.sin(a)
     inp.aimDist = dist
     const w = f.hero.weapon
-    const inRange = dist <= w.range * (w.kind === 'launcher' ? 1 : 1.05)
-    inp.fire = !!visible && inRange && (w.kind === 'launcher' ? sim.lineClear(f.x, f.z, t.x, t.z, true) : true) && now > f.spawnShieldUntil - 0.5
-    if (w.kind === 'launcher' && visible && dist < 2.5) inp.fire = false
+    const lob = w.kind === 'launcher'
+    const inRange = dist <= w.range * (lob ? 1 : 1.05)
+    inp.fire = visible && inRange && (lob ? sim.lineClear(f.x, f.z, foe.x, foe.z, true) : !sim.wallBlocks(f, foe.x, foe.z)) && now > f.spawnShieldUntil - 0.5
+    if (lob && visible && dist < 2.5) inp.fire = false
+    if (w.kind === 'flame' && sim.hasStatus(f, 'toxin')) inp.fire = false
     if (f.cloakUntil && f.hp > f.maxHp * 0.5 && dist > 4) inp.fire = false // Sneak closer first.
   } else {
     inp.fire = false
@@ -68,39 +88,189 @@ export function thinkBot(sim: Sim, f: Fighter, dt: number) {
     }
   }
   // Move.
-  steer(sim, f, dt)
+  steer(sim, f, foe)
   // Supers and dashes.
-  if (f.super >= 1 && t && t.alive) {
+  if (f.super >= 1 && t && t.alive && !foe?.decoy) {
     const dist = Math.hypot(t.x - f.x, t.z - f.z)
     switch (f.hero.superKind) {
       case 'bulwark':
-        inp.super = !!visible && dist < 9
+        inp.super = visible && dist < 9 && !sim.hasStatus(f, 'toxin')
         break
       case 'sentry':
-        inp.super = !!visible && dist < SUPER.sentry.range
+        inp.super = visible && dist < SUPER.sentry.range
         break
       case 'pulse':
-        inp.super = !!visible && dist < SUPER.pulse.radius - 0.5
+        inp.super = visible && dist < SUPER.pulse.radius - 0.5
         break
       case 'cloak':
-        inp.super = (!!visible && dist < 10) || f.hp < f.maxHp * 0.45
+        inp.super = !sim.hasStatus(f, 'revealed') && ((visible && dist < 10) || f.hp < f.maxHp * 0.45)
         break
       case 'mines':
-        inp.super = (!!visible && dist < 7) || (sim.mode === 'capture' && sim.inZone(f))
+        inp.super = (visible && dist < 7) || (sim.mode === 'capture' && sim.inZone(f))
         break
       case 'mend': {
         let hurtAllies = f.hp < f.maxHp * 0.7 ? 1 : 0
         for (const o of sim.fighters) if (o !== f && o.alive && o.team === f.team && o.hp < o.maxHp * 0.6 && Math.hypot(o.x - f.x, o.z - f.z) < SUPER.mend.radius) hurtAllies++
-        inp.super = hurtAllies > 0 && (!!visible || f.hp < f.maxHp * 0.5)
+        inp.super = hurtAllies > 0 && (visible || f.hp < f.maxHp * 0.5) && !sim.hasStatus(f, 'scorch')
         break
       }
     }
-  } else if (f.super >= 1 && f.hero.superKind === 'mend' && f.hp < f.maxHp * 0.4) inp.super = true
-  if (f.dashCd <= 0 && t && t.alive) {
-    const dist = Math.hypot(t.x - f.x, t.z - f.z)
+  } else if (f.super >= 1 && f.hero.superKind === 'mend' && f.hp < f.maxHp * 0.4 && !sim.hasStatus(f, 'scorch')) inp.super = true
+  if (f.dashCd <= 0 && foe && !sim.hasStatus(f, 'toxin')) {
+    const dist = Math.hypot(foe.x - f.x, foe.z - f.z)
     if (b.mode === 'flee') inp.dash = true
     else if (visible && f.hero.prefRange <= 4 && dist > 4.5 && dist < 10) inp.dash = true
     else if (visible && f.hero.prefRange >= 8 && dist < 3.5) inp.dash = true
+  }
+  if (now >= b.powerAt && f.powerCd <= 0 && !f.channelUntil) {
+    b.powerAt = now + 0.12 + (1 - diff) * 0.25 * b.jitter
+    botPower(sim, f, foe, visible)
+  }
+}
+
+/** The bot's current foe: the decoy it is fooled by, or its target fighter. */
+function foeOf(sim: Sim, f: Fighter): Foe | null {
+  const b = f.bot!
+  const t = sim.fighter(b.target)
+  if (!t || !t.alive) return null
+  if (b.decoy) {
+    const d = sim.deployables.find((x) => x.id === b.decoy && x.hp > 0)
+    if (d) return { x: d.x, z: d.z, vx: d.vx, vz: d.vz, f: t, decoy: d }
+    b.decoy = 0
+  }
+  return { x: t.x, z: t.z, vx: t.vx, vz: t.vz, f: t, decoy: null }
+}
+
+/** Signature powers, played into the counter web. */
+function botPower(sim: Sim, f: Fighter, foe: Foe | null, visible: boolean) {
+  const inp = f.input
+  const b = f.bot!
+  const now = sim.time
+  const dist = foe ? Math.hypot(foe.x - f.x, foe.z - f.z) : 99
+  const t = foe?.f ?? null
+  const aimAt = (x: number, z: number) => {
+    const l = Math.hypot(x - f.x, z - f.z) || 1
+    inp.ax = (x - f.x) / l
+    inp.az = (z - f.z) / l
+    inp.aimDist = l
+  }
+  switch (f.hero.power) {
+    case 'wall': {
+      // Raise the wall against direct fire at range; brawl through everything else.
+      if (!t || !visible || sim.wallBlocks(t, f.x, f.z)) break
+      const direct = t.hero.weapon.kind !== 'launcher'
+      const vented = t.hero.power === 'vent' && dist < POWER.vent.radius + 2
+      if (direct && !vented && dist > 3 && dist < 18 && (t.hero.prefRange >= 6 || f.hp < f.maxHp * 0.65 || t.hero.power === 'dart')) {
+        aimAt(foe!.x, foe!.z)
+        inp.power = true
+      }
+      break
+    }
+    case 'dart': {
+      // Strip cloaks at the last place they were seen, expose decoys, mark whatever is in sight.
+      for (const o of sim.fighters) {
+        if (!o.alive || !sim.isEnemy(f, o) || !o.cloakUntil) continue
+        if (o.id === b.target && now - b.seenAt < 2.5 && Math.hypot(b.seenX - f.x, b.seenZ - f.z) < 16) {
+          aimAt(b.seenX, b.seenZ)
+          inp.power = true
+          return
+        }
+      }
+      for (const d of sim.deployables)
+        if (d.kind === 'decoy' && d.hp > 0 && sim.isEnemy(f, { id: d.owner, team: d.team }) && Math.hypot(d.x - f.x, d.z - f.z) < 16 && sim.lineClear(f.x, f.z, d.x, d.z)) {
+          aimAt(d.x, d.z)
+          inp.power = true
+          return
+        }
+      if (t && visible && dist < 20 && !sim.wallBlocks(f, foe!.x, foe!.z)) {
+        // Hold it for a lunging or charging brawler (the impact breaks channels), unless it's far off.
+        const brawler = t.hero.power === 'vent' || t.hero.superKind === 'bulwark'
+        const committed = t.channelUntil > 0 || (t.hero.superKind === 'bulwark' && t.superUntil > now)
+        if (brawler && !committed && dist < 9 && f.hp > f.maxHp * 0.35) break
+        aimAt(foe!.x + foe!.vx * (dist / POWER.dart.speed), foe!.z + foe!.vz * (dist / POWER.dart.speed))
+        inp.power = true
+      }
+      break
+    }
+    case 'vent': {
+      // Lunge in to melt shields, walls and gadgets; scorch anyone close (healers first).
+      const r = POWER.vent.radius + POWER.vent.lunge * POWER.vent.windup * 0.8
+      let n = 0
+      let juicy = false
+      for (const o of sim.fighters) {
+        if (!o.alive || !sim.isEnemy(f, o)) continue
+        const d = Math.hypot(o.x - f.x, o.z - f.z)
+        if (d > r - 0.4) continue
+        n++
+        if (o.shield > 0 || o.hero.power === 'purge' || d < r - 1.4) juicy = true
+        if (o.id !== foe?.f.id && d > POWER.vent.radius) n--
+      }
+      for (const d of sim.deployables) {
+        if (d.kind === 'gas' || d.kind === 'decoy' || d.hp <= 0 || !sim.isEnemy(f, { id: d.owner, team: d.team })) continue
+        if (Math.hypot(d.x - f.x, d.z - f.z) < r) juicy = true
+      }
+      if (juicy && (n > 0 || dist > 2) && !sim.hasStatus(f, 'toxin')) inp.power = true
+      break
+    }
+    case 'blink': {
+      const slowed = !!sim.hasStatus(f, 'slow')
+      let dx = 0
+      let dz = 0
+      if (slowed || (t && visible && f.hp < f.maxHp * 0.45 && dist < 9)) {
+        // Slip out: away from the threat, a little sideways so the decoy takes the heat.
+        const ax = foe ? f.x - foe.x : -inp.mx
+        const az = foe ? f.z - foe.z : -inp.mz
+        const l = Math.hypot(ax, az) || 1
+        dx = ax / l - (az / l) * 0.6 * b.strafe
+        dz = az / l + (ax / l) * 0.6 * b.strafe
+      } else if (t && visible && !foe!.decoy && dist > 8 && dist < 15 && f.hp > f.maxHp * 0.6) {
+        // Engage on a diagonal so the hologram and the real runner split up.
+        const ux = (foe!.x - f.x) / dist
+        const uz = (foe!.z - f.z) / dist
+        dx = ux * 0.7 - uz * 0.7 * b.strafe
+        dz = uz * 0.7 + ux * 0.7 * b.strafe
+      } else if (t && visible && !foe!.decoy && dist < 10 && f.hp < f.maxHp * 0.8 && (t.hero.weapon.kind === 'needler' || t.hero.weapon.kind === 'launcher' || t.hero.weapon.kind === 'rifle')) {
+        // Dodge sideways and leave the hologram in the line of fire.
+        dx = -(foe!.z - f.z) * b.strafe
+        dz = (foe!.x - f.x) * b.strafe
+      }
+      if (dx || dz) {
+        const l = Math.hypot(dx, dz)
+        inp.mx = dx / l
+        inp.mz = dz / l
+        inp.power = true
+      }
+      break
+    }
+    case 'toxin': {
+      if (!t || !visible || foe!.decoy) break
+      const channel = t.channelUntil > 0 || (t.hero.superKind === 'bulwark' && t.superUntil > now)
+      if (dist <= POWER.toxin.range && (channel || dist > 2.5) && sim.lineClear(f.x, f.z, t.x, t.z, true) && !sim.hasStatus(t, 'purged')) {
+        const lead = dist / POWER.toxin.speed
+        let x = t.x + t.vx * lead * 0.6
+        let z = t.z + t.vz * lead * 0.6
+        // Against a brawler closing in, lay the gas across its path so it has to wade through.
+        if (!channel && t.hero.prefRange <= 4 && dist > 4) {
+          const k = Math.min(2.2, dist - 3.5) / dist
+          x = t.x + (f.x - t.x) * k
+          z = t.z + (f.z - t.z) * k
+        }
+        aimAt(x, z)
+        inp.power = true
+      }
+      break
+    }
+    case 'purge': {
+      let need = sim.debuffed(f) || (f.hp < f.maxHp * 0.5 && !!t && visible && dist < 9)
+      if (!need)
+        for (const o of sim.fighters) {
+          if (o === f || !o.alive || o.team !== f.team || sim.mode === 'br') continue
+          if (Math.hypot(o.x - f.x, o.z - f.z) > POWER.purge.radius - 0.5) continue
+          if (sim.debuffed(o) || o.hp < o.maxHp * 0.45) need = true
+        }
+      if (need) inp.power = true
+      break
+    }
   }
 }
 
@@ -115,10 +285,27 @@ function canSee(sim: Sim, f: Fighter, o: Fighter) {
   return sim.lineClear(f.x, f.z, o.x, o.z)
 }
 
+function canSeePoint(sim: Sim, f: Fighter, x: number, z: number) {
+  return Math.hypot(x - f.x, z - f.z) <= VIEW && sim.lineClear(f.x, f.z, x, z)
+}
+
 function pickTarget(sim: Sim, f: Fighter) {
   const b = f.bot!
   let best: Fighter | null = null
   let bestScore = -1e9
+  let decoy: Deployable | null = null
+  // Decoys look exactly like their owner (fresh and closer, so they tend to win the bot's attention).
+  for (const d of sim.deployables) {
+    if (d.kind !== 'decoy' || d.hp <= 0 || !sim.isEnemy(f, { id: d.owner, team: d.team })) continue
+    const owner = sim.fighter(d.owner)
+    if (!owner || !owner.alive || !canSeePoint(sim, f, d.x, d.z)) continue
+    const s = -Math.hypot(d.x - f.x, d.z - f.z) + (1 - owner.hp / owner.maxHp) * 7 + 9 + (owner.id === b.target ? 2.5 : 0)
+    if (s > bestScore) {
+      bestScore = s
+      best = owner
+      decoy = d
+    }
+  }
   for (const o of enemies(sim, f)) {
     const d = Math.hypot(o.x - f.x, o.z - f.z)
     const vis = canSee(sim, f, o)
@@ -128,7 +315,16 @@ function pickTarget(sim: Sim, f: Fighter) {
     if (s > bestScore) {
       bestScore = s
       best = o
+      decoy = null
     }
+  }
+  b.decoy = decoy ? decoy.id : 0
+  if (decoy) {
+    b.target = decoy.owner
+    b.seenAt = sim.time
+    b.seenX = decoy.x
+    b.seenZ = decoy.z
+    return
   }
   if (!best) {
     // Nobody in sight: remember whoever was closest last time, or drop the target.
@@ -147,9 +343,10 @@ function pickTarget(sim: Sim, f: Fighter) {
 function decide(sim: Sim, f: Fighter) {
   const b = f.bot!
   const now = sim.time
-  const t = sim.fighter(b.target)
-  const visible = t && t.alive && canSee(sim, f, t)
-  const dist = t && t.alive ? Math.hypot(t.x - f.x, t.z - f.z) : 99
+  const foe = foeOf(sim, f)
+  const t = foe?.f ?? null
+  const visible = !!foe && (foe.decoy ? canSeePoint(sim, f, foe.x, foe.z) : canSee(sim, f, foe.f))
+  const dist = foe ? Math.hypot(foe.x - f.x, foe.z - f.z) : 99
   const g = sim.br
   const brave = f.hero.prefRange <= 4 || f.shield > 0 || f.hero.superKind === 'cloak' && f.cloakUntil > 0
   // Royale: never stay outside the grid.
@@ -179,6 +376,12 @@ function decide(sim: Sim, f: Fighter) {
     if (f.hp > f.maxHp * 0.45 || Math.hypot(f.x - b.goalX, f.z - b.goalZ) < 1) b.mode = 'roam'
     else return
   }
+  // A power-up a few steps away is worth breaking off for (contest it), a medkit when hurt more so.
+  const pad = nearPad(sim, f, visible ? 5 + b.jitter * 2 : sim.br ? 20 : 15, f.hp < f.maxHp * 0.6)
+  if (pad && (!visible || Math.hypot(pad.x - f.x, pad.z - f.z) < dist)) {
+    setGoal(sim, f, 'pad', pad.x, pad.z)
+    return
+  }
   if (t && t.alive && visible) {
     b.mode = 'fight'
     b.path.length = 0
@@ -186,6 +389,12 @@ function decide(sim: Sim, f: Fighter) {
   }
   if (t && t.alive && now - b.seenAt < 5) {
     setGoal(sim, f, 'chase', b.seenX, b.seenZ)
+    return
+  }
+  // Coin shards close by.
+  for (const p of sim.pickups) {
+    if (p.kind !== 'shard' || Math.hypot(p.x - f.x, p.z - f.z) > 8 || !sim.insideGrid(p.x, p.z, 1)) continue
+    setGoal(sim, f, 'loot', p.x, p.z)
     return
   }
   // Loot in the royale.
@@ -247,6 +456,23 @@ function decide(sim: Sim, f: Fighter) {
   }
 }
 
+/** A ready (or nearly ready) power-up pad within reach that no ally is closer to. */
+function nearPad(sim: Sim, f: Fighter, range: number, hurt: boolean) {
+  let best: { x: number; z: number } | null = null
+  let bestD = range
+  for (const p of sim.pads) {
+    const wait = p.readyAt - sim.time
+    const d = Math.hypot(p.x - f.x, p.z - f.z)
+    if (wait > Math.min(2.5, d / f.speed) || !sim.insideGrid(p.x, p.z, 1)) continue
+    const score = d - (hurt && p.kind === 'medkit' ? 8 : 0) - (p.kind === 'revive' ? 6 : 0)
+    if (score >= bestD) continue
+    if (sim.mode !== 'br' && sim.fighters.some((o) => o !== f && o.alive && o.team === f.team && Math.hypot(p.x - o.x, p.z - o.z) < d - 1)) continue
+    bestD = score
+    best = p
+  }
+  return best
+}
+
 function setGoal(sim: Sim, f: Fighter, mode: BotMode, x: number, z: number) {
   const b = f.bot!
   const p = nearestFloor(sim, x, z)
@@ -263,7 +489,8 @@ function setGoal(sim: Sim, f: Fighter, mode: BotMode, x: number, z: number) {
 function nearestFloor(sim: Sim, x: number, z: number) {
   const cx0 = Math.min(sim.w - 1, Math.max(0, Math.floor(x / CELL)))
   const cz0 = Math.min(sim.h - 1, Math.max(0, Math.floor(z / CELL)))
-  if (sim.walkable(cx0, cz0)) return { x: (cx0 + 0.5) * CELL, z: (cz0 + 0.5) * CELL }
+  // An open spot is its own goal (pickups and pads sit off the cell centres).
+  if (sim.walkable(cx0, cz0)) return sim.fits(x, z) ? { x, z } : { x: (cx0 + 0.5) * CELL, z: (cz0 + 0.5) * CELL }
   for (let r = 1; r < 8; r++)
     for (let dz = -r; dz <= r; dz++)
       for (let dx = -r; dx <= r; dx++) {
@@ -295,18 +522,42 @@ function coverPoint(sim: Sim, f: Fighter, from: Fighter) {
   return best
 }
 
-function steer(sim: Sim, f: Fighter, dt: number) {
+function steer(sim: Sim, f: Fighter, foe: Foe | null) {
+  const inp = f.input
+  steerMain(sim, f, foe)
+  // Step out of enemy gas.
+  for (const d of sim.deployables) {
+    if (d.kind !== 'gas' || !sim.isEnemy(f, { id: d.owner, team: d.team })) continue
+    const dx = f.x - d.x
+    const dz = f.z - d.z
+    const l = Math.hypot(dx, dz)
+    if (l > POWER.toxin.radius + 0.6) continue
+    const k = 1.6
+    let mx = inp.mx + (dx / (l || 1)) * k
+    let mz = inp.mz + (dz / (l || 1)) * k
+    if (sim.cellAt(f.x + mx * 0.8, f.z + mz * 0.8) !== 'floor') {
+      mx = inp.mx
+      mz = inp.mz
+    }
+    const m = Math.hypot(mx, mz) || 1
+    inp.mx = mx / m
+    inp.mz = mz / m
+  }
+}
+
+function steerMain(sim: Sim, f: Fighter, foe: Foe | null) {
   const b = f.bot!
   const inp = f.input
   const now = sim.time
-  const t = sim.fighter(b.target)
-  if (b.mode === 'fight' && t && t.alive) {
-    const dx = t.x - f.x
-    const dz = t.z - f.z
+  if (b.mode === 'fight' && foe) {
+    const dx = foe.x - f.x
+    const dz = foe.z - f.z
     const dist = Math.hypot(dx, dz) || 1
     const nx = dx / dist
     const nz = dz / dist
-    const pref = f.hero.prefRange
+    // An enemy Riot Wall in the way: brawlers walk through it (it only stops bullets); shooters flank it.
+    const walled = f.hero.weapon.kind !== 'launcher' && sim.wallBlocks(f, foe.x, foe.z)
+    const pref = walled && f.hero.prefRange <= 4 ? 1.5 : f.hero.prefRange
     let fx = 0
     let fz = 0
     if (dist > pref + 1.2) {
@@ -322,8 +573,9 @@ function steer(sim: Sim, f: Fighter, dt: number) {
     }
     const sx = -nz * b.strafe
     const sz = nx * b.strafe
-    let mx = fx * 0.8 + sx * 0.75
-    let mz = fz * 0.8 + sz * 0.75
+    const side = walled && f.hero.prefRange > 4 ? 1.4 : 0.75
+    let mx = fx * 0.8 + sx * side
+    let mz = fz * 0.8 + sz * side
     // Don't walk into walls or the void while strafing.
     if (sim.cellAt(f.x + mx * 1.1, f.z + mz * 1.1) !== 'floor') {
       b.strafe = -b.strafe
@@ -372,7 +624,6 @@ function steer(sim: Sim, f: Fighter, dt: number) {
   const d = Math.hypot(dx, dz) || 1
   inp.mx = dx / d
   inp.mz = dz / d
-  void dt
 }
 
 /* ---------- A* on the cell grid (8 neighbours, no corner cutting) ---------- */

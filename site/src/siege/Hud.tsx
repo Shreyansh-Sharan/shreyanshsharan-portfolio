@@ -1,18 +1,24 @@
-// The in-match overlay: score and clock, your health / super / dash, the kill feed, the royale grid timer, the
-// online lobby, results with rewards (and an ad break between matches), and the twin-stick touch controls.
+// The in-match overlay: score and clock, your health / power / super / dash, active buffs and debuffs with timers,
+// the COUNTERED! / BROKEN! banner when a counter involves you, the kill feed, the royale grid timer, the online
+// lobby, results with rewards (and an ad break between matches), and the twin-stick touch controls.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Crown, DoorOpen, Play, Skull, Users, Zap } from 'lucide-react'
 import { adBreak } from '../lib/ads'
 import { HEROES, HERO_IDS } from './engine/heroes'
+import { POWERS, STATUS_INFO } from './engine/powers'
 import { ARENA_MAPS, MAPS, type MapId } from './engine/maps'
 import { MODE_INFO, type ModeId } from './engine/sim'
 import type { Game, Hud } from './engine/game'
 import type { Profile } from './engine/progress'
 import { portrait } from './portraits'
+import { POWER_ICONS, STATUS_ICONS } from './icons'
 
 export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game; profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void; onQuit: () => void }) {
   const me = hud.me
   const hero = HEROES[me.hero]
+  const power = POWERS[hero.power]
+  const PowerIcon = POWER_ICONS[hero.power]
+  const powerReady = me.powerCd <= 0.05
   const playing = hud.phase === 'play' || hud.phase === 'countdown'
   const team = hud.mode !== 'br'
   const mm = Math.floor(hud.timeLeft / 60)
@@ -61,6 +67,16 @@ export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game;
           {hud.br && hud.br.shrinkIn < 8 && <div className="sg-gridwarn">Grid closes in {Math.ceil(hud.br.shrinkIn)}s</div>}
           {hud.br?.outside && me.alive && <div className="sg-outside">OUTSIDE THE GRID</div>}
           {hud.phase === 'countdown' && <div className="sg-countdown">{hud.countdown > 0 ? hud.countdown : 'GO'}</div>}
+          {hud.counters.length > 0 && (
+            <div className="sg-counterpop" data-testid="sg-counterpop">
+              {hud.counters.slice(0, 1).map((c) => (
+                <div key={c.key} className={c.mine ? 'is-mine' : 'is-hit'} style={{ ['--sg-c' as string]: c.color }}>
+                  <strong>{c.word}</strong>
+                  <span>{c.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {!me.alive && hud.mode !== 'br' && <div className="sg-respawn">Back in {Math.ceil(me.respawnIn)}…</div>}
           {!me.alive && hud.mode === 'br' && <div className="sg-respawn">Eliminated · spectating</div>}
           <div className="sg-me">
@@ -68,13 +84,47 @@ export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game;
               <img src={portrait(me.hero)} alt="" />
               {hero.name}
             </div>
+            {me.statuses.length > 0 && (
+              <ul className="sg-status" data-testid="sg-status">
+                {me.statuses.map((st) => {
+                  const Icon = STATUS_ICONS[st.kind]
+                  const info = STATUS_INFO[st.kind]
+                  return (
+                    <li key={st.kind} className={info.debuff ? 'is-debuff' : ''} style={{ ['--sg-c' as string]: info.color }} title={info.name}>
+                      <Icon size={13} />
+                      <span>{info.name}</span>
+                      {st.left < 90 && <em>{Math.ceil(st.left)}s</em>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
             <div className="sg-hp">
               <i style={{ width: `${Math.max(0, (me.hp / me.maxHp) * 100)}%` }} />
+              {me.shield > 0 && <b style={{ width: `${Math.min(100, (me.shield / me.maxHp) * 100)}%` }} />}
               <span>
                 {Math.max(0, Math.round(me.hp))} / {me.maxHp}
+                {me.shield > 0 && ` +${Math.round(me.shield)}`}
               </span>
             </div>
             <div className="sg-bars">
+              <button
+                className={`sg-powerbtn ${powerReady ? 'is-ready' : ''}`}
+                style={{ ['--sg-c' as string]: power.color }}
+                onPointerDown={(e) => {
+                  e.preventDefault()
+                  game.input.touchButton('power', true)
+                }}
+                onPointerUp={() => game.input.touchButton('power', false)}
+                onPointerLeave={() => game.input.touchButton('power', false)}
+                aria-label={power.name}
+                data-testid="sg-powerbtn"
+              >
+                <i style={{ width: `${(1 - Math.min(1, me.powerCd / power.cooldown)) * 100}%` }} />
+                <span>
+                  <PowerIcon size={14} /> {powerReady ? power.name : `${Math.ceil(me.powerCd)}s`}
+                </span>
+              </button>
               <button className={`sg-superbtn ${me.super >= 1 ? 'is-ready' : ''}`} onPointerDown={(e) => {
                 e.preventDefault()
                 game.input.touchButton('super', true)
@@ -89,8 +139,8 @@ export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game;
               </div>
             </div>
           </div>
-          {hud.touch && <TouchControls game={game} superReady={me.super >= 1} />}
-          {!hud.touch && hud.phase === 'play' && hud.time < 6 && <div className="sg-hint">WASD move · mouse aim · LMB fire · Space dash · Q/E super</div>}
+          {hud.touch && <TouchControls game={game} superReady={me.super >= 1} powerReady={powerReady} powerColor={power.color} PowerIcon={PowerIcon} />}
+          {!hud.touch && hud.phase === 'play' && hud.time < 6 && <div className="sg-hint">WASD move · mouse aim · LMB fire · E / RMB {power.name} · Q super · Space dash</div>}
         </>
       )}
       {hud.phase === 'over' && hud.results && <ResultsPanel hud={hud} game={game} onQuit={onQuit} />}
@@ -202,7 +252,7 @@ function ResultsPanel({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () 
         </h2>
         {r.reward && (
           <p className="sg-reward">
-            +{r.reward.coins} coins · +{r.reward.xp} XP
+            +{r.reward.coins} coins{r.reward.shards > 0 ? ` (${r.reward.shards} from shards)` : ''} · +{r.reward.xp} XP
             {r.reward.questsDone.length > 0 && <span> · Job done: {r.reward.questsDone.join(', ')}</span>}
           </p>
         )}
@@ -285,7 +335,7 @@ function Stick({ onMove, onEnd, label, className }: { onMove: (x: number, y: num
   )
 }
 
-function TouchControls({ game, superReady }: { game: Game; superReady: boolean }) {
+function TouchControls({ game, superReady, powerReady, powerColor, PowerIcon }: { game: Game; superReady: boolean; powerReady: boolean; powerColor: string; PowerIcon: (typeof POWER_ICONS)[keyof typeof POWER_ICONS] }) {
   useEffect(() => () => game.input.touchMove(0, 0), [game])
   return (
     <div className="sg-touch" data-testid="sg-touch">
@@ -301,6 +351,19 @@ function TouchControls({ game, superReady }: { game: Game; superReady: boolean }
         onPointerCancel={() => game.input.touchButton('super', false)}
       >
         SUPER
+      </button>
+      <button
+        className={`sg-tbtn sg-tbtn-power ${powerReady ? 'is-ready' : ''}`}
+        style={{ ['--sg-c' as string]: powerColor }}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          game.input.touchButton('power', true)
+        }}
+        onPointerUp={() => game.input.touchButton('power', false)}
+        onPointerCancel={() => game.input.touchButton('power', false)}
+        aria-label="Power"
+      >
+        <PowerIcon size={22} />
       </button>
       <button
         className="sg-tbtn sg-tbtn-dash"

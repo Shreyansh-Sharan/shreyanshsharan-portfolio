@@ -1,5 +1,6 @@
-// The six heroes: numbers tuned so each has a counter (brawlers beat runners up close, snipers beat brawlers at
-// range, the tank shrugs off chip damage but loses to the grenadier's splash, the medic keeps a team in the fight).
+// The six heroes: primary fire, a signature power on a cooldown (powers.ts), a super that charges from damage, and
+// the shared dash. Numbers are tuned so the counter web in powers.ts decides matchups (see balance.test.ts).
+import type { PowerKind } from './powers.ts'
 
 export type HeroId = 'rook' | 'wren' | 'furnace' | 'flick' | 'pike' | 'salve'
 export type WeaponKind = 'scatter' | 'rifle' | 'flame' | 'smg' | 'launcher' | 'needler'
@@ -35,6 +36,8 @@ export interface Hero {
   speed: number
   weapon: Weapon
   superKind: SuperKind
+  /** Signature power (see POWERS in powers.ts). */
+  power: PowerKind
   superName: string
   superBlurb: string
   /** Damage dealt to fill the super from empty. */
@@ -54,10 +57,11 @@ export const HEROES: Record<HeroId, Hero> = {
     name: 'ROOK',
     role: 'Brawler',
     blurb: 'Riot scattergun. Brutal up close, useless at range.',
-    hp: 1500,
+    hp: 1650,
     speed: 5.2,
-    weapon: { kind: 'scatter', dmg: 112, cooldown: 0.85, range: 8.2, speed: 36, count: 6, spread: 0.28, splash: 0, burstGap: 0 },
+    weapon: { kind: 'scatter', dmg: 112, cooldown: 0.85, range: 7.6, speed: 36, count: 6, spread: 0.28, splash: 0, burstGap: 0 },
     superKind: 'bulwark',
+    power: 'wall',
     superName: 'Bulwark Dash',
     superBlurb: 'A shielded charge that rams anyone in the way.',
     chargeDmg: 2200,
@@ -73,8 +77,9 @@ export const HEROES: Record<HeroId, Hero> = {
     blurb: 'A long rail rifle. Two clean hits end most fights.',
     hp: 950,
     speed: 5.0,
-    weapon: { kind: 'rifle', dmg: 400, cooldown: 1.35, range: 22, speed: 80, count: 1, spread: 0.012, splash: 0, burstGap: 0 },
+    weapon: { kind: 'rifle', dmg: 260, cooldown: 1.35, range: 22, speed: 80, count: 1, spread: 0.012, splash: 0, burstGap: 0 },
     superKind: 'sentry',
+    power: 'dart',
     superName: 'Sentry Pod',
     superBlurb: 'Drops a turret that covers a lane for 12 seconds.',
     chargeDmg: 2000,
@@ -88,10 +93,11 @@ export const HEROES: Record<HeroId, Hero> = {
     name: 'FURNACE',
     role: 'Tank',
     blurb: 'A flamethrower and a lot of armour. Slow, but nothing gets past.',
-    hp: 2700,
-    speed: 4.9,
-    weapon: { kind: 'flame', dmg: 50, cooldown: 0.09, range: 6.8, speed: 14, count: 1, spread: 0.13, splash: 0, burstGap: 0 },
+    hp: 2750,
+    speed: 5.25,
+    weapon: { kind: 'flame', dmg: 54, cooldown: 0.09, range: 7.2, speed: 14, count: 1, spread: 0.13, splash: 0, burstGap: 0 },
     superKind: 'pulse',
+    power: 'vent',
     superName: 'Armour Pulse',
     superBlurb: 'A shockwave that throws enemies back and hardens the plating.',
     chargeDmg: 2600,
@@ -105,14 +111,15 @@ export const HEROES: Record<HeroId, Hero> = {
     name: 'FLICK',
     role: 'Runner',
     blurb: 'A fast SMG and faster legs. Hit, run, repeat.',
-    hp: 1050,
+    hp: 1150,
     speed: 6.3,
-    weapon: { kind: 'smg', dmg: 68, cooldown: 0.11, range: 11, speed: 42, count: 1, spread: 0.07, splash: 0, burstGap: 0 },
+    weapon: { kind: 'smg', dmg: 72, cooldown: 0.11, range: 10, speed: 42, count: 1, spread: 0.07, splash: 0, burstGap: 0 },
     superKind: 'cloak',
+    power: 'blink',
     superName: 'Ghost Cloak',
     superBlurb: 'Vanish for five seconds. The first shot gives you away.',
     chargeDmg: 2100,
-    prefRange: 7,
+    prefRange: 6,
     colors: ['#a855f7', '#f0abfc'],
     model: 'char-flick',
     gun: 'gun-flick',
@@ -122,10 +129,11 @@ export const HEROES: Record<HeroId, Hero> = {
     name: 'PIKE',
     role: 'Grenadier',
     blurb: 'Lobs grenades over cover. Ruins anyone who stands still.',
-    hp: 1150,
-    speed: 4.8,
-    weapon: { kind: 'launcher', dmg: 620, cooldown: 1.5, range: 13, speed: 16, count: 1, spread: 0.03, splash: 2.4, burstGap: 0 },
+    hp: 1200,
+    speed: 5.0,
+    weapon: { kind: 'launcher', dmg: 620, cooldown: 1.5, range: 13, speed: 16, count: 1, spread: 0.03, splash: 2.6, burstGap: 0 },
     superKind: 'mines',
+    power: 'toxin',
     superName: 'Minefield',
     superBlurb: 'Scatters five proximity mines around you.',
     chargeDmg: 2400,
@@ -141,8 +149,9 @@ export const HEROES: Record<HeroId, Hero> = {
     blurb: 'A three-shot needler and a steady hand. Keeps the squad standing.',
     hp: 1200,
     speed: 5.4,
-    weapon: { kind: 'needler', dmg: 115, cooldown: 0.8, range: 10.5, speed: 44, count: 3, spread: 0.03, splash: 0, burstGap: 0.08 },
+    weapon: { kind: 'needler', dmg: 104, cooldown: 0.8, range: 12, speed: 44, count: 3, spread: 0.03, splash: 0, burstGap: 0.08 },
     superKind: 'mend',
+    power: 'purge',
     superName: 'Mend Zone',
     superBlurb: 'A healing field that patches up everyone inside.',
     chargeDmg: 1700,
@@ -163,5 +172,5 @@ export const SUPER = {
   pulse: { radius: 4.2, dmg: 260, knock: 5.5, shield: 900, shieldTime: 4 },
   cloak: { duration: 5, speedMul: 1.25 },
   mines: { count: 5, ring: 2.3, dmg: 520, radius: 2.1, arm: 0.8, life: 25 },
-  mend: { duration: 6, radius: 3.4, hps: 230 },
+  mend: { duration: 6, radius: 3.4, hps: 200 },
 }
