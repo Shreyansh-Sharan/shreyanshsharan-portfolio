@@ -7,6 +7,7 @@ import { Page } from './Page'
 import { AdSlot } from './AdSlot'
 import { GearShelf } from './GearShelf'
 import { adBreak, useGameAds } from '../lib/ads'
+import { Loader3D } from './Loader3D'
 
 const accent = tiles.find((t) => t.id === 'arena')!.accent
 const GAME_URL = 'games/arena/index.html'
@@ -47,7 +48,7 @@ type GunId = (typeof GUNS)[number]['id']
 
 interface ArenaMessage {
   source: 'arena'
-  type: 'ready' | 'started' | 'code' | 'map' | 'error' | 'left'
+  type: 'ready' | 'started' | 'code' | 'map' | 'error' | 'left' | 'progress'
   payload: string
 }
 
@@ -326,6 +327,9 @@ function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void })
   const [code, setCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // The Unity page reports its download progress; the 3D loader covers the frame until it reaches 1.
+  const [unityProgress, setUnityProgress] = useState(0)
+  const [unityReady, setUnityReady] = useState(false)
 
   const inviteLink = useMemo(() => {
     if (!code) return ''
@@ -345,6 +349,12 @@ function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void })
       if (ev.source !== frame.current?.contentWindow) return
       const msg = ev.data as ArenaMessage
       if (!msg || msg.source !== 'arena') return
+      if (msg.type === 'progress') {
+        const p = Number(msg.payload)
+        if (Number.isFinite(p)) setUnityProgress(p)
+        if (p >= 1) setUnityReady(true)
+      }
+      if (msg.type === 'ready' || msg.type === 'started' || msg.type === 'error') setUnityReady(true)
       if (msg.type === 'code') setCode(msg.payload)
       if (msg.type === 'error') setError(describeError(msg.payload))
       if (msg.type === 'started') setError(null)
@@ -366,6 +376,7 @@ function ArenaPlayer({ src, onExit: exit }: { src: string; onExit: () => void })
 
   return (
     <div className="arena-player">
+      {!unityReady && <Loader3D status="Loading Dunes Arena…" progress={unityProgress} />}
       <div className="arena-bar">
         <button className="pill" onClick={onExit}>
           <LogOut size={16} /> Exit

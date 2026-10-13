@@ -18,6 +18,7 @@ import type { Game, HoleResult, Hud } from './game'
 import { hostRoom, isGolfMsg, joinRoom, MAX_GOLFERS, type GolfMsg, type GolfNet, type GolfSetup, type GolfSlot, type Link, type LobbyGolfer } from './net'
 import { AdSlot } from '../components/AdSlot'
 import { GearShelf } from '../components/GearShelf'
+import { Loader3D } from '../components/Loader3D'
 import { adBreak } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'bogey-brawl')?.accent ?? (['#14532d', '#bef264'] as [string, string])
@@ -594,7 +595,7 @@ function GolfStage(p: {
   return (
     <div className="racer-stage golf-stage">
       <div ref={host} className="racer-host" />
-      {!ready && <div className="vr-loading bb-loading">Loading golfers and course… {Math.round(p.loadPct * 100)}%</div>}
+      {!ready && <Loader3D status="Loading golfers and course…" progress={p.loadPct} />}
       {hud && <GolfHud hud={hud} />}
       {hud && !hud.locked && hud.phase !== 'results' && (
         <div className="bb-overlay">

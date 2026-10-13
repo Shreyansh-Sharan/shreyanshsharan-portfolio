@@ -21,6 +21,12 @@
     <script src="Build/{{{ LOADER_FILENAME }}}"></script>
     <script>
       var canvas = document.getElementById('unity-canvas');
+      // Tell the page that embeds the game how the download is going (the portfolio shows its own loader over the frame).
+      function post(type, payload) {
+        try {
+          if (window.parent && window.parent !== window) window.parent.postMessage({ source: 'arena', type: type, payload: payload }, '*');
+        } catch (e) {}
+      }
       var config = {
         dataUrl: 'Build/{{{ DATA_FILENAME }}}',
         frameworkUrl: 'Build/{{{ FRAMEWORK_FILENAME }}}',
@@ -41,11 +47,14 @@
       };
       createUnityInstance(canvas, config, function (p) {
         document.getElementById('fill').style.width = Math.round(p * 100) + '%';
+        post('progress', String(p));
       }).then(function () {
         document.getElementById('loader').remove();
+        post('ready', '');
         canvas.focus();
       }).catch(function (e) {
         document.getElementById('error').textContent = String(e);
+        post('error', String(e));
       });
     </script>
   </body>
