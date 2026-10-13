@@ -1741,3 +1741,13 @@
     width: 200px;
   }
 }
+
+.is-touch .ck-arc-text span,
+.is-touch .ck-act-bowl kbd {
+  display: none;
+}
+
+/* In a celebration close-up the result sits low, clear of the hero's face. */
+.is-hero .ck-banner {
+  top: 80%;
+}

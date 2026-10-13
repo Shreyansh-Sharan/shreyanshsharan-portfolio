@@ -1298,6 +1298,8 @@ export class Game {
   private startReplay(kind: ReplayKind) {
     if (this.opts.online || this.recCount < 20 || this.replayPref === 'off') return false
     if (this.replayPref === 'key' && (kind === 'four' || kind === 'close')) return false
+    // The third umpire has just shown this run out frame by frame.
+    if (kind === 'runout' && this.tvShown) return false
     return this.beginPlan(kind, this.recording, this.recCount, this.marks, 'director')
   }
 
@@ -1325,8 +1327,10 @@ export class Game {
   }
 
   /** The third umpire's look at a run out: the crease side-on, frame by frame. */
+  private tvShown = false
   private startTvReplay() {
     if (this.opts.online || this.recCount < 20 || this.marks.stumps < 0) return
+    this.tvShown = true
     this.beginPlan('runout', this.recording, this.recCount, this.marks, 'tv')
   }
 
@@ -1767,6 +1771,7 @@ export class Game {
         if (e.text === 'review' && d.review.kind === 'lbw') this.hawk.begin(d)
         if (e.text === 'predelivery') {
           this.hero = null
+          this.tvShown = false
           this.runCall = null
           this.hawk.clear()
           this.shotKind = 'none'
