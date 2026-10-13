@@ -5,18 +5,19 @@
 /** Flip to true once the split repositories are deployed. */
 export const GAMES_EXTERNAL = false
 
-const OWNER = 'Shreyansh-Sharan'
-const pages = (repo: string) => `https://${OWNER.toLowerCase()}.github.io/${repo}/`
+/** Each game is its own Vercel project on a subdomain of the portfolio's domain (DNS lives in Cloudflare). */
+const DOMAIN = 'shreyanshsharan.com'
+const sub = (name: string) => `https://${name}.${DOMAIN}/`
 
 /** Tile id → external URL. */
 export const GAME_LINKS: Record<string, string> = {
-  arena: pages('dunes-arena'),
-  cricket: pages('cricket-arena'),
-  'volt-riot': pages('volt-riot'),
-  'bogey-brawl': pages('bogey-brawl'),
-  'plush-panic': pages('plush-panic'),
-  'neon-siege': pages('neon-siege'),
-  'sports-complex': pages('sports-complex'),
+  arena: sub('dunes-arena'),
+  cricket: sub('cricket'),
+  'volt-riot': sub('volt-riot'),
+  'bogey-brawl': sub('bogey-brawl'),
+  'plush-panic': sub('plush-panic'),
+  'neon-siege': sub('neon-siege'),
+  'sports-complex': sub('sports'),
 }
 
 /** In-repo route name → tile id, so deep links (`#/racer`) can be redirected too. */
