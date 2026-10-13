@@ -1,26 +1,50 @@
 import { useEffect } from 'react'
-import { ChevronLeft, ChevronRight, CircleCheck, FileText, Trophy } from 'lucide-react'
-import { tiles } from '../data/content'
+import { ChevronLeft, ChevronRight, CircleCheck, ExternalLink, FileText, Gamepad2, Play, Trophy } from 'lucide-react'
+import { tiles, type Tile } from '../data/content'
+import { GAME_INFO, previewCards, tileKind, tilesForTab } from '../data/home'
+import { externalGameUrl, openGame } from '../data/gameLinks'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
 import { TileArt } from './TileArt'
 import { accentVars } from '../lib/style'
 
-const games = tiles.filter((t) => t.action.kind === 'hub')
+/** Career chapters (the original detail pages), and since the console home, the games and the showcase too. */
+const careers = tiles.filter((t) => t.action.kind === 'hub')
+
+function siblings(tile: Tile): Tile[] {
+  const kind = tileKind(tile)
+  if (kind === 'career') return careers
+  if (kind === 'game') return tilesForTab('games')
+  return [tile]
+}
 
 export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, string], emblem: string) => void }) {
-  const index = games.findIndex((t) => t.id === id)
-  const tile = games[index]
+  const found = tiles.find((t) => t.id === id)
+  // Pages with their own route (profile, trophies, skills) go there instead.
+  const redirect = found && found.action.kind === 'route' && tileKind(found) === 'profile' ? found.action.to : null
+  const tile = found && !redirect ? found : undefined
+  const games = tile ? siblings(tile) : []
+  const index = tile ? games.findIndex((t) => t.id === tile.id) : -1
 
   useEffect(() => {
     if (tile) onAccent(tile.accent, tile.id)
-    else navigate('#/home')
-  }, [tile, onAccent])
+    else navigate(redirect ?? '#/home')
+  }, [tile, redirect, onAccent])
 
   if (!tile) return null
   const prev = games[index - 1]
   const next = games[index + 1]
+  const isGame = tileKind(tile) === 'game'
+  const info = GAME_INFO[tile.id]
+  const features = tile.activities.length ? [] : previewCards(tile)
+  const external = externalGameUrl(tile.id)
+  const playGame = () => {
+    play('select')
+    if (external) openGame(external)
+    else if (tile.action.kind === 'route') navigate(tile.action.to)
+    else if (tile.action.kind === 'iframe') navigate(`#/embed/${tile.id}`)
+  }
 
   return (
     // key resets scroll position when moving between games
@@ -40,8 +64,54 @@ export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, s
           </h1>
           <p className="hero-org">{tile.org}</p>
           <p className="hero-blurb">{tile.blurb}</p>
+          {(isGame || tile.action.kind === 'iframe') && (
+            <div className="hero-actions">
+              <button className="btn btn-primary" onClick={playGame}>
+                {external ? <ExternalLink size={16} /> : <Play size={16} />} {isGame ? 'Play Game' : 'Open'}
+              </button>
+            </div>
+          )}
         </div>
       </header>
+
+      {info && (
+        <section className="section">
+          <h2 className="section-title">How to play</h2>
+          <div className="stat-grid">
+            <div className="stat">
+              <span className="stat-label">Modes</span>
+              <span className="hub-fact">{info.modes}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">Players</span>
+              <span className="hub-fact">{info.players}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">
+                <Gamepad2 size={14} /> Controls
+              </span>
+              <span className="hub-fact">{info.howTo}</span>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {features.length > 0 && (
+        <section className="section">
+          <h2 className="section-title">Features</h2>
+          <ol className="activity-list">
+            {features.map((a) => (
+              <li className="activity is-feature" key={a.title}>
+                <CircleCheck className="activity-check" size={20} aria-hidden="true" />
+                <div>
+                  <h3>{a.title}</h3>
+                  <p>{a.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {tile.stats.length > 0 && (
         <section className="section">
@@ -57,6 +127,7 @@ export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, s
         </section>
       )}
 
+      {tile.activities.length > 0 && (
       <section className="section">
         <h2 className="section-title">Activities</h2>
         <ol className="activity-list">
@@ -72,6 +143,7 @@ export function GameHub({ id, onAccent }: { id: string; onAccent: (a: [string, s
           ))}
         </ol>
       </section>
+      )}
 
       {tile.achievements && (
         <section className="section">

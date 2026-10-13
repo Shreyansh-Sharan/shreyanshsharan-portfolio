@@ -13,11 +13,13 @@ export interface WorldState {
   done: string[]
   /** Player position and camera heading, for the minimap and compass. */
   player: { x: number; z: number; heading: number }
-  /** Requested teleport from the minimap. */
-  teleport: { x: number; z: number; n: number } | null
+  /** Requested teleport from the minimap or the arcade (yaw: camera heading to face on arrival). */
+  teleport: { x: number; z: number; n: number; yaw?: number } | null
   assetsReady: boolean
   /** Asked to start exploring (e.g. from the boot screen) before the world finished loading. */
   requestPlay: boolean
+  /** Tile whose spot explore mode should start at (the home screen's "Explore Open World"); consumed on spawn. */
+  arrive: string | null
   /** The mission fight in progress, for the HUD counter (see combat.ts). */
   fight: { tile: string; name: string; wave: number; waves: number; left: number; total: number } | null
   /** The last mission won, for the celebration banner (n increments per win). */
@@ -74,6 +76,7 @@ let state: WorldState = {
   teleport: null,
   assetsReady: false,
   requestPlay: false,
+  arrive: null,
   fight: null,
   cheer: null,
   toast: null,
