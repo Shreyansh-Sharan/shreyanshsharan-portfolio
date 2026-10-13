@@ -1,6 +1,6 @@
 // DOM overlay for explore mode: mission log, objective compass, minimap, prompts, briefing, touch controls.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleCheck, Compass, Crosshair, Feather, Footprints, Gauge, Map as MapIcon, Swords, X, Zap } from 'lucide-react'
+import { Camera, CircleCheck, Compass, Crosshair, Feather, Footprints, Gauge, Map as MapIcon, Sparkles, Swords, X, Zap } from 'lucide-react'
 import { MISSIONS, type Mission } from './missions'
 import { ISLAND_RADIUS, REGIONS } from './regions'
 import { controls } from './controls'
@@ -11,6 +11,8 @@ import { world, useWorld } from './store'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { isLowGraphics, setLowGraphics } from '../lib/graphics'
+import { startMinigame } from './minigames'
+import { FishingTouch, GameHud, GameTip, HurtVignette, hudKey, KnockedOut, nearGame, PalsPanel, PartyStrip, PhotoFrame, Reticle, Toasts, TreasureMap } from './WorldHud'
 
 function usePlayerTick() {
   const [, setTick] = useState(0)
@@ -235,7 +237,12 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
     return () => document.removeEventListener('pointerlockchange', on)
   }, [])
   const fightState = useWorld((s) => s.fight)
+  const gameHud = useWorld((s) => s.minigame)
+  const panel = useWorld((s) => s.panel)
+  const photoOn = useWorld((s) => s.photo)
   const flying = player.flying
+  // A mini-game start within reach (missions take priority when both are close).
+  const gameNear = !near && !gameHud ? nearGame(p.x, p.z) : null
 
   // Graphics tier, switchable without leaving the world; the canvas listens for the change. The world also
   // announces when it dropped the tier itself after seeing nothing but black frames.
@@ -301,11 +308,20 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (hudKey(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
       if (e.code === 'KeyE' || e.code === 'Enter') {
         const n = world.get().near
         if (n && !world.get().open) {
           play('select')
           world.set({ open: n })
+        } else if (!n && !world.get().open && !world.get().minigame) {
+          const pl = world.get().player
+          const g = nearGame(pl.x, pl.z)
+          if (g) startMinigame(g.id, player)
         }
       }
       if (e.code === 'Escape' && world.get().open) {
@@ -347,6 +363,17 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         {results.coins}
       </div>
 
+      <HurtVignette />
+      <KnockedOut />
+      <Toasts />
+      <PhotoFrame touch={touch} />
+      {!open && panel === 'none' && !photoOn && <Reticle />}
+      {!photoOn && <PartyStrip touch={touch} />}
+      {panel === 'pals' && <PalsPanel onClose={() => world.set({ panel: 'none' })} />}
+      <GameHud below={!!fightState} />
+      <TreasureMap />
+      {touch && <FishingTouch />}
+
       {fightState && (
         <div className="fight-hud" role="status">
           <span className="fight-title">
@@ -370,7 +397,7 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </div>
       )}
 
-      {!fightState && nextMission && (
+      {!fightState && !gameHud && nextMission && (
         <div className="objective">
           <Compass size={16} />
           <span className="objective-arrow" style={{ transform: `rotate(${arrow}rad)` }}>
@@ -381,9 +408,9 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
           </span>
         </div>
       )}
-      {!fightState && !nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
+      {!fightState && !gameHud && !nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
 
-      {!touch && !locked && !open && <div className="look-hint">Click the world to look around with the mouse · Esc frees it</div>}
+      {!touch && !locked && !open && panel === 'none' && !photoOn && <div className="look-hint">Click the world to look around with the mouse · Esc frees it</div>}
 
       <div className="map-wrap">
         <Minimap target={nextMission} />
@@ -425,6 +452,21 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </button>
       )}
 
+      {gameNear && !openMission && !photoOn && (
+        <>
+          <GameTip def={gameNear} />
+          <button
+            className="prompt"
+            onClick={() => {
+              play('select')
+              startMinigame(gameNear.id, player)
+            }}
+          >
+            <kbd>E</kbd> Play: {gameNear.name}
+          </button>
+        </>
+      )}
+
       {openMission && <Briefing mission={openMission} onClose={() => world.set({ open: null })} />}
 
       {touch ? (
@@ -461,11 +503,17 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
             <button className="touch-btn" onPointerDown={() => (controls.cast = true)} aria-label="Zap or cast a spell">
               <Zap size={20} />
             </button>
+            <button className="touch-btn" onPointerDown={() => (controls.throw = true)} aria-label="Throw a Spark Sphere">
+              <Sparkles size={20} />
+            </button>
+            <button className="touch-btn" onPointerDown={() => (controls.photo = true)} aria-label="Photo mode">
+              <Camera size={20} />
+            </button>
           </div>
         </>
       ) : (
         <p className="play-help">
-          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump, double-tap to fly ({flying ? <><kbd>Space</kbd>/<kbd>C</kbd> up/down</> : <><kbd>X</kbd> too</>}) · click / <kbd>J</kbd> attack · <kbd>Q</kbd> spin · <kbd>F</kbd> zap / spell · <kbd>E</kbd> interact · <kbd>⌘K</kbd> exit
+          <kbd>WASD</kbd> move · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump, double-tap to fly ({flying ? <><kbd>Space</kbd>/<kbd>C</kbd> up/down</> : <><kbd>X</kbd> too</>}) · click / <kbd>J</kbd> attack · <kbd>Q</kbd> spin · <kbd>F</kbd> zap / spell · <kbd>G</kbd> sphere · <kbd>R</kbd> ride · <kbd>P</kbd> photo · <kbd>B</kbd> pals · <kbd>E</kbd> interact · <kbd>⌘K</kbd> exit
         </p>
       )}
 

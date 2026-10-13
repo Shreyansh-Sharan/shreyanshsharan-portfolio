@@ -5,6 +5,7 @@ import { Cloud, Clouds, Environment as Env, Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { WATER_LEVEL } from './regions'
 import { skyFlash } from './particles'
+import { daylight } from './clock'
 
 /** Where the camera is looking; the sun's shadow box follows it. Written by the camera rig. */
 export const lookTarget = new THREE.Vector3()
@@ -16,11 +17,19 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
   const sky = useRef<THREE.HemisphereLight>(null)
   const target = useMemo(() => new THREE.Object3D(), [])
   const frame = useRef(0)
-  useFrame(({ gl }) => {
+  useFrame(({ gl, scene }) => {
     const s = sun.current
     if (!s) return
+    // Night falls while exploring: the sun dims to moonlight, the sky light cools, fog and background darken.
+    const day = daylight()
+    s.intensity = 0.35 + 2.15 * day
+    s.color.setRGB(THREE.MathUtils.lerp(0.55, 1, day), THREE.MathUtils.lerp(0.65, 0.886, day), THREE.MathUtils.lerp(0.95, 0.72, day))
+    const bg = scene.background as THREE.Color | null
+    if (bg && bg.isColor) bg.setRGB(0.62 * day + 0.04, 0.75 * day + 0.05, 0.87 * day + 0.12)
+    const fog = scene.fog as THREE.Fog | null
+    if (fog) fog.color.setRGB(0.66 * day + 0.04, 0.78 * day + 0.05, 0.88 * day + 0.12)
     // A lightning strike lights up the whole scene for an instant (no extra light, so no shader recompiles).
-    if (sky.current) sky.current.intensity = 0.55 + skyFlash.value * 1.3
+    if (sky.current) sky.current.intensity = (0.55 + skyFlash.value * 1.3) * (0.45 + 0.55 * day)
     // The 2048 px soft shadow map is the costliest pass: redraw it every frame only while exploring;
     // during the fly-over a few refreshes a second look the same.
     gl.shadowMap.autoUpdate = live
@@ -58,9 +67,14 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
 
 export function SkyDome() {
   const sunPos = useMemo(() => SUN_DIR.clone().multiplyScalar(1000), [])
+  const sky = useRef<THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>>(null)
+  // The sky dome is daylight only; at night it hides and the dark background shows through (stars would be nice).
+  useFrame(() => {
+    if (sky.current) sky.current.visible = daylight() > 0.3
+  })
   return (
     <>
-      <Sky distance={3000} sunPosition={sunPos} turbidity={3.2} rayleigh={2.6} mieCoefficient={0.004} mieDirectionalG={0.82} />
+      <Sky ref={sky} distance={3000} sunPosition={sunPos} turbidity={3.2} rayleigh={2.6} mieCoefficient={0.004} mieDirectionalG={0.82} />
       {/* The same sky, baked once into an environment map for reflections on water and models. */}
       <Env frames={1} resolution={256} environmentIntensity={0.65}>
         <Sky distance={3000} sunPosition={sunPos} turbidity={3.2} rayleigh={2.6} mieCoefficient={0.004} mieDirectionalG={0.82} />

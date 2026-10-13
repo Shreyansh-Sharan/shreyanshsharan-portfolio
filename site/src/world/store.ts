@@ -22,6 +22,32 @@ export interface WorldState {
   fight: { tile: string; name: string; wave: number; waves: number; left: number; total: number } | null
   /** The last mission won, for the celebration banner (n increments per win). */
   cheer: { n: number; name: string } | null
+  /** Short HUD notices (loot, captures, level-ups); n increments per notice. */
+  toast: { n: number; text: string } | null
+  /** Bumped each time the player is knocked out (the HUD shows the overlay). */
+  ko: number
+  /** The mini-game in progress, as the HUD shows it (see minigames.ts). */
+  minigame: MinigameHud | null
+  /** Photo mode (P): time frozen, free orbit. */
+  photo: boolean
+  /** The HUD panel open over the world ('pals' = roster, bestiary and Palbox). */
+  panel: 'none' | 'pals'
+  /** Bumped whenever the pal roster or the bestiary changes. */
+  palsN: number
+}
+
+export interface MinigameHud {
+  id: string
+  name: string
+  /** Seconds elapsed. */
+  t: number
+  /** Progress line ("3/10 bottles"), and an optional second line of instructions. */
+  progress: string
+  hint: string
+  /** 0..1 when the game has a meter to show (fishing's cast bar, reel tension). */
+  meter: number | null
+  /** The end card once the game is over. */
+  result: { won: boolean; time: number; coins: number; trophy: boolean; best: number | null; note: string } | null
 }
 
 function readDone(): string[] {
@@ -44,6 +70,12 @@ let state: WorldState = {
   requestPlay: false,
   fight: null,
   cheer: null,
+  toast: null,
+  ko: 0,
+  minigame: null,
+  photo: false,
+  panel: 'none',
+  palsN: 0,
 }
 
 const listeners = new Set<() => void>()
@@ -67,6 +99,10 @@ export const world = {
       // Progress just won't persist (private mode).
     }
     world.set({ done })
+  },
+  /** A short HUD notice. */
+  notify(text: string) {
+    world.set({ toast: { n: (state.toast?.n ?? 0) + 1, text } })
   },
   subscribe(l: () => void) {
     listeners.add(l)

@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { heightAt } from './terrain'
 import { drainCast, IMPACT, lastCast, type CastEvent, type SpellId } from './spells'
 import { emit, MAX_PARTICLES, pool, SHAPE, skyFlash, stepParticles, type Emit } from './particles'
+import { freeze } from './combat'
 import type { Animal } from './wildlife'
 
 /* ---------- Helpers ---------- */
@@ -128,7 +129,7 @@ function Particles() {
   const { geo, mat } = particleGpu()
 
   useFrame(({ gl }, dt) => {
-    const alive = stepParticles(Math.min(dt, 0.05))
+    const alive = stepParticles(freeze.value ? 0 : Math.min(dt, 0.05))
     const pts = ref.current
     if (!pts) return
     const { geo, mat } = particleGpu()

@@ -9,6 +9,8 @@ import { player } from './Characters'
 import { world } from './store'
 import { feel } from './combat'
 import { blocked } from './colliders'
+import { photo } from './minigames'
+import { ride, saddleHeight } from './creatures'
 
 // `?snap` jumps the camera instantly (handy for screenshots and slow machines).
 const SNAP = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('snap')
@@ -28,6 +30,29 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
   useFrame((frame, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const s = state.current
+
+    if (playing && photo.active) {
+      // Photo mode: a free orbit around the (frozen) player; W / S or the stick zoom.
+      photo.yaw -= controls.look.x * 0.005
+      photo.pitch = THREE.MathUtils.clamp(photo.pitch + controls.look.y * 0.004, -0.6, 1.3)
+      controls.look.x = controls.look.y = 0
+      const move = moveAxes()
+      photo.dist = THREE.MathUtils.clamp(photo.dist - move.y * dt * 10, 2.5, 30)
+      tmpTarget.set(player.pos.x, player.pos.y + 1.4, player.pos.z)
+      tmpPos.set(
+        tmpTarget.x + Math.sin(photo.yaw) * Math.cos(photo.pitch) * photo.dist,
+        tmpTarget.y + Math.sin(photo.pitch) * photo.dist,
+        tmpTarget.z + Math.cos(photo.yaw) * Math.cos(photo.pitch) * photo.dist,
+      )
+      const floor = heightAt(tmpPos.x, tmpPos.z) + 0.6
+      if (tmpPos.y < floor) tmpPos.y = floor
+      s.pos.lerp(tmpPos, SNAP ? 1 : 1 - Math.exp(-dt * 12))
+      s.target.lerp(tmpTarget, SNAP ? 1 : 1 - Math.exp(-dt * 12))
+      camera.position.copy(s.pos)
+      camera.lookAt(s.target)
+      lookTarget.copy(s.target)
+      return
+    }
 
     if (playing) {
       const dragged = controls.look.x !== 0 || controls.look.y !== 0
@@ -53,8 +78,9 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
         player.camPitch = THREE.MathUtils.lerp(player.camPitch, 0.3, Math.min(1, dt * 1.2))
       }
       // Pull back a little (and widen the lens) as flight speeds up.
-      const dist = 7.5 + player.fly * 3.5
-      tmpTarget.set(player.pos.x, player.pos.y + 1.6, player.pos.z)
+      const mount = ride.pal
+      const dist = 7.5 + player.fly * 3.5 + (mount ? mount.size * 1.5 : 0)
+      tmpTarget.set(player.pos.x, player.pos.y + 1.6 + (mount ? saddleHeight(mount) : 0), player.pos.z)
       tmpPos.set(
         tmpTarget.x + Math.sin(player.camYaw) * Math.cos(player.camPitch) * dist,
         tmpTarget.y + Math.sin(player.camPitch) * dist,
