@@ -13,7 +13,7 @@ import { CHAOS_KINDS, PF, PROJ_KINDS, TOOL_KINDS, TRAP_KINDS, ZONE_KINDS, type S
 import type { HouseTheme } from '../engine/progress'
 import { Actor, FirstPerson, teamColour, type ActorMeta } from './actors'
 import { Fx } from './fx'
-import { skyStrip } from './textures'
+import { dot, skyStrip } from './textures'
 import { World } from './world'
 
 export interface ViewOptions {
@@ -207,7 +207,7 @@ export class LawnView {
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    const mat = new THREE.PointsMaterial({ color: kind === 'snow' ? '#ffffff' : '#bcd8ff', size: kind === 'snow' ? 0.12 : 0.06, transparent: true, opacity: kind === 'snow' ? 0.9 : 0.6, depthWrite: false, sizeAttenuation: true })
+    const mat = new THREE.PointsMaterial({ color: kind === 'snow' ? '#ffffff' : '#bcd8ff', size: kind === 'snow' ? 0.14 : 0.06, map: dot(), alphaTest: 0.2, transparent: true, opacity: kind === 'snow' ? 0.95 : 0.6, depthWrite: false, sizeAttenuation: true })
     this.weather = new THREE.Points(geo, mat)
     this.weather.frustumCulled = false
     this.weatherVel = vel
@@ -302,8 +302,12 @@ export class LawnView {
     for (const r of snap.p) {
       const id = r[0]
       seen.add(id)
-      const meta = this.meta.get(id)
-      if (!meta) continue
+      let meta = this.meta.get(id)
+      if (!meta) {
+        if (!(r[8] & PF.robot)) continue
+        meta = { name: 'Robot', hero: 'dog', team: 1, colour: '#8fa3b8', human: false, robot: true }
+        this.meta.set(id, meta)
+      }
       let a = this.actors.get(id)
       if (!a) {
         a = new Actor(this.assets, meta, this.myTeam)

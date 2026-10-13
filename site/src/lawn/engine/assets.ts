@@ -39,7 +39,7 @@ export const MANIFEST: Record<string, ModelSpec> = {
   'char-m': { file: 'char-m.glb', height: 1.85, animated: true },
   'char-f': { file: 'char-f.glb', height: 1.72, animated: true },
   hair: { file: 'hair.glb' },
-  dog: { file: 'dog.glb', height: 0.75, animated: true, yaw: -Math.PI / 2 },
+  dog: { file: 'dog.glb', height: 0.75, animated: true },
   robot: { file: 'hexapod.glb', width: 1.6, animated: true, yaw: Math.PI / 2 },
   seagull: { file: 'seagull.glb', width: 0.9, animated: true },
   // Held weapons and gadgets.
@@ -79,7 +79,7 @@ export const MANIFEST: Record<string, ModelSpec> = {
   trampoline: { file: 'trampoline.glb', width: 3.2, animated: true },
   icecream: { file: 'icecream.glb', width: 6.5, yaw: Math.PI / 2 },
   pine: { file: 'pine.glb', height: 7 },
-  'pine-snowy': { file: 'pines-pack.glb', sub: 'T2', height: 8 },
+  'pine-snowy': { file: 'pine.glb', height: 8 },
   ladder: { file: 'ladder.glb', height: 3.6 },
   pickup: { file: 'pickup.glb', width: 5.0 },
   'house-small': { file: 'house-small.glb', width: 11 },

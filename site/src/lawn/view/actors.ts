@@ -220,7 +220,7 @@ function accessories(o: Outfit, head: THREE.Object3D, teamTint: string) {
     const mat = new THREE.MeshStandardMaterial({ color: '#2a1f3d', roughness: 0.4 })
     const l = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.005, 6, 16), mat)
     const r = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.005, 6, 16), mat)
-    const gy = o.female ? 0.08 : 0.04
+    const gy = o.female ? 0.13 : 0.06
     l.position.set(-0.035, gy, 0.1)
     r.position.set(0.035, gy, 0.1)
     const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.005, 0.005), mat)

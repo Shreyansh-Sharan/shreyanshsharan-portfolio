@@ -241,7 +241,8 @@ export class Game {
       roster.push({ name: names[i], hero, team, human: false, perks: rng.int(3) })
     }
     const layouts: [LayoutId, LayoutId] = [look.layout, (['classic', 'bunker', 'spread', 'garage'] as LayoutId[])[rng.int(4)]]
-    const themes: [HouseTheme, HouseTheme] = [look.theme as HouseTheme, MAPS[map].theme.day.houseThemes[1] === look.theme ? (MAPS[map].theme.day.houseThemes[0] as HouseTheme) : (MAPS[map].theme.day.houseThemes[1] as HouseTheme)]
+    const mine = themeFor(map, look.theme as HouseTheme)
+    const themes: [HouseTheme, HouseTheme] = [mine, MAPS[map].theme.day.houseThemes[1] === mine ? (MAPS[map].theme.day.houseThemes[0] as HouseTheme) : (MAPS[map].theme.day.houseThemes[1] as HouseTheme)]
     this.beginMatch(this.settings, seed, roster, layouts, themes)
   }
 
@@ -271,7 +272,7 @@ export class Game {
     const hostLook = this.look
     const other = humans.map((p) => this.lookFor(p.peer)).find((l) => l !== hostLook && roster.some((r) => r.team === 1 && r.name === l.name))
     const layouts: [LayoutId, LayoutId] = [hostLook.layout, other?.layout ?? (['classic', 'bunker', 'spread', 'garage'] as LayoutId[])[rng.int(4)]]
-    const themes: [HouseTheme, HouseTheme] = [hostLook.theme as HouseTheme, (other?.theme as HouseTheme) ?? (MAPS[this.settings.map].theme.day.houseThemes[1] as HouseTheme)]
+    const themes: [HouseTheme, HouseTheme] = [themeFor(this.settings.map, hostLook.theme as HouseTheme), themeFor(this.settings.map, (other?.theme as HouseTheme) ?? (MAPS[this.settings.map].theme.day.houseThemes[1] as HouseTheme))]
     this.send({ t: 'lw-start', setup: { settings: this.settings, seed, roster, layouts, themes } })
     this.beginMatch(this.settings, seed, roster, layouts, themes)
   }
@@ -1023,6 +1024,15 @@ export class Game {
     this.audio.dispose()
     this.view.dispose()
   }
+}
+
+/** Lodge themes on the snowy street, suburban paint on the cul-de-sac. */
+function themeFor(map: MapId, theme: HouseTheme): HouseTheme {
+  const snowy = MAPS[map].theme.day.snow
+  const lodge = theme === 'timber' || theme === 'slate'
+  if (snowy && !lodge) return theme === 'mint' || theme === 'sky' ? 'slate' : 'timber'
+  if (!snowy && lodge) return theme === 'slate' ? 'sky' : 'lemon'
+  return theme
 }
 
 function r2(v: number) {
