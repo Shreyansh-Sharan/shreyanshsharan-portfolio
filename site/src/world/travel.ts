@@ -4,7 +4,8 @@
 // the in-world arcade (a teleport while already exploring).
 import { tiles } from '../data/content'
 import { REGIONS, regionForTile } from './regions'
-import { arcadeDoor, exhibits, stadiumGate } from './exhibits'
+import { GAME_IDS, exhibits, stadiumGate } from './exhibits'
+import { ROOMS } from './interiors'
 import { world } from './store'
 
 export interface TravelSpot {
@@ -32,15 +33,15 @@ export function travelSpot(tileId: string): TravelSpot {
     const g = stadiumGate()
     return before(g.x, g.z, 0, 4.5, 'Stadium gate')
   }
-  const cabinet = find(`cabinet:${tileId}`)
-  if (cabinet) return before(cabinet.x, cabinet.z, cabinet.yaw, 3.2, `Games Plaza · ${title} cabinet`)
-  if (tileId === 'lawn-wars') {
-    const d = arcadeDoor()
-    return before(d.x, d.z, 0, 6, 'Games Plaza · the arcade')
+  // The game cabinets and the trophy hall are inside the walk-in rooms (built away from the island), so fast travel
+  // lands on the doorstep outside; E at the door walks in.
+  if (GAME_IDS.includes(tileId) || tileId === 'lawn-wars') {
+    const d = ROOMS.arcade.door()
+    return before(d.x, d.z, d.yaw, 5, `Games Plaza · the arcade (${title} cabinet inside)`)
   }
   if (tileId === 'trophies') {
-    const t = find('trophy:4')
-    if (t) return before(t.x, t.z, t.yaw, 4, 'Khotyn Keep · trophy hall')
+    const d = ROOMS.hall.door()
+    return before(d.x, d.z, d.yaw, 5, 'Khotyn Keep · the great hall (trophies inside)')
   }
   if (tileId === 'skill-tree') {
     const s = find('sign:0')
