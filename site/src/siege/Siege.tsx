@@ -342,15 +342,16 @@ function Credits() {
         </button>
       </h2>
       <p className="muted small">
-        Heroes and arena pieces are Creative Commons models from Sketchfab, used under{' '}
+        The heroes, their blasters and most of the arena are original models made for this project. The hero
+        animations and a few backdrop pieces come from Creative Commons models on Sketchfab, used under{' '}
         <a href={CC_BY.url} target="_blank" rel="noreferrer">
           CC BY 4.0
         </a>
-        . Blasters and grenades: Kenney Blaster Kit (CC0).
+        . Grenade: Kenney Blaster Kit (CC0).
       </p>
       {open && (
         <>
-          <h3 className="sg-sub">Heroes</h3>
+          <h3 className="sg-sub">Hero animation clips</h3>
           <ul className="sg-creditlist">{CHARACTER_CREDITS.map(row)}</ul>
           {ENVIRONMENT_CREDITS.length > 0 && (
             <>

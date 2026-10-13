@@ -201,8 +201,10 @@ export class FighterActor {
           const m = o as THREE.Mesh
           if (!m.isMesh) return
           const mat = (m.material as THREE.MeshLambertMaterial).clone()
-          mat.emissive = new THREE.Color(palette.glow)
-          mat.emissiveIntensity = 0.1
+          // Neon parts (emissive mask) glow steadily; the rest only flashes in the skin's glow on a shot.
+          mat.userData.glowBase = mat.emissiveMap ? 0.9 : 0
+          if (!mat.emissiveMap) mat.emissive = new THREE.Color(palette.glow)
+          mat.emissiveIntensity = mat.userData.glowBase as number
           m.material = mat
           this.gunMats.push(mat)
         })
@@ -465,7 +467,7 @@ export class FighterActor {
     this.placeGun()
     const op = cloak > 0 ? cloak : 1
     this.setFade(op)
-    for (const m of this.gunMats) m.emissiveIntensity = 0.12 + this.recoil * this.recoil * 1.8
+    for (const m of this.gunMats) m.emissiveIntensity = (m.userData.glowBase as number) + this.recoil * this.recoil * 1.8
     this.ringMat.opacity = (spawnShield ? 0.5 + Math.sin(time * 14) * 0.3 : 0.85) * op
     this.accentMat.opacity = 0.6 * op
     this.shadowMat.opacity = 0.85 * op

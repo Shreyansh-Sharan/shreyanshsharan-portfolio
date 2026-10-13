@@ -376,7 +376,8 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
           break
         }
         case '=':
-          placeProp('env-rails', x, z, alongX(cx, cz) ? 0 : Math.PI / 2, [2, 1, 0.5], '#8a2b2b').scale.y = 0.5
+          // The barrier model runs along its local Z: turn it to follow the run of low cover.
+          placeProp('env-rails', x, z, alongX(cx, cz) ? Math.PI / 2 : 0, [2, 1, 0.5], '#8a2b2b').scale.y = 0.5
           break
         case 's':
           placeProp('env-case', x, z, alongX(cx, cz) ? Math.PI / 2 : 0, [2, 0.6, 0.6], '#8a7a4a')

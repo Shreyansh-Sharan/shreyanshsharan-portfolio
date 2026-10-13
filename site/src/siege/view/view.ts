@@ -3,7 +3,7 @@
 // and floating damage numbers. It draws snapshots, so the host view and online clients share this code.
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { findClip, instance, type SiegeAssets } from '../engine/assets'
+import { instance, type SiegeAssets } from '../engine/assets'
 import { HEROES, type HeroId } from '../engine/heroes'
 import { CELL, type MapDef } from '../engine/maps'
 import type { Quality } from '../engine/quality'
@@ -48,7 +48,7 @@ export class SiegeView {
   private mapDef: MapDef | null = null
   private sun: THREE.DirectionalLight
   private actors = new Map<number, FighterActor>()
-  private deploys = new Map<number, { obj: THREE.Object3D; kind: string; team: number; turretHead?: THREE.Object3D; lamp?: THREE.Mesh; mixer?: THREE.AnimationMixer }>()
+  private deploys = new Map<number, { obj: THREE.Object3D; kind: string; team: number; turretHead?: THREE.Object3D; lamp?: THREE.Mesh; hover?: boolean }>()
   private pickups = new Map<number, THREE.Object3D>()
   private projMeshes: Record<string, THREE.InstancedMesh> = {}
   private grenades: THREE.InstancedMesh
@@ -297,9 +297,8 @@ export class SiegeView {
         this.deploys.set(id, d)
         this.scene.add(d.obj)
       }
-      d.obj.position.set(x, d.mixer ? 0.9 + Math.sin(t * 2.2 + id) * 0.12 : 0, z)
+      d.obj.position.set(x, d.hover ? 0.9 + Math.sin(t * 2.2 + id) * 0.12 : 0, z)
       if (d.turretHead) d.turretHead.rotation.y = Math.atan2(Math.cos(aim), Math.sin(aim))
-      d.mixer?.update(dt)
       if (d.lamp) (d.lamp.material as THREE.MeshBasicMaterial).color.set(armed ? (Math.sin(t * 12) > 0 ? '#ff3366' : '#55001a') : '#333')
       if (kind === 'heal') {
         d.obj.rotation.y = t * 0.8
@@ -418,18 +417,11 @@ export class SiegeView {
         const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 28), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }))
         ring.rotation.x = -Math.PI / 2
         ring.position.y = -0.85
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color }))
-        lamp.position.set(0, 0.9, 0.3)
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color }))
+        lamp.position.set(0, 1.12, 0.05)
         head.add(lamp)
         g.add(head, ring)
-        const clips = this.assets.clips.get('env-drone')
-        const clip = findClip(clips, 'Scene')
-        let mixer: THREE.AnimationMixer | undefined
-        if (clip) {
-          mixer = new THREE.AnimationMixer(drone)
-          mixer.clipAction(clip).play()
-        }
-        return { obj: g, kind, team, turretHead: head, mixer }
+        return { obj: g, kind, team, turretHead: head, hover: true }
       }
       const g = new THREE.Group()
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 0.5, 10), new THREE.MeshStandardMaterial({ color: '#3b3b4f', metalness: 0.6, roughness: 0.4 }))
