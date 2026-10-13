@@ -1,6 +1,6 @@
 // Procedural island: one height function shared by the terrain mesh, prop placement and the player.
 import * as THREE from 'three'
-import { ISLAND_RADIUS, REGIONS, WATER_LEVEL, type Biome, type Region } from './regions'
+import { ISLAND_RADIUS, REGIONS, ROADS, WATER_LEVEL, type Biome, type Region } from './regions'
 
 /* ---------- Noise ---------- */
 
@@ -78,26 +78,63 @@ export function mulberry32(seed: number) {
   }
 }
 
+/* ---------- Roads ---------- */
+
+interface Seg { ax: number; az: number; bx: number; bz: number; ah: number; bh: number; len: number }
+const SEGS: Seg[] = []
+
+/** Distance to the nearest road centreline and the road's height there (a straight ramp between its points). */
+export function roadAt(x: number, z: number): { d: number; h: number } {
+  let best = Infinity, h = 0
+  for (const s of SEGS) {
+    const dx = s.bx - s.ax, dz = s.bz - s.az
+    let t = ((x - s.ax) * dx + (z - s.az) * dz) / (s.len * s.len)
+    t = t < 0 ? 0 : t > 1 ? 1 : t
+    const px = s.ax + dx * t, pz = s.az + dz * t
+    const d = Math.hypot(x - px, z - pz)
+    if (d < best) {
+      best = d
+      h = s.ah + (s.bh - s.ah) * t
+    }
+  }
+  return { d: best, h }
+}
+
+export const ROAD_HALF = 4.2
+
 /* ---------- Height ---------- */
 
-function biomeHeight(r: Region, x: number, z: number, d: number) {
+const KEEP = REGIONS.find((r) => r.id === 'ridge')!
+/** Direction (from the keep's centre) the approach ramp runs down. */
+const RAMP_DIR = Math.atan2(-20 - KEEP.center[0], -220 - KEEP.center[1])
+
+function biomeHeight(r: Region, x: number, z: number, d: number, generic: number) {
   switch (r.biome) {
-    case 'plaza':
-      return 3 + noise(x * 0.08, z * 0.08) * 0.3
+    case 'harbour':
+      return 3.4 + noise(x * 0.05, z * 0.05) * 0.4
+    case 'arcade':
+      return 4.2 + noise(x * 0.08, z * 0.08) * 0.15
     case 'neon':
-      return 2.2
+      return 7.2
+    case 'stadium':
+      return 3.6
     case 'highland':
-      return 4 + (fbm(x * 0.018, z * 0.018) + 0.4) * 13
-    case 'ridge':
-      return 6 + 32 * Math.exp(-((d / 30) ** 2)) + ridged(x * 0.016, z * 0.016) * 12
-    case 'campus':
-      return 3.4 + fbm(x * 0.025, z * 0.025) * 3
-    case 'dunes': {
-      const w = Math.sin(x * 0.085 + fbm(x * 0.02, z * 0.02) * 4) * 0.5 + 0.5
-      return 2.6 + w * w * 5 + fbm(x * 0.04, z * 0.04) * 1.2
+      return 4 + (fbm(x * 0.012, z * 0.012) + 0.4) * 15
+    case 'keep': {
+      // A plateau with a cliff all round, except for the wedge the road climbs.
+      const plateau = 42 + ridged(x * 0.02, z * 0.02) * 2.5
+      const k = d / r.radius
+      const cliff = THREE.MathUtils.lerp(plateau, generic, smoothstep(0.72, 1.0, k))
+      const ang = Math.atan2(x - r.center[0], z - r.center[1])
+      let da = Math.abs(ang - RAMP_DIR)
+      if (da > Math.PI) da = Math.PI * 2 - da
+      const ramp = THREE.MathUtils.lerp(plateau, generic, smoothstep(0.55, 1.6, k))
+      return THREE.MathUtils.lerp(cliff, ramp, smoothstep(0.34, 0.12, da))
     }
-    case 'lab':
-      return 1.2 + fbm(x * 0.03, z * 0.03) * 10 - 1.5
+    case 'temple':
+      return 4 + 22 * Math.exp(-((d / 62) ** 2)) + fbm(x * 0.03, z * 0.03) * 2.5
+    case 'cove':
+      return 1.4 + fbm(x * 0.025, z * 0.025) * 8 - 1.2
     case 'canyon': {
       const lx = x - r.center[0], lz = z - r.center[1]
       const base = 9 + (fbm(x * 0.02, z * 0.02) + 0.4) * 22
@@ -106,16 +143,20 @@ function biomeHeight(r: Region, x: number, z: number, d: number) {
       return THREE.MathUtils.lerp(2.2, terrace, smoothstep(4, 10, river))
     }
     case 'plains':
-      return 2.4 + fbm(x * 0.02, z * 0.02) * 0.9
-    case 'speedway':
-      return 2.4
+      return 2.8 + fbm(x * 0.02, z * 0.02) * 0.9
   }
 }
 
+/** The bays: harbour water south of the town and the cove's inlet. */
+const BAYS: [number, number, number][] = [
+  [0, 440, 95],
+  [-300, 420, 80],
+]
+
 function rawHeight(x: number, z: number) {
   const dist = Math.hypot(x, z)
-  const coast = smoothstep(ISLAND_RADIUS + 18, ISLAND_RADIUS - 46, dist + fbm(x * 0.006, z * 0.006) * 46)
-  const generic = 2.6 + (fbm(x * 0.012, z * 0.012) + 0.2) * 7 + fbm(x * 0.06, z * 0.06) * 0.7
+  const coast = smoothstep(ISLAND_RADIUS + 30, ISLAND_RADIUS - 70, dist + fbm(x * 0.004, z * 0.004) * 90)
+  const generic = 3 + (fbm(x * 0.006, z * 0.006) + 0.2) * 9 + fbm(x * 0.03, z * 0.03) * 0.8
 
   let wsum = 0, hsum = 0
   for (const r of REGIONS) {
@@ -123,10 +164,25 @@ function rawHeight(x: number, z: number) {
     const w = Math.exp(-((d / (r.radius * 1.15)) ** 2) * 1.8)
     if (w < 0.003) continue
     wsum += w
-    hsum += w * biomeHeight(r, x, z, d)
+    hsum += w * biomeHeight(r, x, z, d, generic)
   }
-  const land = wsum > 0 ? THREE.MathUtils.lerp(generic, hsum / wsum, Math.min(1, wsum * 1.4)) : generic
+  let land = wsum > 0 ? THREE.MathUtils.lerp(generic, hsum / wsum, Math.min(1, wsum * 1.4)) : generic
+  for (const [bx, bz, br] of BAYS) land = THREE.MathUtils.lerp(land, -6, smoothstep(br, br * 0.45, Math.hypot(x - bx, z - bz)))
   return THREE.MathUtils.lerp(-8, land, coast)
+}
+
+// Road vertices sit on the base terrain; the road is then a straight ramp between them.
+for (const line of ROADS)
+  for (let i = 0; i + 1 < line.length; i++) {
+    const [ax, az] = line[i], [bx, bz] = line[i + 1]
+    SEGS.push({ ax, az, bx, bz, ah: Math.max(rawHeight(ax, az), WATER_LEVEL + 1.2), bh: Math.max(rawHeight(bx, bz), WATER_LEVEL + 1.2), len: Math.hypot(bx - ax, bz - az) })
+  }
+
+function roadHeight(x: number, z: number) {
+  let h = rawHeight(x, z)
+  const road = roadAt(x, z)
+  if (road.d < ROAD_HALF + 9) h = THREE.MathUtils.lerp(h, road.h, smoothstep(ROAD_HALF + 9, ROAD_HALF + 1, road.d))
+  return h
 }
 
 /** Flat pads under landmarks and beacons so buildings sit level. */
@@ -134,18 +190,22 @@ interface Pad { x: number; z: number; r: number; h: number }
 const PADS: Pad[] = []
 for (const r of REGIONS) {
   for (const l of r.landmarks) {
+    if (l.ghost && !l.pad) continue
     const x = r.center[0] + l.at[0], z = r.center[1] + l.at[1]
-    PADS.push({ x, z, r: l.pad ?? 4, h: Math.max(rawHeight(x, z), WATER_LEVEL + 1.6) })
+    PADS.push({ x, z, r: l.pad ?? 4, h: Math.max(roadHeight(x, z), WATER_LEVEL + 1.6) })
   }
   const bx = r.center[0] + r.beacon[0], bz = r.center[1] + r.beacon[1]
-  PADS.push({ x: bx, z: bz, r: 3, h: Math.max(rawHeight(bx, bz), WATER_LEVEL + 1.4) })
+  PADS.push({ x: bx, z: bz, r: 3, h: Math.max(roadHeight(bx, bz), WATER_LEVEL + 1.4) })
 }
 
 export function heightAt(x: number, z: number) {
-  let h = rawHeight(x, z)
+  let h = roadHeight(x, z)
   for (const p of PADS) {
-    const d = Math.hypot(x - p.x, z - p.z)
-    if (d < p.r + 6) h = THREE.MathUtils.lerp(h, p.h, smoothstep(p.r + 6, p.r, d))
+    const dx = x - p.x, dz = z - p.z
+    const reach = p.r + 8
+    if (dx * dx + dz * dz > reach * reach) continue
+    const d = Math.sqrt(dx * dx + dz * dz)
+    h = THREE.MathUtils.lerp(h, p.h, smoothstep(p.r + 8, p.r, d))
   }
   return h
 }
@@ -155,38 +215,50 @@ export function heightAt(x: number, z: number) {
 const C = (hex: string) => new THREE.Color(hex)
 const PAL = {
   grassA: C('#5d9a3c'), grassB: C('#86b44f'), rock: C('#8d867c'), rockDark: C('#6f6a62'), sand: C('#e6cf98'), seabed: C('#8a7a5a'),
-  stone: C('#d3cab8'), stoneDark: C('#bdb39f'), asphalt: C('#222737'), asphaltB: C('#2c3246'),
-  heather: C('#8b6aa6'), hlA: C('#4c8a39'), hlB: C('#76a64a'), snow: C('#f1f4f8'),
-  autumnA: C('#9aa04a'), autumnB: C('#c08a3d'), duneA: C('#ecc88e'), duneB: C('#d4a465'), lush: C('#3fae5c'),
-  canyon: [C('#9b3f27'), C('#c45f30'), C('#dd8b4f'), C('#ebb47e')], river: C('#5f8f7c'),
-  fields: [C('#d9c35a'), C('#8db24d'), C('#a07a4a'), C('#c7d26a'), C('#b8a04e')], track: C('#2b2e35'), curbR: C('#e04b3b'), curbW: C('#f4f4f4'),
+  stone: C('#b9b0a0'), stoneDark: C('#a39a8a'), asphalt: C('#222737'), asphaltB: C('#2c3246'), road: C('#2f3138'), roadLine: C('#e4c35a'), kerb: C('#9c968a'),
+  heather: C('#8b6aa6'), hlA: C('#4c8a39'), hlB: C('#76a64a'), snow: C('#f1f4f8'), moss: C('#4f7f3a'), sandDark: C('#c9ad78'),
+  autumnA: C('#9aa04a'), autumnB: C('#c08a3d'), plaza: C('#6b6878'), plazaB: C('#7d7890'), lush: C('#3fae5c'), concrete: C('#a8a7a3'), concreteB: C('#8f8e8a'),
+  canyon: [C('#9b3f27'), C('#c45f30'), C('#dd8b4f'), C('#ebb47e')], river: C('#5f8f7c'), keepGrass: C('#5f8e45'), keepRock: C('#7a7570'),
+  fields: [C('#d9c35a'), C('#8db24d'), C('#a07a4a'), C('#c7d26a'), C('#b8a04e')], pitch: C('#3f9a3c'),
 }
 
+const BUILT = new Set<Biome>(['neon', 'stadium', 'arcade'])
 const tmp = new THREE.Color()
 function biomeColor(b: Biome, r: Region, x: number, z: number, h: number, flat: number, out: THREE.Color) {
   const v = fbm(x * 0.05, z * 0.05) * 0.5 + 0.5
   const steep = 1 - smoothstep(0.62, 0.86, flat)
+  const d = Math.hypot(x - r.center[0], z - r.center[1])
   switch (b) {
-    case 'plaza': {
-      const d = Math.hypot(x - r.center[0], z - r.center[1])
-      if (d < 17) return out.copy(((Math.floor(x / 2.5) + Math.floor(z / 2.5)) & 1) ? PAL.stone : PAL.stoneDark)
+    case 'harbour': {
+      if (d < 32) return out.copy(((Math.floor(x / 2.5) + Math.floor(z / 2.5)) & 1) ? PAL.stone : PAL.stoneDark)
+      return out.copy(PAL.grassA).lerp(PAL.grassB, v)
+    }
+    case 'arcade': {
+      if (d < 56) {
+        const ring = Math.floor(d / 6) & 1
+        return out.copy(ring ? PAL.plaza : PAL.plazaB).lerp(PAL.stone, 0.12)
+      }
       return out.copy(PAL.grassA).lerp(PAL.grassB, v)
     }
     case 'neon':
       return out.copy(PAL.asphalt).lerp(PAL.asphaltB, v)
+    case 'stadium': {
+      if (d < 84) return out.copy(((Math.floor(x / 4) + Math.floor(z / 4)) & 1) ? PAL.concrete : PAL.concreteB)
+      return out.copy(PAL.grassA).lerp(PAL.grassB, v * 0.6 + 0.3)
+    }
     case 'highland':
       out.copy(PAL.hlA).lerp(PAL.hlB, v)
       if (v > 0.66) out.lerp(PAL.heather, smoothstep(0.66, 0.78, v))
       return out.lerp(PAL.rock, steep)
-    case 'ridge':
-      out.copy(PAL.hlA).lerp(PAL.rock, smoothstep(12, 18, h))
-      out.lerp(PAL.snow, smoothstep(27, 32, h))
-      return out.lerp(PAL.rockDark, steep * 0.8)
-    case 'campus':
-      return out.copy(PAL.autumnA).lerp(PAL.autumnB, v)
-    case 'dunes':
-      return out.copy(PAL.duneA).lerp(PAL.duneB, Math.min(1, v * 0.7 + steep * 0.6))
-    case 'lab':
+    case 'keep':
+      out.copy(PAL.keepGrass).lerp(PAL.keepRock, smoothstep(0.9, 0.5, flat))
+      if (d < 70) out.lerp(PAL.stoneDark, 0.55)
+      return out.lerp(PAL.rockDark, steep * 0.9)
+    case 'temple':
+      out.copy(PAL.moss).lerp(PAL.autumnB, v * 0.5)
+      if (Math.abs(x - r.center[0]) < 7 && z > r.center[1] - 10) return out.copy(PAL.sandDark)
+      return out.lerp(PAL.rock, steep)
+    case 'cove':
       return out.copy(PAL.sand).lerp(PAL.lush, smoothstep(2.2, 3.6, h) * (0.7 + v * 0.3))
     case 'canyon': {
       const lx = x - r.center[0], lz = z - r.center[1]
@@ -200,14 +272,6 @@ function biomeColor(b: Biome, r: Region, x: number, z: number, h: number, flat: 
       const stripe = Math.sin((x + z * 0.3) * 1.4) > 0.55 ? 0.86 : 1
       return out.copy(field).multiplyScalar(stripe * (0.92 + v * 0.16))
     }
-    case 'speedway': {
-      const dx = x - r.center[0], dz = z - r.center[1]
-      const q = Math.sqrt((dx / 34) ** 2 + (dz / 19) ** 2)
-      const edge = Math.abs(q - 1) * 24
-      if (edge < 3.4) return out.copy(PAL.track)
-      if (edge < 4.2) return out.copy((Math.floor(Math.atan2(dz, dx) * 12) & 1) ? PAL.curbR : PAL.curbW)
-      return out.copy(PAL.grassA).lerp(PAL.grassB, v * 0.6 + 0.3)
-    }
   }
 }
 
@@ -218,7 +282,8 @@ export function colorAt(x: number, z: number, h: number, flat: number, out: THRE
   const acc = new THREE.Color(0, 0, 0)
   for (const r of REGIONS) {
     const d = Math.hypot(x - r.center[0], z - r.center[1])
-    const w = Math.exp(-((d / (r.radius * 1.1)) ** 2) * 2.2)
+    // Built districts have hard edges (a street does not fade into a meadow); the countryside blends softly.
+    const w = BUILT.has(r.biome) && d < r.radius * 1.05 ? 2 : Math.exp(-((d / (r.radius * 1.1)) ** 2) * 2.2)
     if (w < 0.01) continue
     biomeColor(r.biome, r, x, z, h, flat, tmp)
     acc.r += tmp.r * w
@@ -227,6 +292,14 @@ export function colorAt(x: number, z: number, h: number, flat: number, out: THRE
     wsum += w
   }
   if (wsum > 0) out.lerp(acc.multiplyScalar(1 / wsum), Math.min(1, wsum * 1.6))
+  // Roads: tarmac with a dashed centre line and a pale kerb.
+  const road = roadAt(x, z)
+  if (road.d < ROAD_HALF + 1.2 && h > WATER_LEVEL + 0.8) {
+    if (road.d < ROAD_HALF) {
+      out.copy(PAL.road).multiplyScalar(0.9 + v * 0.2)
+      if (road.d < 0.35 && Math.floor((x + z) / 4) % 2 === 0) out.lerp(PAL.roadLine, 0.8)
+    } else out.lerp(PAL.kerb, 0.7)
+  }
   // Beaches and sea bed.
   if (h < WATER_LEVEL + 1.3) out.lerp(PAL.sand, smoothstep(WATER_LEVEL + 1.3, WATER_LEVEL + 0.4, h))
   if (h < WATER_LEVEL - 0.5) out.lerp(PAL.seabed, smoothstep(-0.5, -4, h))
@@ -264,4 +337,9 @@ export function flatness(x: number, z: number) {
 
 export function isNearPad(x: number, z: number, margin = 2) {
   return PADS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + margin)
+}
+
+/** True on or next to a road (nothing grows there). */
+export function isOnRoad(x: number, z: number, margin = 2) {
+  return roadAt(x, z).d < ROAD_HALF + margin
 }

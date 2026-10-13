@@ -233,7 +233,7 @@ function makeSpawns(): SpawnPoint[] {
   packAt('scrapdrone', neon.center[0], neon.center[1], 34, street)
   alphaAt('scrapdrone', neon.center[0], neon.center[1], 30, street)
   // Coast: Snapcrabs on the beaches of the archipelago, the dunes and the speedway shore.
-  for (const id of ['lab', 'dunes', 'speedway', 'plains']) {
+  for (const id of ['lab', 'hub', 'campus', 'lab']) {
     const r = region(id)
     packAt('snapcrab', r.center[0], r.center[1], r.radius + 14, beach)
     packAt('snapcrab', r.center[0], r.center[1], r.radius + 14, beach)

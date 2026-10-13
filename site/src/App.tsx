@@ -50,6 +50,12 @@ export default function App() {
   const [hide2D, setHide2D] = useState(false)
   const [gameRunning, setGameRunning] = useState(false)
   const playing = useWorld((s) => s.playing)
+  const scene = useWorld((s) => s.scene)
+  // Back from the sports complex: the island rebuilds, so the loader covers the moment.
+  const [returning, setReturning] = useState(false)
+  useEffect(() => {
+    if (scene === 'sports') setReturning(true)
+  }, [scene])
   const requestPlay = useWorld((s) => s.requestPlay)
   // Loader phases: the boot overlay (until the world's first frames), its asset burst, and entering explore mode.
   const [bootStuck, setBootStuck] = useState(false)
@@ -97,7 +103,7 @@ export default function App() {
       play(next ? 'boot' : 'back')
       // The world streams its characters and props in as the explorer appears; the loader covers that burst.
       if (next) setEntering(true)
-      world.set({ playing: next, open: null, near: null })
+      world.set({ playing: next, open: null, near: null, scene: 'world' })
     },
     [use3D, ready3D],
   )
@@ -117,7 +123,7 @@ export default function App() {
         e.preventDefault()
         if (route.name === 'arena' || route.name === 'cricket' || route.name === 'racer' || route.name === 'golf' || route.name === 'sports' || route.name === 'plush' || route.name === 'siege') return
         setPlaying(!world.get().playing)
-      } else if (e.key === 'Escape' && world.get().playing && !world.get().open) {
+      } else if (e.key === 'Escape' && world.get().playing && !world.get().open && world.get().scene === 'world' && world.get().panel === 'none' && !world.get().exhibit) {
         setPlaying(false)
       }
     }
@@ -222,7 +228,7 @@ export default function App() {
       {use3D && ready3D && !worldSettled && <LoadingGate status="Loading the island…" onDone={() => setWorldSettled(true)} />}
       {entering && <LoadingGate status="Entering the open world…" onDone={() => setEntering(false)} />}
       {!hide2D && <Background accent={accent} />}
-      {use3D && (
+      {use3D && scene === 'world' && (
         <CanvasErrorBoundary>
           <Suspense fallback={null}>
             <div className={`scene-layer ${ready3D ? 'is-ready' : ''}`}>
@@ -231,10 +237,21 @@ export default function App() {
           </Suspense>
         </CanvasErrorBoundary>
       )}
+      {use3D && scene === 'world' && returning && playing && <LoadingGate status="Back to the island…" onDone={() => setReturning(false)} />}
+      {use3D && scene === 'sports' && playing && (
+        <div className="scene-layer is-ready sports-scene">
+          <GameRoute title="SPORTS COMPLEX">
+            <Sports auto onAccent={setAccent} onExit={() => world.set({ scene: 'world' })} />
+          </GameRoute>
+          <button className="pill sports-gate-out" onClick={() => world.set({ scene: 'world' })}>
+            Back out through the gate to the island
+          </button>
+        </div>
+      )}
       <main className={`app ${playing ? 'is-hidden' : ''}`} aria-hidden={playing}>
         {screen}
       </main>
-      {playing && (
+      {playing && scene === 'world' && (
         <Suspense fallback={null}>
           <PlayHud onExit={() => setPlaying(false)} />
         </Suspense>

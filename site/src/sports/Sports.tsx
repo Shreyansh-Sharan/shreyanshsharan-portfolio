@@ -34,7 +34,7 @@ function store(key: string, value: string) {
   }
 }
 
-export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string, string], focus: string) => void }) {
+export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (a: [string, string], focus: string) => void; onExit?: () => void }) {
   useEffect(() => onAccent(accent, 'sports-complex'), [onAccent])
   const [stage, setStage] = useState<'menu' | 'play'>(auto ? 'play' : 'menu')
   const [difficulty, setDifficulty] = useState(() => Math.min(2, Math.max(0, Number(stored('sc-difficulty', '1')) || 0)))
@@ -66,6 +66,7 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
           setProgress(loadProgress())
           setStage('menu')
         }}
+        onExit={onExit}
       />
     )
 
@@ -77,8 +78,13 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
   })
 
   return (
-    <Page onBack={() => navigate('#/home/sports-complex')} className="racer-page sc-page">
+    <Page onBack={() => (onExit ? onExit() : navigate('#/home/sports-complex'))} className="racer-page sc-page">
       <header className="page-header">
+        {onExit && (
+          <button className="btn btn-secondary sc-gate" onClick={onExit}>
+            Walk back out through the gate to the island
+          </button>
+        )}
         <p className="eyebrow">Games · 3D sports world</p>
         <h1 className="page-title sc-title">SPORTS COMPLEX</h1>
         <p className="page-lead">
@@ -256,7 +262,7 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
   )
 }
 
-function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficulty: number; onQuit: () => void }) {
+function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficulty: number; onQuit: () => void; onExit?: () => void }) {
   const host = useRef<HTMLDivElement>(null)
   const [hud, setHud] = useState<Hud | null>(null)
   const ready = !!p.assets
@@ -310,6 +316,11 @@ function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficul
           <button className="btn" onClick={() => adBreak('sports-exit', { done: p.onQuit })}>
             <LogOut size={16} /> Back to menu
           </button>
+          {p.onExit && (
+            <button className="btn btn-secondary sc-gate-out" onClick={p.onExit}>
+              Walk back out through the gate to the island
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -143,18 +143,19 @@ export function NeonDistrict() {
         </mesh>
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[r.center[0], base + 0.06, r.center[1]]}>
-        <circleGeometry args={[r.radius, 64]} />
+        <ringGeometry args={[92, r.radius + 8, 96]} />
         <shaderMaterial vertexShader={GRID_VERT} fragmentShader={GRID_FRAG} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
-      <group ref={rings} position={[r.center[0], base, r.center[1]]}>
-        {[12, 20, 28].map((y, i) => (
+      <group ref={rings} position={[r.center[0] + 100, base, r.center[1] - 60]}>
+        {[14, 24, 34].map((y, i) => (
           <mesh key={y} position={[0, y, 0]} rotation={[Math.PI / 2 + (i - 1) * 0.15, 0, 0]}>
             <torusGeometry args={[7 - i, 0.12, 8, 64]} />
             <meshBasicMaterial color={i % 2 ? '#c084fc' : '#22d3ee'} toneMapped={false} />
           </mesh>
         ))}
       </group>
-      <pointLight position={[r.center[0], base + 20, r.center[1]]} color="#a78bfa" intensity={600} distance={70} />
+      <pointLight position={[r.center[0], base + 30, r.center[1] + 70]} color="#a78bfa" intensity={900} distance={110} />
+      <pointLight position={[r.center[0] + 100, base + 30, r.center[1] - 60]} color="#22d3ee" intensity={700} distance={90} />
     </group>
   )
 }
@@ -162,16 +163,16 @@ export function NeonDistrict() {
 /* ---------- Vehicles and animals ---------- */
 
 function RaceCar() {
-  const r = region('speedway')
+  const r = region('dunes')
   const car = useModel('f1-car', 1.1)
   const ref = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
     const g = ref.current
     if (!g) return
-    const a = clock.elapsedTime * 0.9
-    const x = r.center[0] + Math.cos(a) * 34, z = r.center[1] + Math.sin(a) * 19
+    const a = clock.elapsedTime * 0.45
+    const x = r.center[0] + Math.cos(a) * 62, z = r.center[1] + Math.sin(a) * 62
     g.position.set(x, heightAt(x, z) + 0.02, z)
-    const dx = -Math.sin(a) * 34, dz = Math.cos(a) * 19
+    const dx = -Math.sin(a) * 62, dz = Math.cos(a) * 62
     g.rotation.y = Math.atan2(dx, dz) - Math.PI / 2
   })
   return (
@@ -315,6 +316,8 @@ export function Ambient() {
       <Birds center={highland.center} />
       <Birds center={[0, 0]} count={7} height={34} radius={40} />
       <Birds center={region('lab').center} count={6} height={26} radius={22} />
+      <Birds center={region('ridge').center} count={8} height={70} radius={60} />
+      <Birds center={region('campus').center} count={5} height={44} radius={30} />
       <Suspense fallback={null}>
         <RaceCar />
       </Suspense>

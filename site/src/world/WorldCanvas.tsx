@@ -5,9 +5,9 @@ import { AdaptiveDpr, PerformanceMonitor, Preload } from '@react-three/drei'
 import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { buildTerrain } from './terrain'
-import { Landmarks, Scatters } from './Models'
+import { Landmarks, Scatters, streamState } from './Models'
 import { Vegetation } from './Vegetation'
-import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
+import { GroundFog, Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
 import { Guide, Player, flyPose, player, spawnPlayer } from './Characters'
 import { animals } from './wildlife'
@@ -24,6 +24,11 @@ import { closeMinigame, completeMinigame, GAMES, gameState, photo, pressKey, sta
 import { dayClock } from './clock'
 import { heightAt } from './terrain'
 import { controls } from './controls'
+import { Exhibits } from './Exhibits'
+import { Vehicles } from './Vehicle'
+import { car, enterCar, exitCar, sail, ship, board, disembark, stepCar, stepShip } from './rides'
+import { exhibits } from './exhibits'
+import { nearestInteraction } from './interact'
 import { PlayerFx } from './PlayerFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
@@ -55,7 +60,7 @@ function quality() {
 }
 
 function Terrain({ segments }: { segments: number }) {
-  const geo = useMemo(() => buildTerrain(560, segments), [segments])
+  const geo = useMemo(() => buildTerrain(1300, segments), [segments])
   return (
     <mesh geometry={geo} receiveShadow castShadow={false}>
       <meshStandardMaterial vertexColors flatShading roughness={0.93} metalness={0} />
@@ -135,9 +140,14 @@ function BlackFrameGuard({ active, renders, onBlack }: { active: boolean; render
   return null
 }
 
+/** For tests: frames rendered and the sum of their deltas. */
+const frameCount = { n: 0, dt: 0 }
+
 function Ready({ onReady }: { onReady?: () => void }) {
   const frames = useRef(0)
-  useFrame(() => {
+  useFrame((_, dt) => {
+    frameCount.n++
+    frameCount.dt += dt
     // Wait a couple of frames so the first visible frame is fully composed.
     if (++frames.current === 3) {
       onReady?.()
@@ -244,7 +254,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
             },
             chance: (id: number) => captureChance(creatures[id]),
             roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
-            clock: dayClock, photo, store: world, heightAt, controls,
+            clock: dayClock, photo, store: world, heightAt, controls, streamState,
+            car, enterCar, exitCar: () => exitCar(player), stepCar, stepShip, frames: frameCount, ship, sail, board, disembark: () => disembark(player), exhibits, interact: () => nearestInteraction(player.pos.x, player.pos.z, player),
             place: (x: number, z: number) => {
               player.pos.set(x, heightAt(x, z), z)
               player.beacon = { x, z }
@@ -269,8 +280,9 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <fog attach="fog" args={['#a9c6e0', 220, 1300]} />
       <SkyDome />
       <Lighting shadows={heavy} live={playing} />
-      <Terrain segments={heavy ? 240 : 170} />
+      <Terrain segments={heavy ? 330 : 210} />
       <Water />
+      {playing && <GroundFog />}
       <Suspense fallback={null}>
         <SkyClouds count={heavy ? 8 : 6} />
       </Suspense>
@@ -281,6 +293,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         <Ambient />
         <Guide />
         {playing && <Player />}
+        <Exhibits />
+        <Vehicles />
         <Animals casting={playing} />
         {playing && <SpellFx />}
         {playing && <Enemies />}

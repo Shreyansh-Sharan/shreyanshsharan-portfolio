@@ -9,7 +9,7 @@ import { ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
 import { GUIDE_SPOT } from './layout'
-import { blocked, resolve, roofAt } from './colliders'
+import { blocked, groundAt, resolve, roofAt } from './colliders'
 import { animals } from './wildlife'
 import { aimedCreature, HERO_HP, hitCreatures, MOUNT, nearestWild, pushOutOfCreatures, ride, saddleHeight, stepCreatures, throwSphere, toggleRide } from './creatures'
 import { flightAllowed, parkourBoots, photo, playerLocked, requestSnap, stepMinigames, togglePhoto } from './minigames'
@@ -18,6 +18,7 @@ import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type Hi
 import { emit, SHAPE, type Emit } from './particles'
 import { MISSIONS, INTERACT_DISTANCE } from './missions'
 import { lastCast } from './spells'
+import { car, DECK, exitCar, inTransit, ship } from './rides'
 import { world } from './store'
 
 /** Shared player state, read by the camera rig. */
@@ -389,6 +390,44 @@ export function Player() {
       controls.attack = controls.jump = controls.spin = controls.fly = controls.throw = controls.ride = false
       return
     }
+    if (car.eject) {
+      car.eject = false
+      exitCar(player)
+    }
+    // In the car or on the airship: the body goes where the vehicle goes (hidden inside the car).
+    if (inTransit()) {
+      if (car.driving) {
+        player.pos.copy(car.pos)
+        player.yaw = car.yaw
+        g.visible = false
+      } else {
+        player.pos.set(ship.pos.x, ship.pos.y + DECK, ship.pos.z)
+        player.yaw = ship.yaw
+        g.visible = true
+        g.position.copy(player.pos)
+        g.rotation.y = player.yaw
+        fadeTo('idle')
+      }
+      s.flying = false
+      s.grounded = true
+      s.vy = 0
+      s.move = null
+      player.speed = car.driving ? Math.abs(car.speed) : 0
+      player.flying = false
+      player.fly = 0
+      player.ground = player.pos.y
+      controls.jump = controls.fly = controls.attack = controls.spin = controls.throw = controls.ride = false
+      stepCombat(dt, raw, player)
+      stepCreatures(dt, player)
+      stepMinigames(dt, player)
+      if (s.near) {
+        s.near = null
+        world.set({ near: null })
+      }
+      world.setPlayer({ x: player.pos.x, z: player.pos.z, heading: player.camYaw })
+      return
+    }
+    g.visible = true
     // The ride: on and off a pal, with the mount's speeds (a flyer replaces the double-tap flight).
     if (controls.ride) {
       controls.ride = false
@@ -474,7 +513,7 @@ export function Player() {
       const target = axis * 10 + (axis === 0 ? Math.sin(performance.now() / 420) * 0.35 : 0)
       s.vy += (target - s.vy) * Math.min(1, dt * 4)
       player.pos.y += s.vy * dt
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
+      const ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const ceiling = Math.min(ground + FLY_CEILING, FLY_MAX_Y)
       if (player.pos.y > ceiling) {
         player.pos.y = ceiling
@@ -577,7 +616,7 @@ export function Player() {
     // ---- Gravity, jumping, bouncing off an animal's back, and the stomp landing. ----
     if (!s.flying) {
       // Roofs (the neon blocks, the parkour pads) are floors too when the feet are at their level.
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9, roofAt(player.pos.x, player.pos.z, player.pos.y))
+      const ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL - 0.9, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const boots = parkourBoots()
       if (controls.jump && s.grounded && !modalOpen && !s.move) {
         s.vy = boots ? 10 : 7.5
@@ -673,7 +712,7 @@ export function Player() {
     g.position.y += saddle
     g.rotation.y = player.yaw
     // The contact shadow stays on the ground below, shrinking with altitude.
-    player.ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
+    player.ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL)
     const alt = player.pos.y - player.ground + saddle
     if (shadow.current) {
       shadow.current.position.y = 0.03 - alt
