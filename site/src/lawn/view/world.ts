@@ -37,13 +37,18 @@ const std = (key: string, opts: THREE.MeshStandardMaterialParameters) => cached(
 const TILE: Record<string, number> = { oak: 2.2, wallpaper: 1.2, tiles: 2.4, grass: 5, asphalt: 7, sidewalk: 2, snow: 6 }
 const texBase = `${import.meta.env.BASE_URL}lawn/textures/`
 const texCache = new Map<string, THREE.Texture>()
+const texPending = new Set<Promise<unknown>>()
 let texLoader: THREE.TextureLoader | null = null
 function tiled(name: string, srgb = true) {
   const key = `${name}-${srgb}`
   let t = texCache.get(key)
   if (!t) {
     texLoader ??= new THREE.TextureLoader()
-    t = texLoader.load(`${texBase}${name}.webp`)
+    let done: (v?: unknown) => void = () => {}
+    const p = new Promise((r) => (done = r))
+    texPending.add(p)
+    p.then(() => texPending.delete(p))
+    t = texLoader.load(`${texBase}${name}.webp`, done, undefined, done)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
     t.anisotropy = 8
@@ -53,6 +58,11 @@ function tiled(name: string, srgb = true) {
   }
   return t
 }
+/** Resolves once every tiling texture requested so far has loaded (or failed), so a preview never shows them blank. */
+export function texturesSettled(): Promise<void> {
+  return Promise.all(Array.from(texPending)).then(() => undefined)
+}
+
 /** A tiling ground or interior surface, bump-mapped from its own luminance. */
 const surf = (name: string, tint = '#ffffff', extra: THREE.MeshStandardMaterialParameters = {}, bump = 0) =>
   std(`tex-${name}-${tint}-${bump}`, { map: tiled(name), color: paint(tint, 0.95), roughness: 0.92, ...(bump ? { bumpMap: tiled(name, false), bumpScale: bump } : {}), ...extra })
@@ -86,9 +96,12 @@ export class World {
   private night: boolean
   private box = new THREE.BoxGeometry(1, 1, 1)
   readonly lights: THREE.PointLight[] = []
+  /** Each house's roof group (the roof, gables, upper trims and ceilings), for the lobby's cutaway. */
+  readonly roofs: THREE.Object3D[] = []
   shadows: boolean
 
-  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], mood: Mood, quality: Quality) {
+  /** `street: false` builds only the houses (the lobby's house preview brings its own small lawn). */
+  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], mood: Mood, quality: Quality, street = true) {
     this.assets = assets
     this.map = map
     this.theme = theme
@@ -97,7 +110,7 @@ export class World {
     this.quality = quality
     this.night = mood.night
     this.shadows = quality.shadows
-    this.buildGround()
+    if (street) this.buildGround()
     this.buildShells()
   }
 
@@ -183,6 +196,7 @@ export class World {
       const lamps = this.quality.lamps > 0 ? this.quality.lamps : night ? 2 : 0
       const shell = buildShell({ style: houseStyle(id), theme, snow: this.theme.snow, shadows: this.shadows, ox: hs.ox, oz: hs.oz, dir: hs.dir, lamps, lampScale: this.mood.lamps, outdoorLamps: this.mood.street })
       this.group.add(shell.group)
+      this.roofs.push(shell.roof)
       this.lights.push(...shell.lights)
     })
   }

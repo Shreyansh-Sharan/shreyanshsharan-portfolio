@@ -41,7 +41,11 @@ export function buildShell(o: ShellOptions) {
   group.rotation.y = o.dir > 0 ? 0 : Math.PI
   const lights: THREE.PointLight[] = []
   const origin = new THREE.Vector3(o.ox, 0, o.oz)
-  const kit = new Kit(new THREE.Matrix4(), origin, o.shadows)
+  // Two kits: the base (plinth, belly band, ground-storey trims, lamps below) and the roof group (roof, gables,
+  // upper-storey trims, ceilings), which the lobby hides for its cutaway.
+  const baseKit = new Kit(new THREE.Matrix4(), origin, o.shadows)
+  const roofKit = new Kit(new THREE.Matrix4(), origin, o.shadows)
+  let kit = roofKit
   const style = o.style
   const trim = M.trim(o.theme.trim)
   const soffit = M.beadboard(o.theme.trim)
@@ -266,6 +270,12 @@ export function buildShell(o: ShellOptions) {
   /* ---------- trim: corner boards, plinth, belly band, downspouts ---------- */
   const brick = style.brick
   const corner = (x: number, z: number, y0: number, y1: number) => {
+    if (y0 < FLOOR_H && y1 > FLOOR_H) {
+      corner(x, z, y0, FLOOR_H)
+      corner(x, z, FLOOR_H, y1)
+      return
+    }
+    kit = y0 < FLOOR_H - 0.01 ? baseKit : roofKit
     const sx = Math.sign(x)
     const sz = Math.sign(z)
     const ax = Math.abs(x)
@@ -273,6 +283,7 @@ export function buildShell(o: ShellOptions) {
     kit.box(Math.min(sx * (ax - 0.16), sx * (ax + 0.04)), Math.max(sx * (ax - 0.16), sx * (ax + 0.04)), y0, y1, Math.min(sz * (az - 0.16), sz * (az + 0.04)), Math.max(sz * (az - 0.16), sz * (az + 0.04)), trim)
   }
   const pier = (x: number, z: number, y1: number) => {
+    kit = baseKit
     const sx = Math.sign(x)
     const sz = Math.sign(z)
     const ax = Math.abs(x)
@@ -291,6 +302,7 @@ export function buildShell(o: ShellOptions) {
     if (brick) pier(GARAGE.x1, z, WALL_H - 0.2)
     else corner(GARAGE.x1, z, 0.3, GARAGE.eaveY - 0.42)
   }
+  kit = baseKit
   // Foundation plinth (left open under the doors and the porch).
   const plinth = (x0: number, x1: number, z0: number, z1: number) => kit.box(x0, x1, 0, 0.32, z0, z1, concrete)
   const P = 0.06
@@ -310,6 +322,7 @@ export function buildShell(o: ShellOptions) {
   band(-MAIN_HX - 0.04, MAIN_HX + 0.04, -MAIN_HZ - 0.04, -MAIN_HZ + 0.02)
   band(-MAIN_HX - 0.04, -MAIN_HX + 0.02, -MAIN_HZ - 0.04, MAIN_HZ + 0.04)
   band(MAIN_HX - 0.02, MAIN_HX + 0.04, GARAGE.z1, MAIN_HZ + 0.04)
+  kit = roofKit
   // Downspouts at the eave ends.
   const yS = EAVE_Y - 0.12
   if (style.roof === 'hip') {
@@ -326,6 +339,7 @@ export function buildShell(o: ShellOptions) {
 
   /* ---------- lamps ---------- */
   const fixture = (x: number, y: number, z: number, lit: boolean) => {
+    kit = y > FLOOR_H ? roofKit : baseKit
     const dome = new THREE.SphereGeometry(0.16, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)
     dome.translate(x, y, z)
     kit.geo(dome, lit ? M.bulb(LAMP, 2.2 * o.lampScale + 0.4) : M.bulb(LAMP, 0.15))
@@ -353,6 +367,7 @@ export function buildShell(o: ShellOptions) {
   }
   // Porch ceiling lamp and the coach lamps by the doors.
   const lantern = (x: number, y: number, z: number, sz: number) => {
+    kit = baseKit
     kit.box(x - 0.09, x + 0.09, y - 0.16, y + 0.16, z, z + sz * 0.16, M.metal('#2c2c2c'))
     kit.box(x - 0.065, x + 0.065, y - 0.13, y + 0.1, z + sz * 0.02, z + sz * 0.15, o.outdoorLamps ? M.bulb('#ffb860', 3.2) : M.glass(0))
   }
@@ -371,7 +386,10 @@ export function buildShell(o: ShellOptions) {
     lights.push(gl)
   }
 
-  kit.build(group)
+  const roof = new THREE.Group()
+  roofKit.build(roof)
+  baseKit.build(group)
+  group.add(roof)
 
   /* ---------- contact shadow skirt ---------- */
   const skirtMat = cached('skirt', () => new THREE.MeshBasicMaterial({ color: '#000000', map: ramp(), transparent: true, opacity: 0.42, depthWrite: false }))
@@ -403,7 +421,7 @@ export function buildShell(o: ShellOptions) {
   skirt(MAIN_HX, MAIN_HX + W, GARAGE.z1, MAIN_HZ, 'e')
   skirt(GARAGE.x1, GARAGE.x1 + W, GARAGE.z0, GARAGE.z1, 'e')
   skirt(MAIN_HX, GARAGE.x1, GARAGE.z1, GARAGE.z1 + 0.8, 'n')
-  return { group, lights }
+  return { group, roof, lights }
 }
 
 const ROOF_CEIL = 6.19

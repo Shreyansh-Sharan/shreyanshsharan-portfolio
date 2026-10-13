@@ -47,7 +47,7 @@ export const M = {
   trim: (hex: string) => surfaceMat(`trim-${hex}`, trimSurface(), paint(hex, 0.74), 0.5, 0.35),
   /** Darker painted accents (shutters, doors). */
   accent: (hex: string) => surfaceMat(`accent-${hex}`, trimSurface(), paint(hex, 0.7), 0.45, 0.35),
-  shingles: (hex: string) => surfaceMat(`shingles-${hex}`, shingleSurface(), paint(hex, 0.5), 0.86, 1.4),
+  shingles: (hex: string) => surfaceMat(`shingles-${hex}`, shingleSurface(), paint(hex, 0.62), 0.82, 1.4),
   beadboard: (hex: string) => surfaceMat(`bead-${hex}`, beadboardSurface(), paint(hex, 0.74), 0.6, 0.6),
   concrete: (hex = '#b9b4ab') => cached(`concrete-${hex}`, () => new THREE.MeshStandardMaterial({ color: paint(hex, 0.6), roughness: 0.92 })),
   metal: (hex: string) => cached(`metal-${hex}`, () => new THREE.MeshStandardMaterial({ color: paint(hex, 0.75), roughness: 0.35, metalness: 0.6 })),

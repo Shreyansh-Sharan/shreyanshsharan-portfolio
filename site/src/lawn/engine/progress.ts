@@ -26,12 +26,12 @@ export const COLOURS: Colour[] = [
 
 export type HouseTheme = 'lemon' | 'mint' | 'coral' | 'sky' | 'timber' | 'slate'
 export const HOUSE_THEMES: Record<HouseTheme, { name: string; siding: string; trim: string; roof: string; door: string }> = {
-  lemon: { name: 'Lemon', siding: '#f6e27a', trim: '#ffffff', roof: '#8b5a3c', door: '#2f7fd6' },
-  mint: { name: 'Mint', siding: '#a8e6c3', trim: '#ffffff', roof: '#5c6b73', door: '#e0533d' },
-  coral: { name: 'Coral', siding: '#f4a09a', trim: '#fff4e8', roof: '#6b4a3f', door: '#2b9c8a' },
-  sky: { name: 'Sky', siding: '#9fd0f5', trim: '#ffffff', roof: '#4c4f5a', door: '#f2b53d' },
-  timber: { name: 'Timber lodge', siding: '#8a5a37', trim: '#e9d7b9', roof: '#f3f6f8', door: '#b7332f' },
-  slate: { name: 'Slate lodge', siding: '#5f6a74', trim: '#d9e0e6', roof: '#f3f6f8', door: '#f2b53d' },
+  lemon: { name: 'Lemon', siding: '#f6e27a', trim: '#ffffff', roof: '#b0623f', door: '#2f7fd6' },
+  mint: { name: 'Mint', siding: '#a8e6c3', trim: '#ffffff', roof: '#5f7d8c', door: '#e0533d' },
+  coral: { name: 'Coral', siding: '#f4a09a', trim: '#fff4e8', roof: '#8f5a48', door: '#2b9c8a' },
+  sky: { name: 'Sky', siding: '#9fd0f5', trim: '#ffffff', roof: '#6c6f91', door: '#f2b53d' },
+  timber: { name: 'Timber lodge', siding: '#8a5a37', trim: '#e9d7b9', roof: '#7d5b45', door: '#b7332f' },
+  slate: { name: 'Slate lodge', siding: '#5f6a74', trim: '#d9e0e6', roof: '#5e6c7a', door: '#f2b53d' },
 }
 export const HOUSE_THEME_IDS = Object.keys(HOUSE_THEMES) as HouseTheme[]
 
