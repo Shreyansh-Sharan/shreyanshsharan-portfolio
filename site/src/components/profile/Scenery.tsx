@@ -2,7 +2,7 @@
 // kiosks, from the same low-poly model family as the open world. When the chapter changes, each piece sinks into the ground and rises again as the new district,
 // nearest first, like a stage set changing around him.
 import { useEffect, useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GLTFLoader, MeshoptDecoder } from 'three-stdlib'
 import { DISTRICTS, stroll } from './strollState'
@@ -159,8 +159,15 @@ interface Slot {
   t: number
 }
 
+/** Every model URL the street can show. */
+const ALL_URLS = [...new Set(DISTRICTS.flatMap((d) => [...SETS[d.id].map((s) => s.url), LANDMARKS[d.id].url]))]
+
 export function Scenery() {
+  const { gl, scene, camera } = useThree()
   const root = useMemo(() => new THREE.Group(), [])
+  // Shader programs are compiled the first time a material is drawn, which stalled the frame where a new district
+  // rose out of the street. Once everything has loaded, compile them all up front, a model per frame.
+  const warm = useMemo(() => ({ done: new Set<string>() }), [])
   const state = useMemo(() => {
     const slots: Slot[] = []
     for (let i = 0; i < SLOTS * 2; i++) {
@@ -189,6 +196,17 @@ export function Scenery() {
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
+    if (warm.done.size < ALL_URLS.length) {
+      const url = ALL_URLS.find((u) => !warm.done.has(u) && models.get(u))
+      if (url) {
+        const probe = models.get(url)!.clone(true)
+        probe.position.set(0, -50, -20)
+        root.add(probe)
+        gl.compile(scene, camera)
+        root.remove(probe)
+        warm.done.add(url)
+      }
+    }
     const want = stroll.active
     if (want !== state.shown) {
       // Chapter changed: queue every slot to swap, nearest first.

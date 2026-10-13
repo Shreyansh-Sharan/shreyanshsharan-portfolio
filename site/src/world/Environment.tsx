@@ -244,25 +244,35 @@ export function GroundFog() {
   )
 }
 
-/** Soft cloud puff drawn on a canvas, so drei's Cloud doesn't fetch its default texture from a CDN. */
+/**
+ * Soft cloud puff drawn on a canvas, so drei's Cloud doesn't fetch its default texture from a CDN.
+ * Built once per page and cached: the clouds load this URL through Suspense, and a fresh (random) URL on every
+ * render meant each suspended render was thrown away and retried with yet another URL, forever, costing a
+ * blocking canvas encode and an image decode every few hundred milliseconds on every screen.
+ */
+let cloudUrl: string | null = null
 function cloudTexture() {
+  if (cloudUrl) return cloudUrl
   const c = document.createElement('canvas')
   c.width = c.height = 128
   const g = c.getContext('2d')!
+  let seed = 7
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646
   for (let i = 0; i < 14; i++) {
-    const x = 64 + Math.cos(i * 2.4) * 22 * Math.random(), y = 64 + Math.sin(i * 1.7) * 18 * Math.random()
-    const r = 26 + Math.random() * 26
+    const x = 64 + Math.cos(i * 2.4) * 22 * rand(), y = 64 + Math.sin(i * 1.7) * 18 * rand()
+    const r = 26 + rand() * 26
     const grd = g.createRadialGradient(x, y, 0, x, y, r)
     grd.addColorStop(0, 'rgba(255,255,255,0.55)')
     grd.addColorStop(1, 'rgba(255,255,255,0)')
     g.fillStyle = grd
     g.fillRect(0, 0, 128, 128)
   }
-  return c.toDataURL()
+  cloudUrl = c.toDataURL()
+  return cloudUrl
 }
 
 export function SkyClouds({ count = 9 }: { count?: number }) {
-  const tex = useMemo(cloudTexture, [])
+  const tex = cloudTexture()
   const clouds = useMemo(
     () =>
       Array.from({ length: count }, (_, i) => {

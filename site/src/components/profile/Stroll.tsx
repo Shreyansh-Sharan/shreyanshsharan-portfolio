@@ -1,9 +1,9 @@
 // The profile's 3D stage: the low-poly avatar strolling down a street that changes with each district. Scrolling
 // walks him towards the viewer (the street slides away under him); when a section settles he crosses to the side
 // opposite its text, turns to face it and does that section's move.
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Environment, Sky, useGLTF } from '@react-three/drei'
+import { Environment, PerformanceMonitor, Sky, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { DISTRICTS, isScrolling, stroll, type Move } from './strollState'
 import { Scenery } from './Scenery'
@@ -565,9 +565,13 @@ function Lights() {
 }
 
 export default function Stroll() {
+  // Sharp edges on capable screens (up to 1.5x), dropping back to 1x as soon as the GPU can't keep up.
+  const top = typeof window === 'undefined' ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
+  const [dpr, setDpr] = useState(top)
   return (
     <div className="stroll-stage" aria-hidden="true">
-      <Canvas shadows dpr={[1, 1.25]} camera={{ position: [0, 1.4, 5.6], fov: 35 }} gl={{ antialias: true, alpha: true }}>
+      <Canvas shadows dpr={dpr} camera={{ position: [0, 1.4, 5.6], fov: 35 }} gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}>
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(top)} flipflops={3} onFallback={() => setDpr(1)} />
         <Rig />
         <Lights />
         <Street />
