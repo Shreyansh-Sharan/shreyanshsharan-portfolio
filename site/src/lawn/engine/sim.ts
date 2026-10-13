@@ -778,8 +778,10 @@ export class Sim {
       mx /= ml
       mz /= ml
     }
-    let wx = (sy * mz + cy * mx) * speed
-    let wz = (cy * mz - sy * mx) * speed
+    // Forward is (sin yaw, cos yaw); the camera looks along it with rotation.y = yaw + PI, so its right-hand side
+    // (where D / stick-right should go) is (-cos yaw, sin yaw). The old (cos, -sin) sent D to the left.
+    let wx = (sy * mz - cy * mx) * speed
+    let wz = (cy * mz + sy * mx) * speed
     if (riding) {
       wx = sy * 11
       wz = cy * 11
