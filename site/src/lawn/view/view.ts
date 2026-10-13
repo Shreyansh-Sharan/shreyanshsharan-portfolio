@@ -793,6 +793,8 @@ export class LawnView {
         fx.ring(x, y, z, '#ff7a1a', 3.6, 0.6)
         break
       case 'blower':
+        this.actors.get(id)?.flash('blower', 1.6)
+        if (id === this.meId) this.fp?.flash('blower', 1.6)
         this.blowerUntil = this.time + 1.6
         this.blowerYaw = yaw
         this.blowerPos.set(x, y, z)

@@ -1,5 +1,5 @@
-// Procedural canvas textures for the cartoon suburb: siding, bricks, shingles, planks, grass, asphalt, concrete,
-// snow, glass, rugs, cracks and splats. Everything is drawn once per material and cached.
+// Procedural canvas textures: barricade planks, rugs, crack overlays, splats, particles, labels, neon signs and the
+// sky strip. (The houses and the street use the tiling textures in public/lawn/textures.) Drawn once and cached.
 import * as THREE from 'three'
 
 const cache = new Map<string, THREE.Texture>()
@@ -40,80 +40,6 @@ function rnd() {
   return (seed - 1) / 2147483646
 }
 
-/** Horizontal clapboard siding in the house colour. */
-export function siding(hex: string) {
-  return tex(`siding-${hex}`, 256, 256, (g, w, h) => {
-    seed = 7
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let y = 0; y < h; y += 32) {
-      g.fillStyle = shade(hex, 0.78)
-      g.fillRect(0, y + 28, w, 4)
-      g.fillStyle = shade(hex, 1.08)
-      g.fillRect(0, y, w, 3)
-      for (let i = 0; i < 6; i++) {
-        g.fillStyle = `rgba(0,0,0,${0.03 + rnd() * 0.04})`
-        g.fillRect(rnd() * w, y + 4 + rnd() * 20, 20 + rnd() * 40, 2)
-      }
-    }
-  }, 1)
-}
-
-export function timber(hex: string) {
-  return tex(`timber-${hex}`, 256, 256, (g, w, h) => {
-    seed = 11
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let y = 0; y < h; y += 42) {
-      g.fillStyle = shade(hex, 0.7)
-      g.fillRect(0, y + 36, w, 6)
-      g.fillStyle = shade(hex, 1.1)
-      g.fillRect(0, y, w, 2)
-      for (let i = 0; i < 10; i++) {
-        g.strokeStyle = `rgba(40,20,0,${0.08 + rnd() * 0.1})`
-        g.lineWidth = 1 + rnd()
-        g.beginPath()
-        const yy = y + 4 + rnd() * 30
-        g.moveTo(0, yy)
-        g.bezierCurveTo(w * 0.3, yy + rnd() * 6 - 3, w * 0.6, yy + rnd() * 6 - 3, w, yy)
-        g.stroke()
-      }
-    }
-  })
-}
-
-export function brick(hex = '#b5553d') {
-  return tex(`brick-${hex}`, 256, 256, (g, w, h) => {
-    seed = 3
-    g.fillStyle = '#d9cfc4'
-    g.fillRect(0, 0, w, h)
-    for (let y = 0; y < h; y += 24) {
-      const off = (y / 24) % 2 ? 24 : 0
-      for (let x = -24; x < w; x += 48) {
-        g.fillStyle = shade(hex, 0.85 + rnd() * 0.3)
-        g.fillRect(x + off + 2, y + 2, 44, 20)
-      }
-    }
-  })
-}
-
-export function shingles(hex: string) {
-  return tex(`shingles-${hex}`, 256, 256, (g, w, h) => {
-    seed = 5
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let y = 0; y < h; y += 24) {
-      const off = (y / 24) % 2 ? 16 : 0
-      for (let x = -16; x < w; x += 32) {
-        g.fillStyle = shade(hex, 0.8 + rnd() * 0.35)
-        g.fillRect(x + off, y, 30, 22)
-        g.fillStyle = 'rgba(0,0,0,0.25)'
-        g.fillRect(x + off, y + 20, 30, 4)
-      }
-    }
-  })
-}
-
 export function planks(hex = '#b98a55') {
   return tex(`planks-${hex}`, 256, 256, (g, w, h) => {
     seed = 9
@@ -130,96 +56,6 @@ export function planks(hex = '#b98a55') {
       }
     }
   })
-}
-
-export function grass(hex = '#6cbf3a') {
-  return tex(`grass-${hex}`, 256, 256, (g, w, h) => {
-    seed = 13
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let i = 0; i < 2200; i++) {
-      g.fillStyle = shade(hex, 0.75 + rnd() * 0.5)
-      const x = rnd() * w
-      const y = rnd() * h
-      g.fillRect(x, y, 2, 3 + rnd() * 5)
-    }
-    for (let i = 0; i < 40; i++) {
-      g.fillStyle = `rgba(255,255,255,${0.05 + rnd() * 0.08})`
-      g.beginPath()
-      g.arc(rnd() * w, rnd() * h, 2 + rnd() * 3, 0, Math.PI * 2)
-      g.fill()
-    }
-  }, 8)
-}
-
-export function snow() {
-  return tex('snow', 256, 256, (g, w, h) => {
-    seed = 17
-    g.fillStyle = '#f1f6fb'
-    g.fillRect(0, 0, w, h)
-    for (let i = 0; i < 600; i++) {
-      g.fillStyle = `rgba(190,210,235,${0.1 + rnd() * 0.2})`
-      g.beginPath()
-      g.arc(rnd() * w, rnd() * h, 3 + rnd() * 10, 0, Math.PI * 2)
-      g.fill()
-    }
-    for (let i = 0; i < 300; i++) {
-      g.fillStyle = `rgba(255,255,255,${0.4 + rnd() * 0.5})`
-      g.fillRect(rnd() * w, rnd() * h, 2, 2)
-    }
-  }, 8)
-}
-
-export function asphalt(hex = '#5b5e66') {
-  return tex(`asphalt-${hex}`, 256, 256, (g, w, h) => {
-    seed = 19
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let i = 0; i < 2500; i++) {
-      g.fillStyle = `rgba(${rnd() > 0.5 ? 255 : 0},${rnd() > 0.5 ? 255 : 0},${rnd() > 0.5 ? 255 : 0},${0.04 + rnd() * 0.08})`
-      g.fillRect(rnd() * w, rnd() * h, 2, 2)
-    }
-  }, 6)
-}
-
-export function concrete(hex = '#c9c3b8') {
-  return tex(`concrete-${hex}`, 256, 256, (g, w, h) => {
-    seed = 23
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let i = 0; i < 1500; i++) {
-      g.fillStyle = `rgba(0,0,0,${0.03 + rnd() * 0.06})`
-      g.fillRect(rnd() * w, rnd() * h, 2, 2)
-    }
-    g.fillStyle = 'rgba(0,0,0,0.18)'
-    g.fillRect(0, 0, w, 3)
-    g.fillRect(0, 0, 3, h)
-  }, 4)
-}
-
-export function tiles(hex = '#e8e0d0') {
-  return tex(`tiles-${hex}`, 256, 256, (g, w, h) => {
-    seed = 29
-    g.fillStyle = shade(hex, 0.8)
-    g.fillRect(0, 0, w, h)
-    for (let y = 0; y < h; y += 64)
-      for (let x = 0; x < w; x += 64) {
-        g.fillStyle = shade(hex, 0.92 + rnd() * 0.16)
-        g.fillRect(x + 2, y + 2, 60, 60)
-      }
-  }, 6)
-}
-
-export function carpet(hex = '#9c6a4a') {
-  return tex(`carpet-${hex}`, 128, 128, (g, w, h) => {
-    seed = 31
-    g.fillStyle = hex
-    g.fillRect(0, 0, w, h)
-    for (let i = 0; i < 1200; i++) {
-      g.fillStyle = `rgba(0,0,0,${0.03 + rnd() * 0.07})`
-      g.fillRect(rnd() * w, rnd() * h, 1, 1)
-    }
-  }, 8)
 }
 
 export function rug(hex = '#b23b3b', hex2 = '#f0d9a8') {

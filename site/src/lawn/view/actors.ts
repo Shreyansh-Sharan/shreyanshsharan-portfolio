@@ -1,113 +1,105 @@
-// Characters: the Quaternius bodies dressed per hero with vertex-painted outfits (cardigan, polo, hoodie, blazer,
-// suspenders), hairstyles parented to the Head bone, procedural accessories (cap, glasses, suspenders), bone-scaled
-// cartoon proportions, held weapons on the right hand, library clips driven by the sim's animation state, and the
-// first-person arms: the same skinned body filtered down to its arm triangles, hung under the camera.
+// Characters: one original skinned model per hero (the dog and the garden robot carry their own baked clips), the
+// shared clip set driven by the sim's animation state, an optional cosmetic dye that recolours the hero's main
+// garment in the shader, held weapons on the right hand, and the first-person arms: the hero's own skinned body
+// filtered down to its forearm and hand triangles, hung under the camera.
 import * as THREE from 'three'
 import { findClip, instance, type LawnAssets } from '../engine/assets'
 import { HEROES, type Hero, type HeroId } from '../engine/heroes'
 import type { ToolKind } from '../engine/gear'
 import { label } from './textures'
 
-interface Outfit {
-  skin: string
-  hair: string
-  top: string
-  sleeves: string
-  cuffs: string
-  bottom: string
-  shins: string
-  shoes: string
-  hairStyle: string
-  beard?: boolean
-  cap?: boolean
-  glasses?: boolean
-  suspenders?: boolean
-  female: boolean
-  /** Head scale, body scale. */
-  head: number
-  scale: number
+/** Which garment the cosmetic colour dyes: its hue (0..1), hue tolerance, saturation floor and value range. */
+interface Dye {
+  hue: number
+  tol: number
+  sat: number
+  vMin: number
+  vMax: number
+  /** Typical brightness of the garment, so the dyed colour keeps its folds. */
+  luma: number
+}
+
+interface HeroLook {
+  model: string
+  dye: Dye | null
+  /** Extra forward lean added on top of the clips (the grandpa's stoop). */
   hunch: number
 }
 
-export const OUTFITS: Record<HeroId, Outfit> = {
-  nana: { skin: '#f1c7a7', hair: '#ece6e2', top: '#c05fa6', sleeves: '#c05fa6', cuffs: '#f8e3a1', bottom: '#5b3a6b', shins: '#e9d9c8', shoes: '#6b4a3a', hairStyle: 'Hair_Buns', glasses: true, female: true, head: 1.42, scale: 0.94, hunch: 0.08 },
-  dad: { skin: '#e9b48d', hair: '#5a3a22', top: '#2f6fdd', sleeves: '#2f6fdd', cuffs: '#e9b48d', bottom: '#d9c69a', shins: '#e9b48d', shoes: '#ffffff', hairStyle: 'Hair_Buzzed', cap: true, female: false, head: 1.32, scale: 1.02, hunch: 0 },
-  kid: { skin: '#f3cfb3', hair: '#3b2a1a', top: '#f0b429', sleeves: '#f0b429', cuffs: '#2e9c6a', bottom: '#3c5fa8', shins: '#3c5fa8', shoes: '#e0533d', hairStyle: 'Hair_SimpleParted', female: false, head: 1.65, scale: 0.68, hunch: 0 },
-  hoa: { skin: '#d9a98f', hair: '#1e1a22', top: '#8c2f5a', sleeves: '#8c2f5a', cuffs: '#f2e6d8', bottom: '#2a2430', shins: '#d9a98f', shoes: '#1e1a22', hairStyle: 'Hair_Long', female: true, head: 1.32, scale: 1.0, hunch: 0 },
-  gramps: { skin: '#e6b795', hair: '#cfcfcf', top: '#d8c9a3', sleeves: '#d8c9a3', cuffs: '#e6b795', bottom: '#6b4f2a', shins: '#6b4f2a', shoes: '#2a2422', hairStyle: 'Hair_Buzzed', beard: true, suspenders: true, female: false, head: 1.36, scale: 0.98, hunch: 0.22 },
-  dog: { skin: '#c98a4b', hair: '#7a4e24', top: '#c98a4b', sleeves: '#c98a4b', cuffs: '#c98a4b', bottom: '#c98a4b', shins: '#c98a4b', shoes: '#c98a4b', hairStyle: '', female: false, head: 1, scale: 1, hunch: 0 },
+export const LOOKS: Record<HeroId, HeroLook> = {
+  nana: { model: 'hero-nana', dye: { hue: 0.975, tol: 0.045, sat: 0.3, vMin: 0.35, vMax: 1, luma: 0.55 }, hunch: 0.06 },
+  dad: { model: 'hero-dad', dye: { hue: 0.565, tol: 0.06, sat: 0.22, vMin: 0.2, vMax: 1, luma: 0.62 }, hunch: 0 },
+  kid: { model: 'hero-kid', dye: { hue: 0.4, tol: 0.08, sat: 0.25, vMin: 0.15, vMax: 1, luma: 0.38 }, hunch: 0 },
+  hoa: { model: 'hero-hoa', dye: { hue: 0.985, tol: 0.05, sat: 0.4, vMin: 0.05, vMax: 0.55, luma: 0.14 }, hunch: 0 },
+  gramps: { model: 'hero-gramps', dye: { hue: 0.065, tol: 0.05, sat: 0.3, vMin: 0.1, vMax: 0.52, luma: 0.27 }, hunch: 0.12 },
+  dog: { model: 'dog', dye: null, hunch: 0 },
 }
 
-const ARM = /clavicle|upperarm|lowerarm|hand|index|middle|pinky|ring|thumb/
-const HAND = /hand|index|middle|pinky|ring|thumb/
-const LEG = /thigh/
-const SHIN = /calf/
-const FOOT = /foot|ball/
-const HEAD = /Head|neck/
-
-/** Paint an outfit into the vertex colours of a skinned body. */
-function paintOutfit(mesh: THREE.SkinnedMesh, o: Outfit, teamTint: string) {
-  const geo = mesh.geometry
-  const pos = geo.attributes.position as THREE.BufferAttribute
-  const idx = geo.attributes.skinIndex as THREE.BufferAttribute
-  const wgt = geo.attributes.skinWeight as THREE.BufferAttribute
-  const names = mesh.skeleton.bones.map((b) => b.name)
-  const n = pos.count
-  const col = new Float32Array(n * 3)
-  const box = new THREE.Box3().setFromBufferAttribute(pos)
-  const h = box.max.y - box.min.y
-  const c = new THREE.Color()
-  const team = new THREE.Color(teamTint)
-  for (let i = 0; i < n; i++) {
-    // Dominant joint.
-    let best = 0
-    let bw = -1
-    for (let k = 0; k < 4; k++) {
-      const w = wgt.getComponent(i, k)
-      if (w > bw) {
-        bw = w
-        best = idx.getComponent(i, k)
-      }
-    }
-    const bone = names[best] ?? ''
-    const yn = (pos.getY(i) - box.min.y) / h
-    let hex = o.top
-    if (HAND.test(bone)) hex = o.skin
-    else if (ARM.test(bone)) hex = /lowerarm/.test(bone) ? o.cuffs : o.sleeves
-    else if (HEAD.test(bone)) hex = yn > 0.86 ? o.skin : o.top
-    else if (LEG.test(bone)) hex = o.bottom
-    else if (SHIN.test(bone)) hex = o.shins
-    else if (FOOT.test(bone)) hex = o.shoes
-    else if (/pelvis/.test(bone)) hex = yn < 0.5 ? o.bottom : o.top
-    else if (/spine_03|clavicle/.test(bone)) hex = o.top
-    c.set(hex)
-    // Collar / hem stripe in the team colour so sides read at a glance.
-    if (/spine_03|neck/.test(bone) && yn > 0.8 && yn < 0.83) c.copy(team)
-    if (/pelvis|spine_01/.test(bone) && yn > 0.5 && yn < 0.525) c.copy(team)
-    col[i * 3] = c.r
-    col[i * 3 + 1] = c.g
-    col[i * 3 + 2] = c.b
+/** Recolour the garment texels toward `hex` (keeps the texture's light and folds). */
+function applyDye(mat: THREE.MeshStandardMaterial, dye: Dye, hex: string) {
+  const to = new THREE.Color(hex)
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uDyeTo = { value: to }
+    sh.uniforms.uDye = { value: new THREE.Vector4(dye.hue, dye.tol, dye.sat, dye.luma) }
+    sh.uniforms.uDyeV = { value: new THREE.Vector2(dye.vMin, dye.vMax) }
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform vec3 uDyeTo;
+uniform vec4 uDye;
+uniform vec2 uDyeV;
+vec3 lwHsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x);
+}`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  vec3 lwC = pow(diffuseColor.rgb, vec3(1.0 / 2.2));
+  vec3 h = lwHsv(lwC);
+  float dh = abs(h.x - uDye.x);
+  dh = min(dh, 1.0 - dh);
+  float m = (1.0 - smoothstep(uDye.y * 0.6, uDye.y, dh)) * smoothstep(uDye.z * 0.7, uDye.z, h.y) * step(uDyeV.x, h.z) * (1.0 - smoothstep(uDyeV.y - 0.05, uDyeV.y + 0.05, h.z));
+  float l = clamp(dot(lwC, vec3(0.299, 0.587, 0.114)) / max(uDye.w, 0.05), 0.35, 1.6);
+  vec3 dyed = pow(clamp(uDyeTo * l, 0.0, 1.0), vec3(2.2));
+  diffuseColor.rgb = mix(diffuseColor.rgb, dyed, m);
+}`,
+      )
   }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  mat.customProgramCacheKey = () => `dye-${hex}-${dye.hue}`
 }
 
-/** Keep only the arm triangles of a skinned body (first-person view). */
+/** Clone a hero's body materials and dye them unless the colour is the stock one. */
+function dress(model: THREE.Object3D, look: HeroLook, hero: Hero, colour: string) {
+  if (!look.dye || !colour || colour.toLowerCase() === hero.colors[0].toLowerCase()) return
+  model.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    const mat = (m.material as THREE.MeshStandardMaterial).clone()
+    applyDye(mat, look.dye!, colour)
+    m.material = mat
+  })
+}
+
+/** Keep only the forearm and hand triangles of a skinned body (first-person view). */
 function armGeometry(mesh: THREE.SkinnedMesh) {
   const geo = mesh.geometry
   const idx = geo.attributes.skinIndex as THREE.BufferAttribute
   const wgt = geo.attributes.skinWeight as THREE.BufferAttribute
   const names = mesh.skeleton.bones.map((b) => b.name)
+  const armBone = names.map((n) => /lowerarm|hand/.test(n))
+  // A vertex belongs to the forearm if the forearm and hand carry a fair share of its weight (so the cut
+  // falls just above the elbow instead of leaving a jagged stump).
   const isArm = (v: number) => {
-    let best = 0
-    let bw = -1
-    for (let k = 0; k < 4; k++) {
-      const w = wgt.getComponent(v, k)
-      if (w > bw) {
-        bw = w
-        best = idx.getComponent(v, k)
-      }
-    }
-    return /lowerarm|hand|index|middle|pinky|ring|thumb/.test(names[best] ?? '')
+    let w = 0
+    for (let k = 0; k < 4; k++) if (armBone[idx.getComponent(v, k)]) w += wgt.getComponent(v, k)
+    return w >= 0.3
   }
   const index = geo.index!
   const keep: number[] = []
@@ -122,22 +114,8 @@ function armGeometry(mesh: THREE.SkinnedMesh) {
   return out
 }
 
-function heroHair(assets: LawnAssets, name: string, colour: string) {
-  const pack = assets.models.get('hair')
-  if (!pack || !name) return null
-  let found: THREE.Mesh | null = null
-  pack.traverse((o) => {
-    if (!found && o.name === name && (o as THREE.Mesh).isMesh) found = o as THREE.Mesh
-  })
-  if (!found) return null
-  const m = (found as THREE.Mesh).clone()
-  m.material = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.75, metalness: 0 })
-  m.castShadow = true
-  return m
-}
-
 /** The held weapon / tool model for a hero (with per-weapon offsets on the right hand). */
-function weaponFor(assets: LawnAssets, hero: Hero, tool: ToolKind | null): THREE.Object3D {
+function weaponFor(assets: LawnAssets, hero: Hero, tool: ToolKind | 'blower' | null): THREE.Object3D {
   // [model, grip fraction along the length (0 = held at the base), yaw twist]
   const map: Record<string, [string, number, number]> = {
     rollingpin: ['rollingpin', 0.5, 0],
@@ -152,6 +130,7 @@ function weaponFor(assets: LawnAssets, hero: Hero, tool: ToolKind | null): THREE
     rake: ['rake', 0.25, 0],
     shovel: ['shovel', 0.25, 0],
     hose: ['', 0.3, 0],
+    blower: ['blower', 0.3, 0],
   }
   const kind = tool ?? hero.melee.kind
   const [name, grip, twist] = map[kind] ?? map.bat
@@ -204,29 +183,16 @@ function standInWeapon(kind: string): THREE.Object3D {
   return g
 }
 
-function accessories(o: Outfit, head: THREE.Object3D, teamTint: string) {
-  if (o.cap) {
-    const cap = new THREE.Group()
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.115, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: teamTint, roughness: 0.8 }))
-    dome.scale.set(1.05, 0.85, 1.05)
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.014, 0.13), new THREE.MeshStandardMaterial({ color: teamTint, roughness: 0.8 }))
-    brim.position.set(0, 0.005, 0.15)
-    cap.add(dome, brim)
-    cap.position.set(0, 0.2, 0.01)
-    cap.scale.setScalar(1.15)
-    head.add(cap)
-  }
-  if (o.glasses) {
-    const mat = new THREE.MeshStandardMaterial({ color: '#2a1f3d', roughness: 0.4 })
-    const l = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.005, 6, 16), mat)
-    const r = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.005, 6, 16), mat)
-    const gy = o.female ? 0.13 : 0.06
-    l.position.set(-0.035, gy, 0.1)
-    r.position.set(0.035, gy, 0.1)
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.005, 0.005), mat)
-    bridge.position.set(0, gy, 0.1)
-    head.add(l, r, bridge)
-  }
+/** Walt's open umbrella, held out in front as a shield while blocking (canopy toward +Z). */
+function umbrellaShield(assets: LawnAssets) {
+  const u = instance(assets, 'umbrella')
+  if (!u) return null
+  const g = new THREE.Group()
+  u.rotation.x = Math.PI / 2
+  u.position.z = -0.45
+  g.add(u)
+  g.visible = false
+  return g
 }
 
 export interface ActorMeta {
@@ -256,18 +222,24 @@ export class Actor {
   private head: THREE.Object3D | null = null
   private spine: THREE.Object3D | null = null
   private weapon: THREE.Object3D | null = null
-  private tool: ToolKind | null = null
+  private tool: ToolKind | 'blower' | null = null
   private tag: THREE.Sprite
   private tagCanvas: HTMLCanvasElement
   private tagTex: THREE.CanvasTexture
   private tagHp = -1
   private ring: THREE.Mesh
-  private outfit: Outfit
+  private look: HeroLook
   private quad: boolean
   private lastAnim = -1
   private hitTimer = 0
   private deadTimer = 0
   private bodyMesh: THREE.SkinnedMesh | null = null
+  private hunchQ = new THREE.Quaternion()
+  private umbrella: THREE.Object3D | null = null
+  private flashTool: 'blower' | null = null
+  private flashUntil = 0
+  private clock = 0
+  private axisX = new THREE.Vector3(1, 0, 0)
   visible = true
   x = 0
   y = 0
@@ -282,15 +254,16 @@ export class Actor {
     this.meta = meta
     const friendly = meta.team === myTeam && !meta.robot
     this.hero = HEROES[meta.hero]
-    this.outfit = OUTFITS[meta.hero]
+    this.look = LOOKS[meta.hero]
     this.quad = meta.hero === 'dog' || meta.robot
     const team = teamColour(meta.team)
-    const modelName = meta.robot ? 'robot' : meta.hero === 'dog' ? 'dog' : this.outfit.female ? 'char-f' : 'char-m'
+    const modelName = meta.robot ? 'robot' : this.look.model
     let model = instance(assets, modelName)
     if (!model) model = standInBody(this.hero, meta.robot)
     this.model = model
     this.group.add(model)
-    const clips = meta.robot ? assets.clips.get('robot') : meta.hero === 'dog' ? assets.clips.get('dog') : assets.charClips
+    // Every model carries its own clips (the heroes' hip motion is scaled to their own legs).
+    const clips = assets.clips.get(modelName)
     if (clips?.length) {
       this.mixer = new THREE.AnimationMixer(model)
       for (const c of clips) this.actions.set(c.name, this.mixer.clipAction(c))
@@ -299,23 +272,23 @@ export class Actor {
       if (o.name === 'hand_r') this.hand = o
       if (o.name === 'Head') this.head = o
       if (o.name === 'spine_02') this.spine = o
-      // The body is the biggest skinned mesh (the eyes are a separate, tiny one).
       const m = o as THREE.SkinnedMesh
       if (m.isSkinnedMesh && (!this.bodyMesh || m.geometry.attributes.position.count > this.bodyMesh.geometry.attributes.position.count)) this.bodyMesh = m
     })
-    if (!this.quad && this.bodyMesh) this.dress(team)
-    if (!this.quad) this.setTool(null)
-    // Cartoon proportions: a bigger head, the kid shrunk.
     if (!this.quad) {
-      if (this.head) this.head.scale.setScalar(this.outfit.head)
-      model.scale.multiplyScalar(this.outfit.scale)
+      dress(model, this.look, this.hero, meta.colour)
+      this.setTool(null)
+      if (this.hero.umbrella) {
+        this.umbrella = umbrellaShield(assets)
+        if (this.umbrella) {
+          this.umbrella.position.set(0, this.hero.height * 0.62, 0.55)
+          this.group.add(this.umbrella)
+        }
+      }
     }
-    if (meta.hero === 'dog' && !meta.robot) {
-      const coat = new THREE.MeshStandardMaterial({ color: meta.colour === this.hero.colors[0] ? '#c98a4b' : meta.colour, roughness: 0.9, metalness: 0 })
-      model.traverse((o) => {
-        const m = o as THREE.Mesh
-        if (m.isMesh) m.material = coat
-      })
+    if (meta.hero === 'dog' && !meta.robot && meta.colour.toLowerCase() !== this.hero.colors[0].toLowerCase()) {
+      // Biscuit's bandana takes the cosmetic colour.
+      dress(model, { model: 'dog', dye: { hue: 0.0, tol: 0.04, sat: 0.72, vMin: 0.35, vMax: 1, luma: 0.42 }, hunch: 0 }, this.hero, meta.colour)
     }
     if (meta.robot) {
       model.traverse((o) => {
@@ -323,7 +296,7 @@ export class Actor {
         if (m.isMesh && (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
           m.material = (m.material as THREE.MeshStandardMaterial).clone()
           ;(m.material as THREE.MeshStandardMaterial).emissive = new THREE.Color('#ff3b3b')
-          ;(m.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.25
+          ;(m.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.12
         }
       })
     }
@@ -347,51 +320,22 @@ export class Actor {
     this.play('Idle_Loop', 0)
   }
 
-  private dress(team: string) {
-    const mesh = this.bodyMesh!
-    mesh.geometry = mesh.geometry.clone()
-    paintOutfit(mesh, this.outfit, this.meta.colour === this.hero.colors[0] ? team : this.meta.colour)
-    const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
-    mat.vertexColors = true
-    mat.map = null
-    mat.color.set('#ffffff')
-    mat.roughness = 0.85
-    mat.metalness = 0
-    mesh.material = mat
-    // Eyes keep their texture.
-    if (this.head) {
-      const hair = heroHair(this.assets, this.outfit.hairStyle, this.outfit.hair)
-      if (hair) {
-        if (this.outfit.female && !/Female/.test(this.outfit.hairStyle)) hair.position.y += 0.06
-        this.head.add(hair)
-      }
-      if (this.outfit.beard) {
-        const beard = heroHair(this.assets, 'Hair_Beard', this.outfit.hair)
-        if (beard) this.head.add(beard)
-      }
-      const brows = heroHair(this.assets, this.outfit.female ? 'Eyebrows_Female' : 'Eyebrows_Regular', this.outfit.hair)
-      if (brows) this.head.add(brows)
-      accessories(this.outfit, this.head, team)
-    }
-    if (this.outfit.suspenders && this.spine) {
-      const mat2 = new THREE.MeshStandardMaterial({ color: '#7a1f1f', roughness: 0.8 })
-      for (const s of [-1, 1]) {
-        const strap = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.42, 0.012), mat2)
-        strap.position.set(0.07 * s, 0.1, 0.13)
-        this.spine.add(strap)
-      }
-    }
-  }
-
   setTool(tool: ToolKind | null) {
     if (this.quad) return
-    if (this.weapon && this.tool === tool && this.weapon.parent) return
+    const want: ToolKind | 'blower' | null = this.flashTool && this.clock < this.flashUntil ? this.flashTool : tool
+    if (this.weapon && this.tool === want && this.weapon.parent) return
     if (this.weapon) this.weapon.parent?.remove(this.weapon)
-    this.tool = tool
-    this.weapon = weaponFor(this.assets, this.hero, tool)
+    this.tool = want
+    this.weapon = weaponFor(this.assets, this.hero, want)
     const parent = this.hand ?? this.model
     parent.add(this.weapon)
     counterScale(this.weapon, parent)
+  }
+
+  /** Hold a gadget for a moment (the leaf blower during its ultimate). */
+  flash(kind: 'blower', seconds: number) {
+    this.flashTool = kind
+    this.flashUntil = this.clock + seconds
   }
 
   private drawTag() {
@@ -464,10 +408,12 @@ export class Actor {
 
   /** Per-frame update from the snapshot row. */
   update(dt: number, row: { x: number; y: number; z: number; yaw: number; pitch: number; hp: number; maxHp: number; anim: number; moving: boolean; alive: boolean; blocking: boolean; stunned: boolean; onLadder: boolean; riding: boolean; tool: ToolKind | null }, meId: boolean, hideTags = false) {
+    this.clock += dt
     this.x = row.x
     this.y = row.y
     this.z = row.z
     this.yaw = row.yaw
+    if (this.umbrella) this.umbrella.visible = row.alive && row.blocking
     this.group.position.set(row.x, row.y, row.z)
     this.group.rotation.y = row.yaw
     this.alive = row.alive
@@ -492,8 +438,9 @@ export class Actor {
     }
     // Head looks along the pitch; the hunch for the grandpa.
     if (this.head && !this.quad) this.head.rotation.x = -row.pitch * 0.6
-    if (this.spine && this.outfit.hunch) this.spine.rotation.x = this.outfit.hunch
     this.mixer?.update(dt)
+    // The grandpa's stoop, layered on the clip pose.
+    if (this.spine && this.look.hunch && row.alive) this.spine.quaternion.multiply(this.hunchQ.setFromAxisAngle(this.axisX, this.look.hunch))
     this.tag.visible = row.alive && !meId && !hideTags
     this.ring.visible = row.alive && !hideTags
     if (!row.alive) this.deadTimer += dt
@@ -541,7 +488,12 @@ export class FirstPerson {
   private hand: THREE.Object3D | null = null
   private head: THREE.Object3D | null = null
   private weapon: THREE.Object3D | null = null
-  private tool: ToolKind | null = null
+  private tool: ToolKind | 'blower' | null = null
+  private umbrella: THREE.Object3D | null = null
+  private flashTool: 'blower' | null = null
+  private flashUntil = 0
+  private clock = 0
+  private wantTool: ToolKind | null = null
   private assets: LawnAssets
   private hero: Hero
   private swing = { t: -1, heavy: false, up: 0.14, down: 0.3 }
@@ -556,27 +508,21 @@ export class FirstPerson {
   private axisZ = new THREE.Vector3(0, 0, 1)
 
   constructor(assets: LawnAssets, heroId: HeroId, colour: string, team: number) {
+    void team
     this.assets = assets
     this.hero = HEROES[heroId]
-    const o = OUTFITS[heroId]
-    const modelName = o.female ? 'char-f' : 'char-m'
-    const model = heroId === 'dog' ? null : instance(assets, modelName)
+    const look = LOOKS[heroId]
+    const model = heroId === 'dog' ? null : instance(assets, look.model)
     if (model) {
       let body: THREE.SkinnedMesh | null = null
       model.traverse((m) => {
         const s = m as THREE.SkinnedMesh
         if (s.isSkinnedMesh && (!body || s.geometry.attributes.position.count > body.geometry.attributes.position.count)) body = s
       })
+      dress(model, look, this.hero, colour)
       if (body) {
         const b = body as THREE.SkinnedMesh
-        b.geometry = b.geometry.clone()
-        paintOutfit(b, o, colour === this.hero.colors[0] ? teamColour(team) : colour)
         b.geometry = armGeometry(b)
-        const mat = (b.material as THREE.MeshStandardMaterial).clone()
-        mat.vertexColors = true
-        mat.map = null
-        mat.color.set('#ffffff')
-        b.material = mat
         b.frustumCulled = false
         b.castShadow = false
         model.traverse((m) => {
@@ -593,7 +539,7 @@ export class FirstPerson {
         if (m.name === 'Head') this.head = m
       })
       this.rig = model
-      const clips = assets.charClips
+      const clips = assets.clips.get(look.model) ?? []
       if (clips.length) {
         this.mixer = new THREE.AnimationMixer(model)
         // Both arms forward (the push loop) is the base: the weapon sits in view, the swing is layered on top.
@@ -608,21 +554,41 @@ export class FirstPerson {
       this.inner.add(model)
       this.inner.rotation.y = Math.PI
       this.inner.position.set(0, -1.6, 0.1)
-      this.inner.scale.setScalar(0.8)
+      // Arms sized like an adult's whatever the hero's height, so the weapon reads the same in view.
+      this.inner.scale.setScalar(0.8 * Math.min(1.25, Math.max(0.9, 1.8 / ((model.userData.height as number) || 1.8))))
       this.group.add(this.inner)
       this.setTool(null)
+      if (this.hero.umbrella) {
+        // The open umbrella held up in front of the camera while blocking.
+        this.umbrella = umbrellaShield(assets)
+        if (this.umbrella) {
+          this.umbrella.rotation.y = Math.PI
+          this.umbrella.position.set(-0.16, -0.4, -0.25)
+          this.umbrella.scale.setScalar(0.65)
+          this.group.add(this.umbrella)
+        }
+      }
     }
   }
 
   setTool(tool: ToolKind | null) {
     if (!this.rig) return
-    if (this.weapon && this.tool === tool && this.weapon.parent) return
+    this.wantTool = tool
+    const want: ToolKind | 'blower' | null = this.flashTool && this.clock < this.flashUntil ? this.flashTool : tool
+    if (this.weapon && this.tool === want && this.weapon.parent) return
     if (this.weapon) this.weapon.parent?.remove(this.weapon)
-    this.tool = tool
-    this.weapon = weaponFor(this.assets, this.hero, tool)
+    this.tool = want
+    this.weapon = weaponFor(this.assets, this.hero, want)
     const parent = this.hand ?? this.rig
     parent.add(this.weapon)
     counterScale(this.weapon, parent)
+  }
+
+  /** Hold a gadget for a moment (the leaf blower during its ultimate). */
+  flash(kind: 'blower', seconds: number) {
+    this.flashTool = kind
+    this.flashUntil = this.clock + seconds
+    this.setTool(this.wantTool)
   }
 
   startSwing(heavy: boolean) {
@@ -645,6 +611,12 @@ export class FirstPerson {
 
   update(dt: number, moving: boolean, sprinting: boolean, blocking: boolean, drawing: number) {
     if (!this.rig) return
+    this.clock += dt
+    if (this.flashTool && this.clock >= this.flashUntil) {
+      this.flashTool = null
+      this.setTool(this.wantTool)
+    }
+    if (this.umbrella) this.umbrella.visible = blocking
     this.hitStop = Math.max(0, this.hitStop - dt)
     const live = this.hitStop > 0 ? dt * 0.15 : dt
     this.mixer?.update(live)

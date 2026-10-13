@@ -567,16 +567,20 @@ function Credits() {
     <div className="lw-credits">
       <h2 className="section-title">
         <button className="lw-creditsbtn" onClick={() => setOpen((o) => !o)} aria-expanded={open} data-testid="lw-credits">
-          Model credits {open ? '−' : '+'}
+          Credits {open ? '−' : '+'}
         </button>
       </h2>
-      <p className="muted small">Heroes are built from Quaternius CC0 packs; props are Creative Commons models from Sketchfab, used under CC BY 4.0. Houses, streets, effects and sound are procedural.</p>
+      <p className="muted small">The heroes, the dog, the robots, every prop and the house kit are original models made for this game; the houses, street, effects and sound are built in code. Hero animations come from a CC0 library.</p>
       {open && (
         <>
-          <h3 className="lw-sub">Characters</h3>
+          <h3 className="lw-sub">Animations</h3>
           <ul className="lw-creditlist">{CHARACTER_CREDITS.map(row)}</ul>
-          <h3 className="lw-sub">Props</h3>
-          <ul className="lw-creditlist">{MODEL_CREDITS.map(row)}</ul>
+          {MODEL_CREDITS.length > 0 && (
+            <>
+              <h3 className="lw-sub">Props</h3>
+              <ul className="lw-creditlist">{MODEL_CREDITS.map(row)}</ul>
+            </>
+          )}
         </>
       )}
     </div>
