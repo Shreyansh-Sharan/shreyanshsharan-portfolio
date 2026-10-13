@@ -18,6 +18,9 @@ export const CHARACTER_CREDITS: Credit[] = [
   { use: 'FLICK', name: 'Cyber-diva Mark-2', author: 'SmugglersStudio', authorUrl: 'https://sketchfab.com/SmugglersStudio', url: 'https://sketchfab.com/3d-models/cyber-diva-mark-2-5fa032f5076247b6a0665f20fe226323' },
   { use: 'PIKE', name: 'Animated Stylized Character - Rogue Warrior', author: 'Karthik Naidu', authorUrl: 'https://sketchfab.com/Karthiknaidu97', url: 'https://sketchfab.com/3d-models/animated-stylized-character-rogue-warrior-e49c999cc7ce4668a7fdeff328ad0b93' },
   { use: 'SALVE', name: 'Rigged, animated Character free', author: 'Cris', authorUrl: 'https://sketchfab.com/cristopher.faundez', url: 'https://sketchfab.com/3d-models/rigged-animated-character-free-a950d1e0b2574fbd9ced0c6d6e0bb9b3' },
+  // Animation clips shared across the cast (retargeted onto the other rigs).
+  { use: 'Aim, fire and death clips on ROOK, FURNACE, FLICK, PIKE and SALVE', name: 'Star Soldier', author: 'Suvalien', authorUrl: 'https://sketchfab.com/Suvalien', url: 'https://sketchfab.com/3d-models/star-soldier-97ac0915492341148fe2419a1964f097' },
+  { use: 'Walk cycle on FLICK', name: 'Futuristic soldier (lowpoly)', author: 'SlagPerch 3D', authorUrl: 'https://sketchfab.com/slagperch3d', url: 'https://sketchfab.com/3d-models/futuristic-soldier-lowpoly-5ebade1ccbff4adb91ddd3a4d1fcd541' },
 ]
 
 export const ENVIRONMENT_CREDITS: Credit[] = [

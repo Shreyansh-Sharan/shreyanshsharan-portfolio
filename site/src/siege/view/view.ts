@@ -366,6 +366,7 @@ export class SiegeView {
       }
       case 'hit': {
         const rel = e.target > 0 ? this.relation(e.target) : 'enemy'
+        if (!e.heal && e.target > 0) this.actors.get(e.target)?.flinch(e.dmg)
         this.fx.hit(e.x, e.z, rel === 'enemy' ? '#fde68a' : '#fb7185')
         this.fx.text(e.x, e.z, String(e.dmg), rel === 'me' ? '#fb7185' : rel === 'ally' ? '#fda4af' : e.dmg >= 300 ? '#fde047' : '#ffffff', e.dmg >= 300 ? 1.35 : 1)
         if (rel === 'me' && this.shakeOn) this.fx.shake = Math.max(this.fx.shake, Math.min(0.5, e.dmg / 600))

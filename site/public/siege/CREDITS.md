@@ -10,11 +10,23 @@ Everything else (maps, neon signs, holo-ads, effects, sounds, UI, key art) is ge
 | Hero | Model | Author | Model page |
 | --- | --- | --- | --- |
 | ROOK (`models/char-rook.glb`) | Futuristic soldier (lowpoly) | [SlagPerch 3D](https://sketchfab.com/slagperch3d) | https://sketchfab.com/3d-models/futuristic-soldier-lowpoly-5ebade1ccbff4adb91ddd3a4d1fcd541 |
-| WREN (`models/char-wren.glb`) | Star Soldier | [Suvalien](https://sketchfab.com/Suvalien) | https://sketchfab.com/3d-models/star-soldier-97ac0915492341148fe2419a1964f097 |
+| WREN (`models/char-wren.glb`; its clips also drive the other heroes, see below) | Star Soldier | [Suvalien](https://sketchfab.com/Suvalien) | https://sketchfab.com/3d-models/star-soldier-97ac0915492341148fe2419a1964f097 |
 | FURNACE (`models/char-furnace.glb`, decimated to 12k faces) | Evil Robot – Game-Ready | [CharlieCatling](https://sketchfab.com/charliecatling) | https://sketchfab.com/3d-models/evil-robot-game-ready-5918ff9fae3342e59a76a919bf89391a |
 | FLICK (`models/char-flick.glb`) | Cyber-diva Mark-2 | [SmugglersStudio](https://sketchfab.com/SmugglersStudio) | https://sketchfab.com/3d-models/cyber-diva-mark-2-5fa032f5076247b6a0665f20fe226323 |
 | PIKE (`models/char-pike.glb`, decimated to 11k faces, sword removed) | Animated Stylized Character - Rogue Warrior | [Karthik Naidu](https://sketchfab.com/Karthiknaidu97) | https://sketchfab.com/3d-models/animated-stylized-character-rogue-warrior-e49c999cc7ce4668a7fdeff328ad0b93 |
 | SALVE (`models/char-salve.glb`) | Rigged, animated Character free | [Cris](https://sketchfab.com/cristopher.faundez) | https://sketchfab.com/3d-models/rigged-animated-character-free-a950d1e0b2574fbd9ced0c6d6e0bb9b3 |
+
+### Animation clips shared across the cast (CC BY 4.0)
+
+Four of the heroes ship without fire or death animations, so the game retargets clips from two of the models
+above onto every rig (world-space rotation deltas with per-bone rest alignment, baked into each `char-*.glb`;
+locomotion cycles are re-phased and carry their measured ground speed). Strafing, backpedalling, hit flinches,
+recoil and the dash lunge are derived procedurally at runtime from these clips.
+
+| Clips | Used on | Model | Author | Model page |
+| --- | --- | --- | --- | --- |
+| `aim` (idle), `fire`, `fire2`, `death` | ROOK, FURNACE (aim/fire only), FLICK, PIKE, SALVE | Star Soldier | [Suvalien](https://sketchfab.com/Suvalien) | https://sketchfab.com/3d-models/star-soldier-97ac0915492341148fe2419a1964f097 |
+| `walk` | FLICK | Futuristic soldier (lowpoly) | [SlagPerch 3D](https://sketchfab.com/slagperch3d) | https://sketchfab.com/3d-models/futuristic-soldier-lowpoly-5ebade1ccbff4adb91ddd3a4d1fcd541 |
 
 ## Arenas and props (CC BY 4.0)
 
@@ -56,8 +68,9 @@ Everything else (maps, neon signs, holo-ads, effects, sounds, UI, key art) is ge
 | `portraits/*.webp`, `keyart.webp` | Rendered in-engine from the models above | Derived works, same CC BY attribution applies |
 
 Conversion: `@gltf-transform` (prune, dedup, flatten/join for static pieces, meshopt simplify where noted, WebP
-textures at 512–1024 px, meshopt compression). Characters keep their skeletons and the clips listed in
-`src/siege/engine/assets.ts`.
+textures at 512–1024 px, meshopt compression). Characters keep their skeletons; their clips are resampled at 30 fps
+under the canonical names listed in `src/siege/engine/assets.ts` (idle, walk, run, aim, fire, fire2, death, super),
+with the retargeted clips credited above.
 
 Fictional brands on the holo-ads (ORBIT COLA, ZENITH MOBILE, LUMEN ENERGY, HALCYON TYRES, NORTHWIND AIR, KETTLE &
 CRUMB, PINEWOOD BANK, SKYLARK TRAVEL, IRONLEAF, GRAINFIELD) are the site's own invented sponsors.

@@ -319,7 +319,7 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
 function Credits() {
   const [open, setOpen] = useState(false)
   const row = (c: (typeof CHARACTER_CREDITS)[number]) => (
-    <li key={c.url}>
+    <li key={c.use + c.url}>
       <em>{c.use}</em>{' '}
       <a href={c.url} target="_blank" rel="noreferrer">
         {c.name}
