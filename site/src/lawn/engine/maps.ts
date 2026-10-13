@@ -104,7 +104,7 @@ export function buildWorld(mapId: MapId, layouts: [LayoutId, LayoutId], themes: 
   for (const h of houses) {
     const zf = h.oz + h.dir * 11 // fence line 11 m in front of the house centre (the lawn edge by the sidewalk)
     for (let x = 18; x < 50; x += 2) {
-      if (Math.abs(x + 1 - (h.ox + h.dir * 0.75)) < 1.2) continue
+      if (Math.abs(x + 1 - h.ox) < 1.2) continue
       prop(snow ? 'snowfence' : 'fence', x + 1, zf, 2, 0.2, 1.0, 0, 30)
     }
     // Side fences.

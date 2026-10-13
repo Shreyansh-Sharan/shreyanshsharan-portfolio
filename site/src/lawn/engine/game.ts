@@ -7,6 +7,7 @@ import { HEROES, HERO_IDS, type HeroId } from './heroes'
 import type { LayoutId } from './houses'
 import { LawnInput, type InputFrame } from './input'
 import { MAPS, type MapId, type TimeOfDay } from './maps'
+import { moodFor } from '../view/moods'
 import { IN, INPUT_HZ, MAX_PEOPLE, SNAP_HZ, isLawnMsg, type LawnMsg, type LobbyPlayer, type Look, type MatchSettings, type NetSession, type PeerResult } from './net'
 import type { Piece } from './pieces'
 import { applyMatch, perksUnlocked, throwFor, trapsFor, colourHex, type HouseTheme, type Profile, type Reward } from './progress'
@@ -314,7 +315,10 @@ export class Game {
     }
     this.look_ = { yaw: me?.yaw ?? 0, pitch: 0 }
     this.view.look = this.look_
-    this.view.setWorld(settings.map, settings.time, sim.pieces, themes, (x, z, y) => sim.floorAt(x, z, y, 0.6))
+    // The lighting mood: sunny or golden hour by day (from the seed, so both ends agree), night, or the snow presets;
+    // ?mood=<id> overrides it for screenshots.
+    const moodParam = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('mood') : null
+    this.view.setWorld(settings.map, settings.time, sim.pieces, themes, (x, z, y) => sim.floorAt(x, z, y, 0.6), moodFor(settings.map, settings.time, seed, moodParam))
     for (const p of sim.pieces) this.knownPieces.add(p.id)
     this.view.setRoster(this.meta, this.meId, this.myTeam)
     this.seedForView = seed

@@ -1590,25 +1590,26 @@ export class Sim {
     const fz = Math.cos(yaw)
     const wx = p.x + sy * r.t
     const wz = p.z + cy * r.t
-    // Find the floor beyond the wall above us: balcony, garage roof or the roof deck.
+    // Find the floor beyond the wall above us: the lowest slab (the upper floor, the balcony), else the roof. The
+    // pitched roofs are stacks of steps, so their surface there is the highest step top.
     const beyondX = wx + fx * 1.0
     const beyondZ = wz + fz * 1.0
-    let top = 0
-    const b: Box = { x0: beyondX - 0.6, y0: p.y + 1.5, z0: beyondZ - 0.6, x1: beyondX + 0.6, y1: 12, z1: beyondZ + 0.6 }
-    for (const s of this.hash.query(b, this.tmp)) {
-      if (!s.alive || !s.solid || (s.kind !== 'slab' && s.kind !== 'roof')) continue
-      const sb = boxOf(s)
-      if (sb.x0 < b.x1 && sb.x1 > b.x0 && sb.z0 < b.z1 && sb.z1 > b.z0 && sb.y1 > p.y + 1.5 && (top === 0 || sb.y1 < top)) top = sb.y1
-    }
-    if (!top) {
-      // No floor beyond: maybe we are leaning on a balcony railing from outside (floor is under the rail).
-      const sb: Box = { x0: beyondX - 0.6, y0: p.y + 0.5, z0: beyondZ - 0.6, x1: beyondX + 0.6, y1: 12, z1: beyondZ + 0.6 }
-      for (const s of this.hash.query(sb, this.tmp)) {
+    const floorBeyond = (minY: number) => {
+      let slab = 0
+      let roof = 0
+      const b: Box = { x0: beyondX - 0.6, y0: minY, z0: beyondZ - 0.6, x1: beyondX + 0.6, y1: 14, z1: beyondZ + 0.6 }
+      for (const s of this.hash.query(b, this.tmp)) {
         if (!s.alive || !s.solid || (s.kind !== 'slab' && s.kind !== 'roof')) continue
-        const bb = boxOf(s)
-        if (bb.x0 < sb.x1 && bb.x1 > sb.x0 && bb.z0 < sb.z1 && bb.z1 > sb.z0 && bb.y1 > p.y + 0.5 && (top === 0 || bb.y1 < top)) top = bb.y1
+        const sb = boxOf(s)
+        if (!(sb.x0 < b.x1 && sb.x1 > b.x0 && sb.z0 < b.z1 && sb.z1 > b.z0 && sb.y1 > minY)) continue
+        if (s.kind === 'slab') {
+          if (slab === 0 || sb.y1 < slab) slab = sb.y1
+        } else roof = Math.max(roof, sb.y1)
       }
+      return slab || roof
     }
+    // No floor beyond: maybe we are leaning on a balcony railing from outside (floor is under the rail).
+    let top = floorBeyond(p.y + 1.5) || floorBeyond(p.y + 0.5)
     if (!top) return false
     // Railings or a parapet on the landing raise the climb.
     const rb: Box = { x0: beyondX - 0.8, y0: top, z0: beyondZ - 0.8, x1: beyondX + 0.8, y1: top + 1.2, z1: beyondZ + 0.8 }
