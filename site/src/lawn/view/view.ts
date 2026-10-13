@@ -182,7 +182,7 @@ export class LawnView {
   private applyMood(m: Mood) {
     applySky(this.sky.material, m)
     this.env?.dispose()
-    this.env = bakeEnvironment(this.renderer, m, m.snow ? '#dfe7ef' : '#5f7f3f')
+    this.env = bakeEnvironment(this.renderer, m, m.snow ? '#dfe7ef' : '#6c7858')
     this.scene.environment = this.env
     this.scene.environmentIntensity = m.envIntensity
     this.scene.fog = new THREE.Fog(m.fog, m.fogNear, m.fogFar)
@@ -278,6 +278,7 @@ export class LawnView {
     const cz = this.camera.position.z
     const n = this.weatherVel.length
     const drift = this.snowy ? Math.sin(this.time * 0.5) * 0.4 : 0.2
+    const houses = MAPS[this.mapId].houses
     for (let i = 0; i < n; i++) {
       arr[i * 3 + 1] -= this.weatherVel[i] * dt
       arr[i * 3] += drift * dt
@@ -288,6 +289,16 @@ export class LawnView {
       }
       if (Math.abs(arr[i * 3] - cx) > 22) arr[i * 3] = cx + (Math.random() - 0.5) * 40
       if (Math.abs(arr[i * 3 + 2] - cz) > 22) arr[i * 3 + 2] = cz + (Math.random() - 0.5) * 40
+      // No snow or rain indoors: flakes that drift under a roof start again up in the sky.
+      if (arr[i * 3 + 1] < 9.8)
+        for (const h of houses) {
+          const lx = (arr[i * 3] - h.ox) * h.dir
+          const lz = (arr[i * 3 + 2] - h.oz) * h.dir
+          if (lx > -6.6 && lx < 10.6 && lz > -5.2 && lz < 5.2 && (lx < 6.2 || arr[i * 3 + 1] < 4.8)) {
+            arr[i * 3 + 1] = 18 + Math.random() * 4
+            break
+          }
+        }
     }
     pos.needsUpdate = true
   }

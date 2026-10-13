@@ -228,3 +228,26 @@ export function ramp() {
   rampTex = new THREE.CanvasTexture(c)
   return rampTex
 }
+
+/** Small white bathroom tiles with grey grout (a 0.6 m repeat). */
+let tileTex: THREE.Texture | null = null
+export function smallTiles() {
+  if (tileTex) return tileTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const x = c.getContext('2d')!
+  x.fillStyle = '#b9bec4'
+  x.fillRect(0, 0, 128, 128)
+  for (let i = 0; i < 4; i++)
+    for (let j = 0; j < 4; j++) {
+      const v = 236 + ((i * 7 + j * 3) % 5) * 3
+      x.fillStyle = `rgb(${v},${v},${v + 2})`
+      x.fillRect(i * 32 + 2, j * 32 + 2, 28, 28)
+    }
+  tileTex = new THREE.CanvasTexture(c)
+  tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping
+  tileTex.colorSpace = THREE.SRGBColorSpace
+  tileTex.repeat.set(1 / 0.6, 1 / 0.6)
+  tileTex.anisotropy = 4
+  return tileTex
+}

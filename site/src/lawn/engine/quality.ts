@@ -30,7 +30,7 @@ export interface Quality {
 export const QUALITY: Record<QualityTier, Quality> = {
   low: { tier: 'low', level: 0, dpr: 1, shadows: false, shadowMapSize: 1024, particles: 500, antialias: false, weather: 300, chunks: 6, post: false, msaa: 0, aoSamples: 0, shadowExtent: 26, shadowRadius: 1, lamps: 0 },
   medium: { tier: 'medium', level: 1, dpr: 1.5, shadows: true, shadowMapSize: 2048, particles: 1200, antialias: true, weather: 900, chunks: 9, post: true, msaa: 2, aoSamples: 8, shadowExtent: 30, shadowRadius: 3, lamps: 6 },
-  high: { tier: 'high', level: 2, dpr: 2, shadows: true, shadowMapSize: 4096, particles: 2500, antialias: true, weather: 1800, chunks: 12, post: true, msaa: 4, aoSamples: 12, shadowExtent: 36, shadowRadius: 3, lamps: 6 },
+  high: { tier: 'high', level: 2, dpr: 2, shadows: true, shadowMapSize: 4096, particles: 2500, antialias: true, weather: 1800, chunks: 12, post: true, msaa: 4, aoSamples: 12, shadowExtent: 36, shadowRadius: 3, lamps: 8 },
 }
 
 export function resolveQuality(choice: QualityTier | 'auto'): Quality {

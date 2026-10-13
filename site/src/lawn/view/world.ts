@@ -6,7 +6,7 @@
 // meshes (one per material) and is keyed by id so chips, barricades, moves and breaks update in place.
 import * as THREE from 'three'
 import { instance, type LawnAssets } from '../engine/assets'
-import { HEAD_H, SILL_H, houseStyle, type HouseStyle } from '../engine/houses'
+import { FLOOR_H, HEAD_H, SILL_H, houseStyle, type HouseStyle } from '../engine/houses'
 import { HOUSE_THEMES, type HouseTheme } from '../engine/progress'
 import type { MapInfo, MapTheme } from '../engine/maps'
 import type { Piece } from '../engine/pieces'
@@ -15,7 +15,8 @@ import { Kit, worldUV, type FaceMats } from './kit'
 import { M, cached, indoorModel, paint } from './housemats'
 import type { Mood } from './moods'
 import { buildShell } from './shell'
-import { cracks, neon, planks, rug } from './textures'
+import { art, cracks, neon, planks, rug, stripes } from './textures'
+import { trimSurface } from './surfaces'
 
 interface PieceView {
   piece: Piece
@@ -272,12 +273,77 @@ export class World {
   private lodge(theme: Theme) {
     return theme.name.includes('lodge')
   }
-  private paperMat(house: number) {
-    return M.paper(house === 0 ? '#fff6ea' : '#eef3ff', tiled('wallpaper'))
+  /** Which room of a house a world point is in (house-local floor plan; see houses.ts). */
+  private roomAt(house: number, wx: number, wz: number, upper: boolean) {
+    const hs = this.map.houses[house]
+    if (!hs) return 'hall'
+    const x = (wx - hs.ox) * hs.dir
+    const z = (wz - hs.oz) * hs.dir
+    if (x > 6.05) return 'garage'
+    if (!upper) {
+      if (x < -1.25) return z > -1 ? 'living' : 'dining'
+      if (x < 1.25) return x > 0.1 && z < 0 && z > -2.4 ? 'wc' : 'hall'
+      return 'kitchen'
+    }
+    if (x < -1.25) return z > -0.6 ? 'bed1' : 'bed2'
+    if (x < 1.25) return 'landing'
+    return z < -1 ? 'bath' : 'study'
+  }
+  /** Wall finish per room: patterned papers in the living room and bedrooms, painted walls elsewhere. */
+  private roomMat(room: string, house: number) {
+    const paintM = (hex: string) => M.paper(hex, trimSurface().map)
+    const alt = house === 1
+    switch (room) {
+      case 'living':
+        return M.paper(alt ? '#f1f4ff' : '#fff3e0', tiled('wallpaper'))
+      case 'dining':
+        return paintM(alt ? '#d7c3a3' : '#b9c9a4')
+      case 'kitchen':
+        return paintM(alt ? '#cfe3ef' : '#f3e2a6')
+      case 'wc':
+        return paintM('#bfe3d6')
+      case 'bed1':
+        return M.paper(alt ? '#dfe9f6' : '#f6ddd8', alt ? stripes('#dfe9f6', '#c8d8ee') : stripes('#f7e3dc', '#efc9c1'))
+      case 'bed2':
+        return paintM(alt ? '#f3d9a8' : '#b9d6ef')
+      case 'bath':
+        return paintM('#a9d8de')
+      case 'study':
+        return paintM(alt ? '#a9b98f' : '#8fa5bf')
+      case 'garage':
+        return paintM('#c1bdb5')
+      default:
+        return paintM(alt ? '#e9e2d6' : '#efe4d0')
+    }
+  }
+  /** The wall finish on the side of a wall piece facing direction `yaw` (kit +z) times `sign`. */
+  private paperOn(p: Piece, yaw: number, sign: number) {
+    const wx = p.x + Math.sin(yaw) * sign * 0.45
+    const wz = p.z + Math.cos(yaw) * sign * 0.45
+    return this.roomMat(this.roomAt(p.house, wx, wz, p.y > FLOOR_H - 0.3), p.house)
+  }
+  /** A framed picture on a wall face (kit space; the face is the plane z = `face`, facing `sign`). */
+  private hangArt(k: Kit, p: Piece, len: number, face: number, sign: number) {
+    const h = Math.abs(Math.sin(p.x * 12.9898 + p.z * 78.233 + p.y * 3.1)) * 43758.5453
+    const r = h - Math.floor(h)
+    if (r > 0.55 || len < 0.9 || p.h < 2.5) return
+    const room = this.roomAt(p.house, p.x, p.z, p.y > FLOOR_H - 0.3)
+    if (room === 'garage') return
+    const w = r < 0.25 ? 0.55 : 0.42
+    const ht = r < 0.25 ? 0.42 : 0.55
+    const x = (r - 0.27) * 0.6
+    const z0 = face
+    const z1 = face + sign * 0.035
+    const frame = std(r < 0.3 ? 'frame-gold' : 'frame-dark', { color: paint(r < 0.3 ? '#c9a24a' : '#3a2a20', 0.7), roughness: 0.45, metalness: r < 0.3 ? 0.5 : 0 })
+    k.box(x - w / 2 - 0.04, x + w / 2 + 0.04, 1.5 - ht / 2 - 0.04, 1.5 + ht / 2 + 0.04, Math.min(z0, z1), Math.max(z0, z1), frame)
+    const canvas = new THREE.PlaneGeometry(w, ht)
+    if (sign < 0) canvas.rotateY(Math.PI)
+    canvas.translate(x, 1.5, face + sign * 0.038)
+    k.geo(canvas, std(`art-${Math.floor(r * 100) % 6}`, { map: art(Math.floor(r * 100)), roughness: 0.6 }), true)
   }
   /** The outside face of a wall piece: brick on the ground storey of brick houses, painted siding elsewhere. */
   private extMat(p: Piece, theme: Theme, style: HouseStyle) {
-    if (style.brick && p.y < 1) return M.brick(this.lodge(theme) ? '#d9cfc2' : '#ffffff')
+    if (style.brick && p.y < FLOOR_H - 0.5) return M.brick(this.lodge(theme) ? '#d9cfc2' : '#ffffff')
     return M.siding(theme.siding)
   }
   private floorMat() {
@@ -370,14 +436,15 @@ export class World {
       return obj
     }
     const ext = () => this.extMat(p, theme, style)
-    const paper = () => this.paperMat(p.house)
-    /** Wall faces: ends and top/bottom in trim, siding or brick outside, wallpaper inside. */
-    const wallFaces = (): FaceMats => [trim, trim, trim, trim, ext(), paper()]
+    const inner = () => this.paperOn(p, this.kitYaw(p), -1)
+    /** Wall faces: ends in the outside finish (no seams between panels), top/bottom in trim, siding or brick outside, the room's finish inside. */
+    const wallFaces = (): FaceMats => [ext(), ext(), trim, trim, ext(), inner()]
     switch (true) {
       case m === 'wall': {
         const k = wallKit()
         k.box(-hw, hw, 0, p.h, -0.15, 0.15, wallFaces())
         k.box(-hw, hw, 0, 0.12, -0.17, -0.15, M.skirting())
+        this.hangArt(k, p, len, -0.15, -1)
         view.colour = style.brick && p.y < 1 ? '#b5523b' : theme.siding
         return k.build()
       }
@@ -440,8 +507,9 @@ export class World {
       }
       case m === 'header:gap': {
         // An interior doorway: papered lintel with painted casings on both faces.
-        const k = Kit.at(along ? 0 : Math.PI / 2, origin, this.shadows)
-        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [itrim, itrim, itrim, itrim, paper(), paper()])
+        const ky = along ? 0 : Math.PI / 2
+        const k = Kit.at(ky, origin, this.shadows)
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [itrim, itrim, itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
         for (const s of [-1, 1]) {
           k.box(-hw - 0.08, hw + 0.08, -0.02, 0.08, s > 0 ? 0.15 : -0.17, s > 0 ? 0.17 : -0.15, itrim)
           for (const e of [-1, 1]) k.box(e > 0 ? hw : -hw - 0.08, e > 0 ? hw + 0.08 : -hw, -2.1, 0, s > 0 ? 0.15 : -0.17, s > 0 ? 0.17 : -0.15, itrim)
@@ -453,9 +521,12 @@ export class World {
       }
       case m === 'innerwall': {
         view.colour = '#e8dcc5'
-        const k = Kit.at(along ? 0 : Math.PI / 2, origin, this.shadows)
-        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [itrim, itrim, itrim, itrim, paper(), paper()])
+        const ky = along ? 0 : Math.PI / 2
+        const k = Kit.at(ky, origin, this.shadows)
+        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [this.paperOn(p, ky, 1), this.paperOn(p, ky, 1), itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
         k.box(-hw, hw, 0, 0.12, -0.17, 0.17, M.skirting())
+        const side = Math.abs(Math.sin(p.x * 3.7 + p.z * 1.3)) > 0.5 ? 1 : -1
+        this.hangArt(k, p, len, side * 0.15, side)
         return k.build()
       }
       case m === 'edge' || m === 'roofstep':
@@ -470,6 +541,11 @@ export class World {
           t.rotateX(-Math.PI / 2)
           t.translate(dir * 3.625, p.h + 0.004, 0)
           k.geo(t, M.floor(tiled('tiles'), '#ffffff', 0.3))
+          // The WC behind the stairs.
+          const wc = new THREE.PlaneGeometry(0.85, 2.25)
+          wc.rotateX(-Math.PI / 2)
+          wc.translate(dir * 0.675, p.h + 0.004, -dir * 1.125)
+          k.geo(wc, M.floor(tiled('tiles'), '#dfeaf2', 0.3))
         } else k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, M.floor(tiled('sidewalk'), '#bdb8b0', 0.85))
         return k.build()
       }
@@ -526,8 +602,8 @@ export class World {
         view.colour = theme.trim
         return k.build()
       }
-      case m === 'rail':
-        return this.railing(p, trim)
+      case m === 'rail' || m === 'rail:stair':
+        return this.railing(p, m === 'rail' ? trim : M.indoorTrim('#f4efe6'))
       case m === 'step': {
         // The whole flight is one kit model, hung off the bottom step; the other steps are collision only.
         if (p.h > 0.3) return null
@@ -717,19 +793,34 @@ export class World {
   }
 
   private furniture(kind: string, p: Piece, theme: Theme, view: PieceView): THREE.Object3D | null {
-    const wood = surf('oak', '#9a6a44', { roughness: 0.75 })
-    const fabric = std(`fabric-${p.house}`, { color: p.house === 0 ? '#5a8bd6' : '#d66a5a', roughness: 1 })
-    const box = (w: number, h: number, d: number, material: THREE.Material, y = h / 2, x = 0, z = 0) => {
-      const mesh = new THREE.Mesh(this.box, material)
-      mesh.scale.set(w, h, d)
-      mesh.position.set(x, y, z)
-      mesh.castShadow = this.shadows
-      mesh.receiveShadow = true
-      return mesh
-    }
+    void theme
+    const wood = surf('oak', '#9a6a44', { roughness: 0.6 })
+    const dark = surf('oak', '#5e3d27', { roughness: 0.5 })
+    const pale = surf('oak', '#d9c2a0', { roughness: 0.6 })
+    const fabric = std(`fabric-${p.house}`, { color: paint(p.house === 0 ? '#4f7fc4' : '#c4594d', 0.6), roughness: 1 })
+    const cushion = std(`cushion-${p.house}`, { color: paint(p.house === 0 ? '#f0c75e' : '#7cc0a8', 0.7), roughness: 1 })
+    const white = std('cabinet', { color: paint('#f4f1ea', 0.74), roughness: 0.55 })
+    const porcelain = std('porcelain', { color: paint('#fbfbf8', 0.8), roughness: 0.25 })
+    const brass = M.metal('#c9a86a')
+    const lit = this.mood.lamps > 0
+    // Sizes in the item's own frame (the collision box is axis aligned; the group turns by the yaw).
+    const side = Math.abs(Math.sin(p.yaw)) > 0.5
+    const lw = side ? p.d : p.w
+    const ld = side ? p.w : p.d
     const g = new THREE.Group()
     g.rotation.y = p.yaw
     view.colour = '#8b5e3c'
+    const k = new Kit(new THREE.Matrix4(), new THREE.Vector3(p.x, p.y, p.z), this.shadows)
+    /** Box by centre and size in the item's frame. */
+    const b = (x: number, y: number, z: number, w: number, h: number, d: number, m: THREE.Material) => k.box(x - w / 2, x + w / 2, y, y + h, z - d / 2, z + d / 2, m)
+    const legs = (w: number, d: number, h: number, t: number, m: THREE.Material) => {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b(sx * (w / 2 - t), 0, sz * (d / 2 - t), t, h, t, m)
+    }
+    const cyl = (x: number, y: number, z: number, r0: number, r1: number, h: number, m: THREE.Material, seg = 14) => {
+      const c = new THREE.CylinderGeometry(r1, r0, h, seg)
+      c.translate(x, y + h / 2, z)
+      k.geo(c, m)
+    }
     const model = (name: string) => {
       const obj = instance(this.assets, name)
       if (!obj) return false
@@ -738,45 +829,165 @@ export class World {
       g.add(obj)
       return true
     }
+    const shade = (x: number, y: number, z: number, r0: number, r1: number, h: number) => {
+      cyl(x, y, z, r0, r1, h, lit ? M.bulb('#ffcf8a', 1.6 * this.mood.lamps + 0.3) : std('shade', { color: paint('#f3e6c8', 0.75), roughness: 0.9 }), 16)
+    }
     switch (kind) {
       case 'sofa':
         if (!model('sofa')) {
-          g.add(box(p.w, 0.45, p.d, fabric), box(p.w, 0.5, 0.25, fabric, 0.65, 0, -p.d / 2 + 0.12), box(0.2, 0.3, p.d, fabric, 0.55, -p.w / 2 + 0.1), box(0.2, 0.3, p.d, fabric, 0.55, p.w / 2 - 0.1))
+          b(0, 0.1, 0, lw, 0.35, ld, fabric)
+          b(0, 0.45, -ld / 2 + 0.12, lw, 0.45, 0.24, fabric)
+          for (const s of [-1, 1]) b(s * (lw / 2 - 0.1), 0.45, 0, 0.2, 0.22, ld, fabric)
         }
         view.colour = '#5a8bd6'
         break
-      case 'coffeetable':
-        g.add(box(p.w, 0.05, p.d, wood, 0.42))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.06, 0.4, 0.06, wood, 0.2, (x * p.w) / 2 - x * 0.05, (z * p.d) / 2 - z * 0.05))
+      case 'armchair': {
+        b(0, 0, 0, lw, 0.12, ld, dark)
+        b(0, 0.12, 0.05, lw - 0.3, 0.3, ld - 0.25, cushion)
+        b(0, 0.12, -ld / 2 + 0.12, lw, 0.75, 0.24, fabric)
+        for (const s of [-1, 1]) b(s * (lw / 2 - 0.09), 0.12, 0, 0.18, 0.45, ld, fabric)
+        view.colour = '#5a8bd6'
         break
-      case 'rug': {
-        const r = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.d), std(`rug-${p.house}`, { map: rug(p.house === 0 ? '#b23b3b' : '#2f6b8a') }))
-        r.rotation.x = -Math.PI / 2
-        r.position.y = 0.015
-        r.receiveShadow = true
-        g.add(r)
+      }
+      case 'coffeetable':
+        b(0, 0.4, 0, lw, 0.05, ld, dark)
+        b(0, 0.12, 0, lw - 0.12, 0.03, ld - 0.12, dark)
+        legs(lw, ld, 0.4, 0.06, dark)
+        b(lw * 0.2, 0.45, 0, 0.22, 0.03, 0.3, std('book-a', { color: paint('#b0413e', 0.6), roughness: 0.8 }))
+        cyl(-lw * 0.2, 0.45, 0, 0.06, 0.05, 0.12, porcelain)
+        break
+      case 'rug':
+      case 'runner': {
+        const variant = Math.floor(Math.abs(p.x * 7.13 + p.z * 3.7 + p.y * 1.9)) % 4
+        const cols: [string, string][] = [['#a83a34', '#f0d9a8'], ['#2f6b8a', '#f2e6c8'], ['#6b5a8e', '#e9d8b4'], ['#3f7a52', '#f4e2b8']]
+        const [c0, c1] = kind === 'runner' ? ['#7a2e2a', '#e8cf9a'] : cols[variant]
+        const r = new THREE.PlaneGeometry(lw, ld)
+        r.rotateX(-Math.PI / 2)
+        r.translate(0, 0.012, 0)
+        k.geo(r, std(`rug-${c0}`, { map: rug(c0, c1), roughness: 1 }), true)
         break
       }
       case 'counter': {
-        g.add(box(p.w, p.h, p.d, std('cabinet', { color: '#f1f1ef', roughness: 0.8 })))
-        g.add(box(p.w + 0.05, 0.05, p.d + 0.05, std('worktop', { color: '#444a52', roughness: 0.5 }), p.h))
-        // Tiled splashback against the wall.
-        g.add(box(p.w, 0.6, 0.03, surf('tiles', '#e8f0ff', { roughness: 0.4 }), p.h + 0.33, 0, -p.d / 2 + 0.015))
-        // Hob and sink details.
-        g.add(box(0.6, 0.02, 0.5, std('hob', { color: '#222' }), p.h + 0.04, -p.w * 0.25))
-        g.add(box(0.5, 0.02, 0.4, std('sinkb', { color: '#aab' }), p.h + 0.04, p.w * 0.25))
-        for (let i = 0; i < 4; i++) g.add(box(0.4, 0.05, 0.02, std('handle', { color: '#888' }), p.h * 0.5, -p.w / 2 + 0.45 + i * 0.9, p.d / 2 + 0.01))
+        b(0, 0.1, 0.02, lw, p.h - 0.14, ld - 0.04, white)
+        b(0, 0, 0.06, lw, 0.1, ld - 0.12, std('kick', { color: '#3a3632' }))
+        b(0, p.h - 0.04, 0, lw + 0.04, 0.05, ld + 0.03, std('worktop', { color: paint('#5b6068', 0.5), roughness: 0.3 }))
+        b(0, p.h + 0.01, -ld / 2 + 0.015, lw, 0.6, 0.03, surf('tiles', '#e8f0ff', { roughness: 0.3 }))
+        b(-lw * 0.25, p.h + 0.01, 0, 0.6, 0.02, 0.5, std('hob', { color: '#1e1e1e', roughness: 0.3 }))
+        b(lw * 0.25, p.h - 0.02, 0, 0.5, 0.04, 0.4, M.metal('#b8bcc2'))
+        b(lw * 0.25, p.h + 0.01, -ld / 2 + 0.08, 0.04, 0.3, 0.04, M.metal('#b8bcc2'))
+        const n = Math.max(2, Math.round(lw / 0.6))
+        for (let i = 0; i < n; i++) {
+          const x = -lw / 2 + (lw / n) * (i + 0.5)
+          b(x - lw / n / 2 + 0.01, 0.12, ld / 2 + 0.0, 0.006, p.h - 0.2, 0.01, std('seam', { color: '#9c978e' }))
+          b(x, p.h - 0.22, ld / 2 + 0.01, 0.22, 0.03, 0.03, brass)
+        }
         view.colour = '#f1f1ef'
         break
       }
+      case 'island': {
+        b(0, 0.1, 0, lw - 0.1, p.h - 0.14, ld - 0.1, std(`island-${p.house}`, { color: paint(p.house === 0 ? '#5f8f8a' : '#8a6f9a', 0.55), roughness: 0.55 }))
+        b(0, 0, 0, lw - 0.2, 0.1, ld - 0.2, std('kick', { color: '#3a3632' }))
+        b(0, p.h - 0.04, 0.05, lw + 0.1, 0.05, ld + 0.2, std('worktop-pale', { color: paint('#e9e4dc', 0.72), roughness: 0.25 }))
+        cyl(lw * 0.25, p.h + 0.01, 0, 0.16, 0.12, 0.08, std('bowl', { color: paint('#e37b3f', 0.7), roughness: 0.4 }))
+        for (const s of [-1, 1]) {
+          cyl(s * lw * 0.25, 0, ld / 2 + 0.32, 0.03, 0.03, 0.62, M.metal('#2f2f2f'), 8)
+          cyl(s * lw * 0.25, 0.62, ld / 2 + 0.32, 0.17, 0.17, 0.05, dark, 16)
+        }
+        view.colour = '#5f8f8a'
+        break
+      }
       case 'table':
-        g.add(box(p.w, 0.06, p.d, wood, p.h))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, p.h, 0.07, wood, p.h / 2, (x * p.w) / 2 - x * 0.08, (z * p.d) / 2 - z * 0.08))
+      case 'diningtable': {
+        const top = kind === 'table' ? wood : dark
+        b(0, p.h - 0.05, 0, lw, 0.05, ld, top)
+        b(0, p.h - 0.14, 0, lw - 0.2, 0.09, ld - 0.2, top)
+        legs(lw, ld, p.h - 0.05, 0.07, top)
+        if (kind === 'diningtable') {
+          b(0, p.h, 0, lw * 0.75, 0.005, 0.3, std('tablerunner', { color: paint('#e8dcc0', 0.75), roughness: 1 }))
+          for (const s of [-1, 1]) cyl(s * 0.18, p.h, 0, 0.04, 0.025, 0.22, brass, 8)
+          cyl(0, p.h, 0, 0.09, 0.12, 0.14, std('vase-b', { color: paint('#3f74c9', 0.6), roughness: 0.3 }))
+        } else cyl(0, p.h, 0, 0.12, 0.14, 0.06, std('fruitbowl', { color: paint('#f2efe8', 0.75), roughness: 0.4 }))
         break
+      }
       case 'chair':
-        g.add(box(0.45, 0.05, 0.45, wood, 0.45), box(0.45, 0.45, 0.05, wood, 0.68, 0, -0.2))
-        for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.05, 0.45, 0.05, wood, 0.22, x * 0.19, z * 0.19))
+        b(0, 0.42, 0, 0.44, 0.05, 0.44, wood)
+        b(0, 0.47, 0, 0.38, 0.04, 0.38, cushion)
+        b(0, 0.47, -0.2, 0.44, 0.48, 0.04, wood)
+        legs(0.44, 0.44, 0.42, 0.045, wood)
         break
+      case 'floorlamp':
+        cyl(0, 0, 0, 0.16, 0.14, 0.04, brass)
+        cyl(0, 0.04, 0, 0.018, 0.018, 1.3, brass, 8)
+        shade(0, 1.25, 0, 0.22, 0.14, 0.32)
+        break
+      case 'tablelamp':
+        cyl(0, 0, 0, 0.08, 0.06, 0.22, std('lampbase', { color: paint('#3f7f8a', 0.6), roughness: 0.3 }))
+        shade(0, 0.2, 0, 0.15, 0.1, 0.2)
+        break
+      case 'nightstand':
+        b(0, 0.05, 0, lw, p.h - 0.05, ld, wood)
+        b(0, 0, 0, lw - 0.06, 0.05, ld - 0.06, dark)
+        b(0, p.h * 0.55, ld / 2, lw - 0.08, 0.16, 0.01, pale)
+        b(0, p.h * 0.62, ld / 2 + 0.01, 0.1, 0.02, 0.02, brass)
+        break
+      case 'shelf': {
+        b(-lw / 2 + 0.02, 0, 0, 0.04, p.h, ld, dark)
+        b(lw / 2 - 0.02, 0, 0, 0.04, p.h, ld, dark)
+        b(0, 0, -ld / 2 + 0.01, lw, p.h, 0.02, dark)
+        const cols = ['#b0413e', '#3f6fa8', '#e2b345', '#4f8a5b', '#7a4f8e', '#d9d2c2', '#2f3a48']
+        for (let s = 0; s < 5; s++) {
+          const y = s * (p.h / 5)
+          b(0, y, 0, lw - 0.08, 0.03, ld - 0.02, dark)
+          if (s === 4) continue
+          let x = -lw / 2 + 0.06
+          let i = (s * 3 + Math.floor(Math.abs(p.x * 10))) % cols.length
+          while (x < lw / 2 - 0.1) {
+            const bw = 0.03 + ((i * 37) % 5) * 0.01
+            const bh = p.h / 5 - 0.1 - ((i * 13) % 4) * 0.03
+            b(x + bw / 2, y + 0.03, 0.02, bw, bh, ld - 0.08, std(`book-${cols[i % cols.length]}`, { color: paint(cols[i % cols.length], 0.6), roughness: 0.8 }))
+            x += bw + 0.005
+            i++
+          }
+        }
+        b(0, p.h - 0.03, 0, lw, 0.03, ld, dark)
+        break
+      }
+      case 'sideboard':
+        b(0, 0.08, 0, lw, p.h - 0.08, ld, dark)
+        legs(lw, ld, 0.08, 0.05, dark)
+        for (const s of [-1, 1]) b(s * lw / 4, 0.14, ld / 2, lw / 2 - 0.04, p.h - 0.2, 0.01, wood)
+        cyl(-lw * 0.25, p.h, 0, 0.08, 0.11, 0.28, std('vase-c', { color: paint('#e9e2d4', 0.75), roughness: 0.25 }))
+        b(lw * 0.15, p.h, -0.05, 0.3, 0.38, 0.03, std('photo-frame', { color: '#2b2622', roughness: 0.5 }))
+        break
+      case 'plant': {
+        cyl(0, 0, 0, 0.14, 0.18, 0.3, std('pot', { color: paint('#c46a43', 0.6), roughness: 0.8 }))
+        const leaf = std('leaf-in', { color: paint('#3f8a45', 0.5), roughness: 0.8 })
+        for (let i = 0; i < 7; i++) {
+          const a = i * 2.4
+          const sp = new THREE.SphereGeometry(0.16 + (i % 3) * 0.04, 8, 6)
+          sp.scale(1, 1.4, 1)
+          sp.translate(Math.cos(a) * 0.12, 0.45 + i * 0.08, Math.sin(a) * 0.12)
+          k.geo(sp, leaf)
+        }
+        break
+      }
+      case 'basin':
+        cyl(0, 0, 0, 0.09, 0.07, 0.72, porcelain)
+        b(0, 0.72, 0, lw, 0.12, ld, porcelain)
+        b(0, 0.84, -ld / 2 + 0.05, 0.03, 0.12, 0.03, M.metal('#c8ccd2'))
+        b(0, 1.1, -ld / 2 + 0.01, lw - 0.02, 0.5, 0.02, std('mirror', { color: '#9fb6c8', roughness: 0.05, metalness: 0.8 }))
+        break
+      case 'bathtub': {
+        b(0, 0, 0, lw, 0.08, ld, porcelain)
+        b(-lw / 2 + 0.05, 0.08, 0, 0.1, p.h - 0.08, ld, porcelain)
+        b(lw / 2 - 0.05, 0.08, 0, 0.1, p.h - 0.08, ld, porcelain)
+        b(0, 0.08, -ld / 2 + 0.05, lw - 0.2, p.h - 0.08, 0.1, porcelain)
+        b(0, 0.08, ld / 2 - 0.05, lw - 0.2, p.h - 0.08, 0.1, porcelain)
+        b(0, p.h - 0.2, 0, lw - 0.2, 0.01, ld - 0.2, std('bathwater', { color: '#8fd3e8', roughness: 0.05, transparent: true, opacity: 0.6 }))
+        b(0, p.h, -ld / 2 + 0.06, 0.05, 0.22, 0.05, M.metal('#c8ccd2'))
+        view.colour = '#ffffff'
+        break
+      }
       case 'bed': {
         const bed = instance(this.assets, 'bed')
         if (bed) {
@@ -784,51 +995,68 @@ export class World {
           view.colour = '#f4d35e'
           break
         }
-        g.add(box(p.w, 0.25, p.d, wood, 0.3))
-        g.add(box(p.w - 0.1, 0.25, p.d - 0.1, std(`duvet-${p.house}`, { color: p.house === 0 ? '#f4d35e' : '#8ecae6', roughness: 1 }), 0.55))
-        g.add(box(p.w * 0.4, 0.14, 0.4, std('pillow', { color: '#ffffff' }), 0.74, 0, -p.d / 2 + 0.35))
-        g.add(box(p.w, 0.8, 0.08, wood, 0.6, 0, -p.d / 2 + 0.04))
+        b(0, 0.15, 0, lw, 0.25, ld, wood)
+        b(0, 0.4, 0, lw - 0.1, 0.25, ld - 0.1, std(`duvet-${p.house}`, { color: p.house === 0 ? '#f4d35e' : '#8ecae6', roughness: 1 }))
+        b(0, 0.65, -ld / 2 + 0.35, lw * 0.4, 0.14, 0.4, std('pillow', { color: '#ffffff' }))
+        b(0, 0.2, -ld / 2 + 0.04, lw, 0.8, 0.08, wood)
         view.colour = '#f4d35e'
         break
       }
       case 'wardrobe':
-        g.add(box(p.w, p.h, p.d, wood))
-        g.add(box(0.03, p.h - 0.1, 0.02, std('handle', { color: '#ddd' }), p.h / 2, 0, p.d / 2 + 0.02))
+        b(0, 0, 0, lw, p.h, ld, wood)
+        b(0, 0.06, ld / 2, 0.01, p.h - 0.16, 0.012, dark)
+        for (const s of [-1, 1]) b(s * 0.06, p.h * 0.5, ld / 2 + 0.01, 0.025, 0.25, 0.025, brass)
+        b(0, p.h, 0, lw + 0.04, 0.05, ld + 0.04, dark)
         break
       case 'toilet':
-        if (!model('toilet')) g.add(box(0.4, 0.4, 0.6, std('porcelain', { color: '#fff' })), box(0.4, 0.5, 0.2, std('porcelain', { color: '#fff' }), 0.6, 0, -0.2))
+        if (!model('toilet')) {
+          b(0, 0, 0.05, 0.4, 0.4, 0.55, porcelain)
+          b(0, 0.4, -0.22, 0.42, 0.45, 0.18, porcelain)
+        }
         view.colour = '#ffffff'
         break
       case 'sink': {
         // The vanity carries its mirror, so it stands taller than its collision box.
         const s = instance(this.assets, 'sink')
         if (s) g.add(s)
-        else g.add(box(0.6, 0.85, 0.45, std('porcelain', { color: '#fff' })))
+        else b(0, 0, 0, 0.6, 0.85, 0.45, porcelain)
         view.colour = '#ffffff'
         break
       }
       case 'desk':
-        g.add(box(p.w, 0.05, p.d, wood, p.h), box(0.5, p.h, p.d - 0.1, wood, p.h / 2, -p.w / 2 + 0.3), box(0.06, p.h, 0.06, wood, p.h / 2, p.w / 2 - 0.1, p.d / 2 - 0.1), box(0.06, p.h, 0.06, wood, p.h / 2, p.w / 2 - 0.1, -p.d / 2 + 0.1))
-        g.add(box(0.5, 0.35, 0.03, std('screen', { color: '#223', emissive: '#4ac', emissiveIntensity: 0.4 }), p.h + 0.25, 0.2, -0.1))
+        b(0, p.h - 0.05, 0, lw, 0.05, ld, wood)
+        b(-lw / 2 + 0.25, 0, 0, 0.45, p.h - 0.05, ld - 0.06, wood)
+        for (const sz of [-1, 1]) b(lw / 2 - 0.05, 0, sz * (ld / 2 - 0.05), 0.06, p.h - 0.05, 0.06, wood)
+        b(0.15, p.h, -0.12, 0.5, 0.34, 0.03, std('screen', { color: '#223', emissive: '#4ac', emissiveIntensity: 0.5 }))
+        b(0.15, p.h, -0.1, 0.1, 0.05, 0.12, std('screen-foot', { color: '#2a2a2a' }))
+        b(-0.3, p.h, 0.05, 0.22, 0.02, 0.3, std('notepad', { color: '#f2efe4' }))
+        // The desk chair.
+        b(0.1, 0.45, ld / 2 + 0.3, 0.44, 0.06, 0.42, fabric)
+        b(0.1, 0.5, ld / 2 + 0.5, 0.44, 0.5, 0.05, fabric)
+        cyl(0.1, 0.05, ld / 2 + 0.3, 0.03, 0.03, 0.4, M.metal('#2f2f2f'), 8)
+        b(0.1, 0, ld / 2 + 0.3, 0.5, 0.05, 0.05, M.metal('#2f2f2f'))
+        b(0.1, 0, ld / 2 + 0.3, 0.05, 0.05, 0.5, M.metal('#2f2f2f'))
         break
       case 'toolrack': {
-        g.add(box(0.06, p.h, p.d, std('pegboard', { color: '#c9a77a', roughness: 0.9 }), p.h / 2 + 0.2))
+        b(0, 0.2, -ld / 2 + 0.03, lw, p.h, 0.04, std('pegboard', { color: paint('#c9a77a', 0.6), roughness: 0.9 }))
         // Hang the tools that can be picked up.
         const names = ['rake', 'shovel', 'bat', 'sledge', 'pan']
         names.forEach((n, i) => {
           const t = instance(this.assets, n)
           if (!t) return
           t.scale.setScalar(0.9)
-          t.position.set(0.12, 0.2, -p.d / 2 + 0.25 + i * 0.3)
+          t.position.set(-lw / 2 + 0.25 + i * 0.3, 0.2, -ld / 2 + 0.12)
           t.rotation.z = 0.1
           g.add(t)
         })
         break
       }
       default:
-        g.add(box(p.w, p.h, p.d, wood))
+        b(0, 0, 0, lw, p.h, ld, wood)
     }
-    void theme
+    // Kit geometry was built in the item's frame: put it under the turned group.
+    const built = k.build()
+    g.add(built)
     return indoorModel(g)
   }
 

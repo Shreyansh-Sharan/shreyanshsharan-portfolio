@@ -3,7 +3,7 @@
 // surface has a normal map, and interior surfaces take a reduced share of the sky light (`indoorAmbient`) so rooms
 // are lit by their lamps and the sun through the windows instead of a flat uniform glow.
 import * as THREE from 'three'
-import { beadboardSurface, brickSurface, shingleSurface, sidingSurface, trimSurface, type Surface } from './surfaces'
+import { beadboardSurface, brickSurface, shingleSurface, sidingSurface, smallTiles, trimSurface, type Surface } from './surfaces'
 
 const cache = new Map<string, THREE.Material>()
 export function cached<T extends THREE.Material>(key: string, make: () => T): T {
@@ -21,7 +21,14 @@ export function indoor<T extends THREE.MeshStandardMaterial>(m: T): T {
     sh.uniforms.uIndoor = indoorAmbient
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uIndoor;')
-      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= uIndoor;\nreflectedLight.indirectSpecular *= uIndoor;\n#include <aomap_fragment>')
+      .replace(
+        '#include <aomap_fragment>',
+        // Sky and ground bounce reach a room only dimly, and as a neutral warm grey rather than blue and grass green.
+        `float indoorL = dot(reflectedLight.indirectDiffuse, vec3(0.299, 0.587, 0.114));
+        reflectedLight.indirectDiffuse = indoorL * vec3(1.0, 0.93, 0.84) * uIndoor;
+        reflectedLight.indirectSpecular *= uIndoor;
+        #include <aomap_fragment>`,
+      )
   }
   m.customProgramCacheKey = () => 'indoor'
   return m
@@ -66,6 +73,8 @@ export const M = {
   skirting: () => cached('skirting', () => indoor(new THREE.MeshStandardMaterial({ color: paint('#f4efe6', 0.72), roughness: 0.55 }))),
   indoorTrim: (hex: string) => cached(`itrim-${hex}`, () => indoor(new THREE.MeshStandardMaterial({ color: paint(hex, 0.74), roughness: 0.55 }))),
   floor: (map: THREE.Texture, tint = '#ffffff', rough = 0.55) => cached(`floor-${map.uuid}-${tint}`, () => indoor(new THREE.MeshStandardMaterial({ map, color: paint(tint, 0.9), roughness: rough }))),
+  carpet: (hex: string) => cached(`carpet-${hex}`, () => indoor(new THREE.MeshStandardMaterial({ map: trimSurface().map, color: paint(hex, 0.7), roughness: 1 }))),
+  tiles: () => cached('bath-tiles', () => indoor(new THREE.MeshStandardMaterial({ map: smallTiles(), color: paint('#ffffff', 0.85), roughness: 0.3 }))),
   /** Lamp shades and bulbs: emissive, never shadowed. */
   bulb: (hex: string, k: number) =>
     cached(`bulb-${hex}-${k}`, () => {

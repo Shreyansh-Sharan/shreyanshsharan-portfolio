@@ -52,7 +52,7 @@ export function buildShell(o: ShellOptions) {
   const siding = M.siding(o.theme.siding)
   const top = o.snow ? M.snow() : M.shingles(o.theme.roof)
   const cap = o.snow ? M.snow() : M.shingles(shade(o.theme.roof, 0.8))
-  const gutter = M.metal(o.theme.trim)
+  const gutter = M.trim(o.theme.trim)
   const concrete = M.concrete()
   const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 
@@ -337,6 +337,13 @@ export function buildShell(o: ShellOptions) {
   kit.geo(polygon([V(-5.85, ROOF_CEIL, -4.35), V(5.85, ROOF_CEIL, -4.35), V(5.85, ROOF_CEIL, 4.35), V(-5.85, ROOF_CEIL, 4.35)]), M.ceiling())
   kit.geo(polygon([V(6.15, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z1 - 0.3), V(6.15, WALL_H - 0.01, GARAGE.z1 - 0.3)]), M.ceiling())
 
+  /* ---------- floor coverings upstairs ---------- */
+  kit = baseKit
+  const cover = (x0: number, x1: number, z0: number, z1: number, mat: THREE.Material) => kit.geo(polygon([V(x0, FLOOR_H + 0.004, z1), V(x1, FLOOR_H + 0.004, z1), V(x1, FLOOR_H + 0.004, z0), V(x0, FLOOR_H + 0.004, z0)]), mat)
+  cover(-5.85, -1.4, -0.45, 4.35, M.carpet(o.dir > 0 ? '#c9b49a' : '#b9c6d6'))
+  cover(-5.85, -1.4, -4.35, -0.75, M.carpet(o.dir > 0 ? '#9fb7c9' : '#c9a9a0'))
+  cover(1.4, 5.85, -4.35, -1.15, M.tiles())
+
   /* ---------- lamps ---------- */
   const fixture = (x: number, y: number, z: number, lit: boolean) => {
     kit = y > FLOOR_H ? roofKit : baseKit
@@ -345,22 +352,27 @@ export function buildShell(o: ShellOptions) {
     kit.geo(dome, lit ? M.bulb(LAMP, 2.2 * o.lampScale + 0.4) : M.bulb(LAMP, 0.15))
     kit.box(x - 0.09, x + 0.09, y - 0.005, y + 0.03, z - 0.09, z + 0.09, M.metal('#c9a86a'))
   }
+  const G = FLOOR_H - 0.22
+  const U = ROOF_CEIL - 0.01
   const rooms: [number, number, number, number][] = [
-    // x, ceiling y, z, priority (lower lights first on cheaper tiers)
-    [-3.6, FLOOR_H - 0.22, 0.4, 0],
-    [3.6, FLOOR_H - 0.22, -0.6, 2],
-    [8.15, WALL_H - 0.02, -1.5, 4],
-    [-3.6, ROOF_CEIL - 0.01, 0.2, 1],
-    [3.6, ROOF_CEIL - 0.01, 2.6, 3],
-    [3.6, ROOF_CEIL - 0.01, -2.8, 5],
-    [0, FLOOR_H - 0.22, 3.6, 6],
-    [-0.4, ROOF_CEIL - 0.01, 3.5, 7],
+    // x, ceiling y, z, priority (the first `lamps` get a real light; every room has its fixture)
+    [-3.6, G, 1.6, 0], // living room
+    [-3.6, U, 1.9, 1], // front bedroom
+    [3.6, G, -0.6, 2], // kitchen
+    [3.6, U, 1.8, 3], // study
+    [-3.6, G, -2.8, 4], // dining room
+    [-3.6, U, -2.6, 5], // back bedroom
+    [3.6, U, -2.8, 6], // bathroom
+    [8.15, WALL_H - 0.02, -1.5, 7], // garage
+    [0, G, 3.9, 8], // hall
+    [0.68, G, -1.1, 9], // WC
+    [-0.5, U, 1.6, 10], // landing
   ]
   for (const [x, y, z, prio] of rooms) {
     const lit = prio < o.lamps && o.lampScale > 0
     fixture(x, y, z, o.lampScale > 0)
     if (!lit) continue
-    const l = new THREE.PointLight(LAMP, 7 * o.lampScale, 8, 2)
+    const l = new THREE.PointLight(LAMP, 9 * o.lampScale, 8, 2)
     l.position.set(x, y - 0.35, z)
     group.add(l)
     lights.push(l)

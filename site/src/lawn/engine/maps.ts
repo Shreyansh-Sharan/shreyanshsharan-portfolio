@@ -50,9 +50,10 @@ export const MAPS: Record<MapId, MapInfo> = {
       night: { sky: '#0b1430', horizon: '#2a3a6a', sun: '#8aa5ff', fog: '#101a3a', ambient: 0.28, grass: '#2b5a24', road: '#23262e', path: '#5f5a48', snow: false, houseThemes: ['lemon', 'mint'] },
     },
     road: { z0: 28, z1: 36 },
+    // Houses sit a quarter metre off the 0.5 m nav grid so their 1 m doorways centre on a grid cell.
     houses: [
-      { ox: 34, oz: 16, dir: 1 },
-      { ox: 34, oz: 48, dir: -1 },
+      { ox: 34.25, oz: 16.25, dir: 1 },
+      { ox: 34.25, oz: 47.75, dir: -1 },
     ],
   },
   snowline: {
@@ -67,8 +68,8 @@ export const MAPS: Record<MapId, MapInfo> = {
     },
     road: { z0: 28, z1: 36 },
     houses: [
-      { ox: 34, oz: 16, dir: 1 },
-      { ox: 34, oz: 48, dir: -1 },
+      { ox: 34.25, oz: 16.25, dir: 1 },
+      { ox: 34.25, oz: 47.75, dir: -1 },
     ],
   },
 }
