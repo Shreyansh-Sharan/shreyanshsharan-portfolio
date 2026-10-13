@@ -1,5 +1,5 @@
 // Things that move: mission beacons, the neon skyline, vehicles, birds, smoke and glows (animals live in Animals.tsx).
-import { Suspense, useMemo, useRef } from 'react'
+import { Suspense, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
@@ -7,7 +7,7 @@ import { REGIONS } from './regions'
 import { heightAt } from './terrain'
 import { neonBlocks } from './layout'
 import { MISSIONS } from './missions'
-import { useModel } from './Models'
+import { SkylineTowers, useModel, type Tower } from './Models'
 import { useWorld } from './store'
 
 const region = (id: string) => REGIONS.find((r) => r.id === id)!
@@ -130,18 +130,35 @@ export function NeonDistrict() {
       }),
     [blocks, tex],
   )
-  useFrame(({ clock }) => {
+  const base = heightAt(r.center[0], r.center[1])
+  // Generated towers stand on the blocks (roofs where the parkour expects them): tall ones are cyber and glass
+  // towers, low ones corner blocks and shops. The lit blocks only show until the towers have loaded.
+  const towers = useMemo<Tower[]>(
+    () =>
+      blocks.map((b, i) => {
+        const [name, roof] = (b.h > 20 ? [['cyber-tower', 0.86], ['city-glass-tower', 0.9]] : [['city-corner', 0.9], ['cyber-shop', 0.85]])[i % 2] as [Tower['name'], number]
+        return { name, x: b.x, z: b.z, w: b.w, d: b.d, top: base + b.h, roof }
+      }),
+    [blocks, base],
+  )
+  const [detailed, setDetailed] = useState(false)
+  const tick = useRef(0)
+  useFrame(({ clock, camera }) => {
     uniforms.uTime.value = clock.elapsedTime
     if (rings.current) rings.current.rotation.y = clock.elapsedTime * 0.3
+    if (tick.current++ % 20 !== 0) return
+    const d = Math.hypot(camera.position.x - r.center[0], camera.position.z - r.center[1])
+    if (!detailed && d < 260) setDetailed(true)
+    else if (detailed && d > 340) setDetailed(false)
   })
-  const base = heightAt(r.center[0], r.center[1])
+  const lit = blocks.map((b, i) => (
+    <mesh key={i} position={[b.x, base + b.h / 2, b.z]} material={materials[i]} castShadow receiveShadow>
+      <boxGeometry args={[b.w, b.h, b.d]} />
+    </mesh>
+  ))
   return (
     <group>
-      {blocks.map((b, i) => (
-        <mesh key={i} position={[b.x, base + b.h / 2, b.z]} material={materials[i]} castShadow receiveShadow>
-          <boxGeometry args={[b.w, b.h, b.d]} />
-        </mesh>
-      ))}
+      <SkylineTowers towers={towers} detailed={detailed} fallback={lit} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[r.center[0], base + 0.06, r.center[1]]}>
         <ringGeometry args={[92, r.radius + 8, 96]} />
         <shaderMaterial vertexShader={GRID_VERT} fragmentShader={GRID_FRAG} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />

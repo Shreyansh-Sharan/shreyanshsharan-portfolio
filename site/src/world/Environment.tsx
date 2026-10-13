@@ -213,9 +213,9 @@ export function Water() {
           `#include <color_fragment>
           float wDepth = texture2D(uDepth, vWaterXZ / ${DEPTH_SPAN.toFixed(1)} + 0.5).r * ${DEPTH_MAX.toFixed(1)};
           float wShallow = 1.0 - smoothstep(0.0, 6.0, wDepth);
-          diffuseColor.rgb = mix(diffuseColor.rgb * 0.62, vec3(0.30, 0.78, 0.74), wShallow * 0.8);
-          diffuseColor.a *= mix(1.0, 0.62, wShallow);
-          float wEdge = 1.0 - smoothstep(0.05, 0.75, wDepth);
+          diffuseColor.rgb = mix(diffuseColor.rgb * 0.62, vec3(0.06, 0.58, 0.62), wShallow * 0.75);
+          diffuseColor.a *= mix(1.0, 0.8, wShallow);
+          float wEdge = 1.0 - smoothstep(0.02, 0.28, wDepth);
           float wBreak = sin(vWaterXZ.x * 0.9 + uWaterTime * 1.4) * sin(vWaterXZ.y * 0.8 - uWaterTime * 1.1) * 0.5 + 0.5;
           float wFoam = wEdge * smoothstep(0.25, 0.75, wBreak * 0.6 + wEdge * 0.6);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), wFoam * 0.85);

@@ -442,6 +442,86 @@ function Impostor({ region, l, far }: { region: Region; l: Landmark; far: boolea
   )
 }
 
+/* ---------- Skyline towers ---------- */
+
+/** A tower of the neon skyline: one of the generated towers stretched to a block, its roof at `top`. */
+export type Tower = { name: ModelName; x: number; z: number; w: number; d: number; top: number; roof: number }
+
+/** Parts of a model normalised to a 1 x 1 x 1 box resting on y = 0 (instances then scale it to their block). */
+function boxParts(scene: THREE.Object3D, far: boolean): Part[] {
+  scene.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(scene)
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const norm = new THREE.Matrix4()
+    .makeScale(1 / Math.max(size.x, 1e-3), 1 / Math.max(size.y, 1e-3), 1 / Math.max(size.z, 1e-3))
+    .multiply(new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z))
+  const list: Part[] = []
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (m.isMesh) list.push({ geometry: m.geometry, material: far ? FAR_MAT : m.material, local: norm.clone().multiply(m.matrixWorld) })
+  })
+  return list
+}
+
+function towerMatrices(list: Tower[]) {
+  const q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3()
+  return list.map((t) => {
+    // Set down on the lowest ground under the block, a little sunk; stretched so the roof stays at `top`.
+    let g = heightAt(t.x, t.z)
+    for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g = Math.min(g, heightAt(t.x + (u * t.w) / 2, t.z + (v * t.d) / 2))
+    const y = g - 0.3
+    return new THREE.Matrix4().compose(p.set(t.x, y, t.z), q, sc.set(t.w, (t.top - y) / t.roof, t.d))
+  })
+}
+
+function TowerDetail({ name, matrices }: { name: ModelName; matrices: THREE.Matrix4[] }) {
+  const gltf = useGLTF(modelUrl(name), false, true)
+  const parts = useMemo(() => boxParts(gltf.scene, false), [gltf])
+  return (
+    <>
+      {parts.map((p, i) => (
+        <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={matrices} />
+      ))}
+    </>
+  )
+}
+
+function TowerKind({ name, list, detailed }: { name: ModelName; list: Tower[]; detailed: boolean }) {
+  const gltf = useGLTF(farUrl(name), false, true)
+  const farParts = useMemo(() => boxParts(gltf.scene, true), [gltf])
+  const matrices = useMemo(() => towerMatrices(list), [list])
+  const far = (
+    <>
+      {farParts.map((p, i) => (
+        <InstancedPart key={i} geometry={p.geometry} material={p.material} local={p.local} matrices={matrices} shadow={false} />
+      ))}
+    </>
+  )
+  if (!detailed) return far
+  return (
+    <Suspense fallback={far}>
+      <TowerDetail name={name} matrices={matrices} />
+    </Suspense>
+  )
+}
+
+/** The skyline as instanced towers: far versions from across the island, the full models once the camera is close. */
+export function SkylineTowers({ towers, detailed, fallback }: { towers: Tower[]; detailed: boolean; fallback: React.ReactNode }) {
+  const kinds = useMemo(() => {
+    const by = new Map<ModelName, Tower[]>()
+    for (const t of towers) by.set(t.name, [...(by.get(t.name) ?? []), t])
+    return [...by]
+  }, [towers])
+  return (
+    <Suspense fallback={fallback}>
+      {kinds.map(([name, list]) => (
+        <TowerKind key={name} name={name} list={list} detailed={detailed} />
+      ))}
+    </Suspense>
+  )
+}
+
 /* ---------- Landmarks ---------- */
 
 const loadedModels = new Set<string>()

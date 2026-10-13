@@ -171,6 +171,9 @@ function rawHeight(x: number, z: number) {
   return THREE.MathUtils.lerp(-8, land, coast)
 }
 
+/** Road centrelines, for the ground shader. */
+export const RSEGS: readonly { ax: number; az: number; bx: number; bz: number }[] = SEGS
+
 // Road vertices sit on the base terrain; the road is then a straight ramp between them.
 for (const line of ROADS)
   for (let i = 0; i + 1 < line.length; i++) {
@@ -296,14 +299,7 @@ export function colorAt(x: number, z: number, h: number, flat: number, out: THRE
     wsum += w
   }
   if (wsum > 0) out.lerp(acc.multiplyScalar(1 / wsum), Math.min(1, wsum * 1.6))
-  // Roads: tarmac with a dashed centre line and a pale kerb.
-  const road = roadAt(x, z)
-  if (road.d < ROAD_HALF + 1.2 && h > WATER_LEVEL + 0.8) {
-    if (road.d < ROAD_HALF) {
-      out.copy(PAL.road).multiplyScalar(0.9 + v * 0.2)
-      if (road.d < 0.35 && Math.floor((x + z) / 4) % 2 === 0) out.lerp(PAL.roadLine, 0.8)
-    } else out.lerp(PAL.kerb, 0.7)
-  }
+  // Roads (tarmac, centre line, kerb) are drawn per pixel by the ground shader: their edges are finer than the vertices.
   // Beaches and sea bed.
   if (h < WATER_LEVEL + 1.3) out.lerp(PAL.sand, smoothstep(WATER_LEVEL + 1.3, WATER_LEVEL + 0.4, h))
   if (h < WATER_LEVEL - 0.5) out.lerp(PAL.seabed, smoothstep(-0.5, -4, h))
@@ -404,12 +400,8 @@ export function surfaceAt(x: number, z: number, h: number, flat: number, out: { 
         break
     }
   }
-  // Roads: the sand texture as fine grit over the tarmac colour. (Footpaths are drawn per pixel by the shader.)
-  const road = roadAt(x, z)
-  if (road.d < ROAD_HALF + 1.2 && h > WATER_LEVEL + 0.8) {
-    sand = Math.max(sand, smoothstep(ROAD_HALF + 1.2, ROAD_HALF, road.d) * 0.9)
-    paved = Math.min(paved, 0.1)
-  }
+  // Roads and footpaths are drawn per pixel by the shader; paving stops short of the tarmac.
+  if (roadAt(x, z).d < ROAD_HALF + 1.2) paved = Math.min(paved, 0.1)
   // Beaches and the sea bed.
   if (h < WATER_LEVEL + 1.4) sand = Math.max(sand, smoothstep(WATER_LEVEL + 1.4, WATER_LEVEL + 0.5, h))
   // Scree breaks up big lush fields a little.
@@ -454,6 +446,11 @@ export function buildTerrain(size: number, segments: number) {
   }
   geo.setAttribute('surfA', new THREE.BufferAttribute(surfA, 4))
   geo.setAttribute('surfB', new THREE.BufferAttribute(surfB, 1))
+  // Which triangles can hold road (the shader only runs its per-pixel road test there).
+  const reach = ROAD_HALF + 1.5 + (size / segments) * 1.5
+  const surfR = new Float32Array(pos.count)
+  for (let i = 0; i < pos.count; i++) surfR[i] = roadAt(pos.getX(i), pos.getZ(i)).d < reach ? 1 : 0
+  geo.setAttribute('surfR', new THREE.BufferAttribute(surfR, 1))
   return geo
 }
 
