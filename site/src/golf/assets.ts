@@ -33,7 +33,7 @@ export function loadGolfAssets(onProgress?: (done: number, total: number) => voi
       .loadAsync(((WORLD as readonly string[]).includes(name) ? worldBase : base) + name + '.glb')
       .catch(() => null)
       .finally(tick)
-  // One mesh and three animation-only files, all from the same Meshy rig so the clips share its skeleton.
+  // One mesh and three animation-only files, all from the same rig so the clips share its skeleton.
   pending = Promise.all([get('golfer'), get('golfer-run'), get('golfer-idle'), get('golfer-swing'), ...props.map(get)]).then(([g, run, idle, swing, ...ps]) => {
     const out: GolfAssets = { golfer: g?.scene ?? null, clips: {}, props: {} }
     if (run?.animations[0]) out.clips.run = run.animations[0]
@@ -135,7 +135,7 @@ export function makeGolfer(assets: GolfAssets | null, color: string): GolferRig 
   const col = new THREE.Color(color)
   if (assets?.golfer) {
     const model = cloneSkinned(assets.golfer)
-    // Meshy rigs are in centimetres under a 0.01-scaled armature (kept unflattened); the golfer is ~1.7 m tall.
+    // The rigs are in centimetres under a 0.01-scaled armature (kept unflattened); the golfer is ~1.7 m tall.
     model.traverse((o) => {
       const m = o as THREE.SkinnedMesh
       if (m.isMesh) {
