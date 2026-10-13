@@ -265,16 +265,16 @@ function planShots(kind: ReplayKind, m: Marks, n: number, owner: ReplayPlan['own
       if (m.how === 'caught' && m.catch >= 0)
         return [S('broadcast', rel - 20, (hit >= 0 ? hit : m.catch) + 40, 1, 'REPLAY'), S('side', (hit >= 0 ? hit : m.catch) - 35, (hit >= 0 ? hit : m.catch) + 30, 0.35, 'SIDE-ON · SLOW MOTION'), S('catch', m.catch - 70, m.catch + 40, 0.45, 'THE CATCH')]
       if (m.how === 'lbw' && m.pad >= 0)
-        return [S('broadcast', rel - 20, m.pad + 40, 1, 'REPLAY'), S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 4.4)]
+        return [S('broadcast', rel - 20, m.pad + 40, 1, 'REPLAY'), S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 5.4)]
       if (m.how === 'bowled' && m.stumps >= 0)
-        return [S('broadcast', rel - 20, m.stumps + 40, 1, 'REPLAY'), S('stump', rel + 8, m.stumps + 25, 0.3, 'STUMP CAM · SLOW MOTION'), S('side', m.stumps - 45, m.stumps + 40, 0.35, 'SIDE-ON · SLOW MOTION'), S('track', m.stumps, m.stumps, 1, 'BALL TRACKING', 2.8)]
+        return [S('broadcast', rel - 20, m.stumps + 40, 1, 'REPLAY'), S('stump', rel + 8, m.stumps + 25, 0.3, 'STUMP CAM · SLOW MOTION'), S('side', m.stumps - 45, m.stumps + 40, 0.35, 'SIDE-ON · SLOW MOTION'), S('track', m.stumps, m.stumps, 1, 'BALL TRACKING', 3.4)]
       if (m.how === 'stumped' && m.stumps >= 0) return [S('broadcast', rel - 20, m.stumps + 30, 1, 'REPLAY'), S('crease', m.stumps - 40, m.stumps + 25, 0.3, 'SIDE-ON · SLOW MOTION')]
       const key = m.stumps >= 0 ? m.stumps : hit >= 0 ? hit : last - 40
       return [S('broadcast', rel - 20, key + 40, 1, 'REPLAY'), S('side', key - 40, key + 30, 0.35, 'SIDE-ON · SLOW MOTION')]
     }
     default: {
       if (m.catch >= 0) return [S('side', (hit >= 0 ? hit : m.catch) - 30, (hit >= 0 ? hit : m.catch) + 30, 0.35, 'SIDE-ON · SLOW MOTION'), S('catch', m.catch - 60, m.catch + 40, 0.45, 'PUT DOWN')]
-      if (m.pad >= 0) return [S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 4.4)]
+      if (m.pad >= 0) return [S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 5.4)]
       const key = hit >= 0 ? hit : rel + 40
       return [S('broadcast', rel - 20, key + 40, 1, 'REPLAY'), S('stump', rel + 8, key + 20, 0.32, 'STUMP CAM · SLOW MOTION')]
     }
@@ -1459,7 +1459,8 @@ export class Game {
       fake.hasBall = f.actors[o + 8] > 0.5
       fake.variant = f.poses[i]
       fake.vel.x = f.actors[o + 11]
-      c.root.visible = f.actors[o + 9] > 0.5 && fake.pose !== 'hidden'
+      // The bowler's-end umpire would stand in front of the ball-tracking camera.
+      c.root.visible = f.actors[o + 9] > 0.5 && fake.pose !== 'hidden' && !(sh.cam === 'track' && i === UMP_BOWLER)
       if (!c.root.visible) continue
       this.placePerson(c, _pp.set(-f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, adt, this.camera.position, this.views[i])
     }
@@ -1471,8 +1472,10 @@ export class Game {
       this.wickets[m.stumpsEnd].break(m.stumpsAt, m.stumpsSpeed * (sh.speed < 1 ? 0.6 : 1), -inward(m.stumpsEnd))
       this.audio.stumps()
     }
-    this.updateReplayTrail(plan, idx)
-    if (sh.cam === 'track') this.hawk.tick(this.shotT)
+    if (sh.cam === 'track') {
+      this.replayTrail.visible = false
+      this.hawk.tick(this.shotT)
+    } else this.updateReplayTrail(plan, idx)
   }
 
   /** The dotted trail of the ball from the release to the frame shown. */
@@ -1584,9 +1587,9 @@ export class Game {
       }
       case 'track':
         // Behind the bowler's stumps, raised, looking down the pitch at the striker's end.
-        pos.set(0, 3.4, stumpsZ(1 - se) + toBowler * 4.5)
-        look.set(0, 0.45, sz + toBowler * 0.8)
-        return 17
+        pos.set(0, 5.2, stumpsZ(1 - se) + toBowler * 9)
+        look.set(0, 0.45, sz + toBowler * 0.6)
+        return 15
       default:
         return 30
     }

@@ -119,6 +119,16 @@ export function FieldEditor({ game, onClose }: Props) {
                 </text>
               </g>
             ))}
+            {[d.keeperActor, d.bowlerActor].map((a, i) =>
+              a ? (
+                <g key={i} className="ck-fe-fixed">
+                  <circle cx={a.pos.x * dz} cy={-a.pos.z * dz} r={2.8} />
+                  <text x={a.pos.x * dz} y={-a.pos.z * dz + 1.1}>
+                    {i === 0 ? 'WK' : 'B'}
+                  </text>
+                </g>
+              ) : null,
+            )}
             <circle cx={0} cy={sz} r={1.6} className="ck-fe-striker" />
             <text x={0} y={sz - 3} className="ck-fe-label-strong">
               STRIKER

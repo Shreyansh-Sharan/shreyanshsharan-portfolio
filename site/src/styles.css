@@ -7734,25 +7734,27 @@ p {
 
 .ck-menu-art {
   position: absolute;
-  inset: 0;
-  width: 100%;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 62%;
   height: 100%;
   object-fit: cover;
-  object-position: 30% 30%;
+  object-position: 20% 25%;
 }
 
 .ck-menu-hero::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(5, 8, 18, 0) 25%, rgba(5, 8, 18, 0.7) 55%, rgba(5, 8, 18, 0.92));
+  background: linear-gradient(90deg, rgba(5, 8, 18, 0) 30%, rgba(5, 8, 18, 0.85) 56%, #050812 62%);
 }
 
 .ck-menu-copy {
   position: relative;
   z-index: 1;
   justify-self: end;
-  width: min(560px, 100%);
+  width: min(500px, 52%);
   padding: 28px 28px 24px;
   color: #f8fafc;
 }
@@ -7790,10 +7792,16 @@ p {
 }
 
 @media (max-width: 720px) {
+  .ck-menu-art {
+    width: 100%;
+    height: 220px;
+    bottom: auto;
+  }
   .ck-menu-hero::after {
-    background: linear-gradient(180deg, rgba(5, 8, 18, 0.1) 20%, rgba(5, 8, 18, 0.92) 70%);
+    background: linear-gradient(180deg, rgba(5, 8, 18, 0) 120px, #050812 220px);
   }
   .ck-menu-copy {
-    padding: 160px 18px 18px;
+    width: 100%;
+    padding: 170px 18px 18px;
   }
 }
