@@ -6,7 +6,7 @@ import { makeEnv, pitchSurface, type Env } from './conditions.ts'
 import { DELIVERIES, deliveriesFor, isSpinStyle, releaseBall, releasePoint, stockKmh, type DeliveryPlan, type DeliveryType } from './delivery.ts'
 import { enforce, presetSpots, spotToWorld, type FieldPreset, type FieldSpot } from './fields.ts'
 import { BatFrame, beyondRope, Geo, inward, poppingZ, stumpsAt, stumpsZ } from './geo.ts'
-import { bowlerCard, cardOf, emptyOutcome, MatchState, scoreText, type BallOutcome, type Dismissal, type MatchSetup } from './match.ts'
+import { bowlerCard, cardOf, DISMISSAL_NAMES, emptyOutcome, MatchState, scoreText, type BallOutcome, type Dismissal, type MatchSetup } from './match.ts'
 import { emptyShot, naturalFeet, resolveShot, shotSpec, type Footwork, type ShotInput, type ShotResult, type ShotType, type Timing } from './shots.ts'
 import { bat01, bowl01, field01, pace01, styleName, surname, validateTeam, type Player, type Team } from './teams.ts'
 import { outIfCallsGo, reviewLbw, trackLbw, umpireGivesLbw, umpireHearsEdge, isWide, type LbwTrack, type ReviewOutcome } from './umpiring.ts'
@@ -213,6 +213,8 @@ export class Director {
   field: FieldSpot[] = []
   review: ReviewInfo = emptyReview()
   banner = ''
+  /** A second, smaller line under the banner (how the batter was out, the shot). */
+  bannerSub = ''
   bannerTime = 0
   signal: 'none' | Signal = 'none'
   tossCall = -1
@@ -327,14 +329,24 @@ export class Director {
       { a: this.actors[STRIKER], atEnd: 1, toEnd: 1, running: false, sliding: false, lane: 1.1 },
       { a: this.actors[NONSTRIKER], atEnd: 0, toEnd: 0, running: false, sliding: false, lane: -1.1 },
     ]
-    this.setPhase('toss')
-    this.raise({ type: 'toss' })
+    if (setup.nets) {
+      // Straight into the nets: no toss, team 0 bats.
+      this.state.tossWinner = 0
+      this.beginInnings(0, false)
+    } else {
+      this.setPhase('toss')
+      this.raise({ type: 'toss' })
+    }
   }
 
   /* ---------------- accessors ---------------- */
 
   get inn() {
     return this.state.current
+  }
+  /** Practice nets: no fielders, no wickets counted, the ball is dead soon after the shot. */
+  get nets() {
+    return !!this.state.setup.nets
   }
   get battingTeam(): Team {
     return this.state.setup.teams[this.inn.battingTeam]
@@ -399,8 +411,9 @@ export class Director {
   private say(text: string) {
     if (text) this.raise({ type: 'say', text })
   }
-  private showBanner(text: string, seconds = 2.2) {
+  private showBanner(text: string, seconds = 2.2, sub = '') {
     this.banner = text
+    this.bannerSub = sub
     this.bannerTime = seconds
     this.raise({ type: 'banner', text, f: seconds })
   }
@@ -500,7 +513,7 @@ export class Director {
     this.preset = 'normal'
     this.setPhase('intro')
     const inn = this.inn
-    const intro = superOver ? `SUPER OVER — ${this.battingTeam.name} bat` : inn.target > 0 ? `${this.battingTeam.name} need ${inn.target} to win` : `${this.battingTeam.name} to bat`
+    const intro = this.nets ? 'PRACTICE NETS' : superOver ? `SUPER OVER — ${this.battingTeam.name} bat` : inn.target > 0 ? `${this.battingTeam.name} need ${inn.target} to win` : `${this.battingTeam.name} to bat`
     this.showBanner(intro, 2.4)
     this.say(intro + '.')
   }
@@ -580,12 +593,14 @@ export class Director {
     const inn = this.inn
     const team = this.fieldingTeam
     const rules = this.state.activeRules
+    const nets = this.state.setup.nets
     team.players.forEach((p, i) => {
-      if (i === team.keeper || i === inn.lastOverBowler) return
+      if (i === team.keeper || (i === inn.lastOverBowler && !nets)) return
       const card = inn.bowling.find((b) => b.player === i)
       const overs = card ? Math.floor((card.balls + 5) / 6) : 0
       if (overs >= rules.maxOversPerBowler) return
       if (!(p.role === 'bowler' || p.role === 'allrounder' || p.bowling >= 45) && list.length >= 5) return
+      if (nets && nets.bowling !== 'mixed' && isSpinStyle(p.bowl) !== (nets.bowling === 'spin')) return
       list.push(i)
     })
     if (list.length === 0) team.players.forEach((_, i) => i !== team.keeper && i !== inn.lastOverBowler && list.push(i))
@@ -728,7 +743,8 @@ export class Director {
 
     let n = 0
     for (const a of this.fielders()) {
-      a.visible = true
+      // In the nets only the bowler and the keeper are out there.
+      a.visible = !this.nets || a === b || a === k
       a.hasBall = false
       if (a === b || a === k) continue
       a.kind = 'fielder'
@@ -1302,7 +1318,12 @@ export class Director {
     if (o.end.lenSq === 0) o.end = this.ball.pos.flat()
     if (this.noBallCalled) o.extra = 'noball'
     else if (this.wideCalled && !this.hitBat) o.extra = 'wide'
-    const ran = this.runsCompleted
+    let ran = this.runsCompleted
+    // Nets: with no fielders, a shot that isn't run is worth what it would have fetched in a match.
+    if (this.nets && this.hitBat && ran === 0 && !o.four && !o.six) {
+      const dist = this.ball.pos.flatDist(this.frame.origin)
+      ran = dist > 48 ? 3 : dist > 26 ? 2 : dist > 9 ? 1 : 0
+    }
     o.runsRun = ran
     if (!o.four && !o.six) {
       if (this.hitBat) o.runsBat = ran
@@ -1362,38 +1383,49 @@ export class Director {
     const batterName = surname(this.battingTeam.players[this.batterId])
     const runsBefore = cardOf(inn, this.batterId)?.runs ?? 0
     const o = this.outcome
+    // In the nets a wicket is shown but never counted.
+    const netsOut = this.nets && o.wicket && !(freeHit && o.how !== 'runout')
+    if (netsOut) o.wicket = false
+    const outPlayer = o.strikerOut ? this.batterId : inn.nonStriker
     const rec = this.state.apply(o)
-    if (rec.wicket) {
+    const shotLine = this.lastShotNote ? `${this.lastShotNote}${this.lastKmh > 0 ? ` · ${Math.round(this.lastKmh)} km/h` : ''}` : ''
+    if (rec.wicket || netsOut) {
       const fielderName = o.fielder >= 0 ? surname(this.fieldingTeam.players[o.fielder]) : bowlerName
       const text = C.wicket(o, this.lastShot.contact === 'edge', batterName, bowlerName, fielderName, this.rng)
-      this.showBanner('OUT!', 2.4)
+      const how = o.how === 'runout' ? 'RUN OUT!' : o.how === 'hitwicket' ? 'HIT WICKET!' : `${DISMISSAL_NAMES[o.how].toUpperCase()}!`
+      const card = cardOf(inn, outPlayer)
+      const sub = netsOut ? 'Nets: it does not count. Next ball.' : `OUT · ${surname(this.battingTeam.players[outPlayer])} ${card ? this.state.dismissalText(inn, card) : ''}`
+      this.showBanner(how, 2.6, sub)
       this.raise({ type: 'wicket', i: ['none', 'bowled', 'caught', 'lbw', 'runout', 'stumped', 'hitwicket'].indexOf(o.how), j: o.strikerOut ? this.batterId : -1, text: o.how })
       this.say(text)
       this.celebrate()
-      this.replayWanted = true
+      this.replayWanted = !this.nets
     } else if (o.wicket && freeHit) this.say("He'd have been out, but it's a free hit!")
     if (o.six) {
-      this.showBanner('SIX!', 2.2)
+      this.showBanner('SIX!', 2.2, shotLine)
       this.raise({ type: 'six' })
       this.say(C.six(batterName, this.rng))
       this.replayWanted = true
     } else if (o.four) {
-      this.showBanner('FOUR!', 2)
+      this.showBanner('FOUR!', 2, shotLine)
       this.raise({ type: 'four' })
       this.say(C.four(batterName, this.lastShot, this.rng))
-    } else if (!rec.wicket) {
+    } else if (!rec.wicket && !netsOut) {
       const runs = o.runsBat + o.extraRuns
       if (o.extra === 'wide') {
-        this.showBanner('WIDE', 1.4)
+        this.showBanner('WIDE', 1.4, runs > 0 ? `${runs + 1} runs` : '1 run')
         this.raise({ type: 'wide' })
         this.say(C.wide(this.rng, this.frame.offsetOff(this.ball.pos) < 0))
       } else if (o.extra === 'noball') {
-        this.showBanner('NO BALL', 1.6)
+        this.showBanner('NO BALL', 1.6, runs > 0 ? `${runs + 1} runs · free hit next` : 'Free hit next ball')
         this.say(runs > 0 ? C.runs(runs, o.extra, batterName, this.rng) : 'No-ball called. Free hit coming up!')
       } else if (runs === 0) {
+        this.showBanner('DOT BALL', 1.2, this.lastShot.contact === 'miss' ? `${this.lastShotNote || 'Beaten'} · ${Math.round(this.lastKmh)} km/h` : shotLine)
         this.raise({ type: 'dot' })
         this.say(C.dot(this.lastShot, batterName, this.rng))
       } else {
+        const extra = o.extra === 'bye' ? ' · BYES' : o.extra === 'legbye' ? ' · LEG BYES' : ''
+        this.showBanner(`${runs} RUN${runs === 1 ? '' : 'S'}${extra}`, 1.4, shotLine)
         this.raise({ type: 'runs', i: runs })
         this.say(C.runs(runs, o.extra, batterName, this.rng))
       }
@@ -1731,6 +1763,8 @@ export class Director {
     this.updateFielders(dt)
     this.updateRunners(dt)
     if (!this.humanBats || (this.assistRunning && this.liveTime - this.humanCallAt > 1.2)) AI.runningCalls(this)
+    // Nets: nobody chases a ball into the outfield; the next one comes as soon as the shot is done.
+    if (this.nets && !this.anyRunning && !this.heldBy && this.liveTime > (this.hitBat ? 2.4 : 1.2)) this.queueDead(0.2)
     if (this.heldBy && !this.anyRunning && !this.throwInFlight) {
       this.holdSince += dt
       const nearStumps = Math.min(this.heldBy.pos.dist(stumpsAt(0)), this.heldBy.pos.dist(stumpsAt(1)))

@@ -31,13 +31,16 @@ export function makeBall() {
   c.width = 64
   c.height = 32
   const x = c.getContext('2d')!
-  x.fillStyle = '#f7f7f2'
+  // A white ball with a dark, clearly visible seam so its spin and line read against the pitch.
+  x.fillStyle = '#fbfbf7'
   x.fillRect(0, 0, 64, 32)
-  x.fillStyle = '#9ca3af'
-  x.fillRect(0, 15, 64, 2)
+  x.fillStyle = '#1f2937'
+  x.fillRect(0, 14, 64, 4)
+  x.fillStyle = '#b91c1c'
+  for (let i = 0; i < 64; i += 6) x.fillRect(i, 12, 2, 8)
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
-  const m = new THREE.Mesh(new THREE.SphereGeometry(Geo.BallRadius * 1.15, 16, 12), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.12 }))
+  const m = new THREE.Mesh(new THREE.SphereGeometry(Geo.BallRadius * 1.15, 16, 12), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.18 }))
   m.castShadow = true
   return m
 }

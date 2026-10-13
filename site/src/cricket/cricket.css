@@ -253,20 +253,129 @@
   font-size: clamp(20px, 3.4vw, 40px);
 }
 
-.ck-pop {
+.ck-banner-result {
+  font-size: clamp(28px, 5vw, 60px);
+  color: #f8fafc;
+}
+
+.ck-banner {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.ck-banner-sub {
+  font-size: clamp(13px, 1.5vw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #f8fafc;
+  background: rgba(8, 12, 24, 0.75);
+  padding: 4px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The delivery card (top centre, after release) */
+.ck-card-delivery {
   position: absolute;
-  top: 44%;
+  top: 64px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #fff;
-  padding: 6px 14px;
-  border-radius: 6px;
-  background: rgba(8, 12, 24, 0.6);
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  color: #f8fafc;
+  background: rgba(8, 12, 24, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
   pointer-events: none;
-  animation: ck-rise 1.6s ease-out forwards;
+  animation: ck-card-in 0.3s ease-out;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-card-delivery.is-fading {
+  animation: ck-card-out 0.6s ease-in forwards;
+}
+
+.ck-card-bowler {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.ck-card-kmh {
+  font-weight: 800;
+  font-size: 24px;
+  color: #fde047;
+  line-height: 1;
+}
+
+.ck-card-kmh small {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.7);
+  font-weight: 600;
+}
+
+.ck-card-type {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #1d4ed8;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ck-card-type.is-spin {
+  background: #7e22ce;
+}
+
+.ck-card-words {
+  font-size: 15px;
+  font-weight: 600;
+  color: #67e8f9;
+}
+
+@keyframes ck-card-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes ck-card-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+
+.ck-pop {
+  position: absolute;
+  top: 52%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #fff;
+  padding: 8px 22px;
+  border-radius: 10px;
+  background: rgba(8, 12, 24, 0.72);
+  border: 2px solid currentColor;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: ck-rise 1.8s ease-out forwards;
+  white-space: nowrap;
 }
 
 .ck-pop-bathit {
@@ -280,7 +389,12 @@
 
 .ck-pop-appeal {
   color: #fde047;
-  font-size: 30px;
+  font-size: 40px;
+}
+
+.ck-pop-extra {
+  color: #fde68a;
+  font-size: 24px;
 }
 
 @keyframes ck-pop-in {
@@ -413,6 +527,62 @@
   color: #f87171;
 }
 
+.ck-timing-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  letter-spacing: 0.03em;
+}
+
+.ck-timing-hint.is-now {
+  opacity: 1;
+  color: #4ade80;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+/* Last six balls' timing */
+.ck-strip {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  font-size: 10px;
+}
+
+.ck-strip-label {
+  opacity: 0.6;
+  margin-right: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ck-strip-cell {
+  min-width: 36px;
+  padding: 2px 4px;
+  text-align: center;
+  border-radius: 4px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(248, 250, 252, 0.45);
+}
+
+.ck-strip-cell.is-perfect {
+  background: #16a34a;
+  color: #fff;
+}
+
+.ck-strip-cell.is-early,
+.ck-strip-cell.is-late {
+  background: #ca8a04;
+  color: #fff;
+}
+
+.ck-strip-cell.is-veryearly,
+.ck-strip-cell.is-verylate,
+.ck-strip-cell.is-noshot {
+  background: #b91c1c;
+  color: #fff;
+}
+
 .ck-keys {
   display: flex;
   gap: 6px;
@@ -465,21 +635,76 @@
   opacity: 0.9;
 }
 
+/* The selected delivery, big, with the marker's length and line in words */
+.ck-dl-big {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(8, 12, 24, 0.72);
+  animation: ck-card-in 0.25s ease-out;
+  text-align: right;
+}
+
+.ck-dl-big-name {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fde047;
+  line-height: 1.1;
+}
+
+.ck-dl-big-words {
+  font-size: 13px;
+  font-weight: 600;
+  color: #67e8f9;
+}
+
+.ck-power-wrap {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px 20px;
+  border-radius: 10px;
+  background: rgba(8, 12, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ck-power-wrap.is-running {
+  border-color: rgba(253, 224, 71, 0.6);
+}
+
+.ck-power-wrap.is-green {
+  border-color: #4ade80;
+  box-shadow: 0 0 18px rgba(74, 222, 128, 0.5);
+}
+
+.ck-power-title {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.ck-power-title strong {
+  color: #fde047;
+  letter-spacing: 0.08em;
+}
+
 .ck-power {
   position: relative;
-  width: 360px;
-  height: 18px;
-  border-radius: 9px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2));
+  width: 420px;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.22));
   border: 1px solid rgba(255, 255, 255, 0.25);
-  overflow: hidden;
 }
 
 .ck-power-zone {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(34, 197, 94, 0.75);
+  background: rgba(34, 197, 94, 0.8);
+  border-radius: 3px;
 }
 
 .ck-power-over {
@@ -488,16 +713,45 @@
   bottom: 0;
   right: 0;
   background: rgba(220, 38, 38, 0.6);
+  border-radius: 0 5px 5px 0;
 }
 
 .ck-power-needle {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 4px;
+  top: -4px;
+  bottom: -4px;
+  width: 5px;
   margin-left: -2px;
+  border-radius: 2px;
   background: #fff;
-  box-shadow: 0 0 6px #fff;
+  box-shadow: 0 0 8px #fff;
+}
+
+.ck-power-tag {
+  position: absolute;
+  top: 100%;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.ck-power-tag-early {
+  left: 4px;
+}
+
+.ck-power-tag-green {
+  transform: translateX(-50%);
+  color: #86efac;
+  opacity: 1;
+}
+
+.ck-power-tag-late {
+  right: 4px;
+  color: #fca5a5;
 }
 
 .ck-hint {
@@ -820,6 +1074,90 @@
   line-height: 1.5;
 }
 
+/* How to play (first ball of a human innings) */
+.ck-howto-wrap {
+  background: rgba(3, 6, 14, 0.62);
+  z-index: 5;
+}
+
+.ck-howto {
+  width: min(600px, calc(100vw - 32px));
+  text-align: left;
+}
+
+.ck-howto-eyebrow {
+  margin: 0 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #86efac;
+}
+
+.ck-howto h3 {
+  font-size: 26px;
+  margin-bottom: 14px;
+}
+
+.ck-howto-steps {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ck-howto-steps li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ck-howto-steps strong {
+  color: #fff;
+}
+
+.ck-howto-pip {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+}
+
+.ck-howto-pip-marker {
+  border-color: #67e8f9;
+  box-shadow: inset 0 0 0 4px rgba(34, 211, 238, 0.35);
+}
+
+.ck-howto-pip-aim {
+  border-radius: 4px;
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.25);
+}
+
+.ck-howto-pip-ring {
+  border-color: #fde047;
+  box-shadow: 0 0 0 3px rgba(8, 12, 24, 1), 0 0 0 5px rgba(253, 224, 71, 0.5);
+}
+
+.ck-howto-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 12px;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.ck-howto .btn {
+  width: 100%;
+  justify-content: center;
+}
+
 @media (max-width: 760px) {
   .ck-bug {
     min-width: 0;
@@ -836,5 +1174,13 @@
   }
   .ck-power {
     width: 240px;
+  }
+  .ck-card-delivery {
+    top: 56px;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+  .ck-card-words {
+    display: none;
   }
 }

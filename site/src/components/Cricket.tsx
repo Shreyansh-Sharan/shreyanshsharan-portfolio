@@ -1,14 +1,14 @@
 // Cricket lobby: quick match against the CPU, host or join an online 1v1, the team builder, and the match itself
 // (an in-site three.js game, loaded on demand).
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CircleDot, Copy, Globe, LogIn, Users, Wrench } from 'lucide-react'
+import { Check, CircleDot, Copy, Globe, LogIn, Target, Users, Wrench } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { Page } from './Page'
 import { AdSlot } from './AdSlot'
 import { GearShelf } from './GearShelf'
-import { FORMATS, type MatchFormat, type MatchSetup } from '../cricket/sim/match'
+import { FORMATS, type MatchFormat, type MatchSetup, type NetsBowling } from '../cricket/sim/match'
 import { allTeams, cloneTeam, findTeam, type Team } from '../cricket/sim/teams'
 import type { PitchType, TimeOfDay } from '../cricket/sim/conditions'
 import { savedQuality, saveQuality, detectQuality, type QualityTier } from '../cricket/quality'
@@ -19,8 +19,14 @@ const CricketStage = lazy(() => import('../cricket/ui/CricketStage'))
 
 const accent = tiles.find((t) => t.id === 'cricket')?.accent ?? (['#14532d', '#86efac'] as [string, string])
 
-type Mode = 'quick' | 'host' | 'join'
+type Mode = 'quick' | 'nets' | 'host' | 'join'
 type Stage = 'menu' | 'builder' | 'lobby' | 'play'
+
+const NETS_BOWLING: { id: NetsBowling; label: string }[] = [
+  { id: 'pace', label: 'Pace' },
+  { id: 'spin', label: 'Spin' },
+  { id: 'mixed', label: 'Mixed' },
+]
 
 const PITCHES: { id: PitchType; label: string }[] = [
   { id: 'green', label: 'Green seamer' },
@@ -67,6 +73,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
   const [team, setTeam] = useState(() => stored('cricket-team', 'northland'))
   const [opp, setOpp] = useState(() => stored('cricket-opp', 'eastvale'))
   const [skill, setSkill] = useState(() => Number(stored('cricket-diff', '1')))
+  const [netsBowling, setNetsBowling] = useState<NetsBowling>(() => (q.get('bowling') as NetsBowling) || (stored('cricket-nets-bowling', 'mixed') as NetsBowling))
   const [pitch, setPitch] = useState<PitchType>(() => (q.get('pitch') as PitchType) || (stored('cricket-pitch', 'flat') as PitchType))
   const [time, setTime] = useState<TimeOfDay>(() => (q.get('time') as TimeOfDay) || (stored('cricket-time', 'night') as TimeOfDay))
   const [quality, setQuality] = useState<QualityTier | 'auto'>(savedQuality)
@@ -112,9 +119,22 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
     setStage('play')
   }
 
-  // `#/cricket?auto` starts a quick match straight away (tests and links).
+  /** Practice nets: you bat for as long as you like against the opponent's attack, no fielders, no wickets counted. */
+  const startNets = () => {
+    remember()
+    store('cricket-nets-bowling', netsBowling)
+    play('select')
+    const a = teamOf(team)
+    let b = teamOf(opp)
+    if (b.id === a.id) b = cloneTeam(teams.find((t) => t.id !== a.id) ?? teams[1])
+    setPlaying({ setup: { ...makeSetup(a, b), nets: { bowling: netsBowling } }, sideHuman: [true, false], localSide: 0, net: null, key: Date.now() })
+    setStage('play')
+  }
+
+  // `#/cricket?auto` starts a quick match straight away (tests and links); `?nets` in the page query starts the nets.
   useEffect(() => {
-    if (auto) startQuick()
+    if (auto && q.has('nets')) startNets()
+    else if (auto) startQuick()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto])
 
@@ -282,6 +302,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
               {(
                 [
                   ['quick', 'Play vs CPU', <CircleDot key="q" size={16} />],
+                  ['nets', 'Practice nets', <Target key="n" size={16} />],
                   ['host', 'Host online', <Globe key="h" size={16} />],
                   ['join', 'Join with code', <LogIn key="j" size={16} />],
                 ] as const
@@ -292,7 +313,14 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
               ))}
             </div>
 
-            {mode !== 'join' && (
+            {mode === 'nets' && (
+              <p className="muted small">
+                Endless deliveries at the nets: no fielders, wickets are shown but never counted, the landing marker and timing feedback are always on and the
+                last six balls' timing is tracked. The best place to learn the shot timing.
+              </p>
+            )}
+
+            {mode !== 'join' && mode !== 'nets' && (
               <div className="field">
                 <span>Format</span>
                 <div className="seg seg-sm">
@@ -318,10 +346,10 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
               </select>
             </label>
 
-            {mode === 'quick' && (
+            {(mode === 'quick' || mode === 'nets') && (
               <>
                 <label className="field">
-                  <span>Opponent</span>
+                  <span>{mode === 'nets' ? 'Bowling attack' : 'Opponent'}</span>
                   <select className="cricket-select" value={opp} onChange={(e) => setOpp(e.target.value)}>
                     {teams
                       .filter((t) => t.id !== team)
@@ -332,6 +360,18 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
                       ))}
                   </select>
                 </label>
+                {mode === 'nets' && (
+                  <div className="field">
+                    <span>Bowlers</span>
+                    <div className="seg seg-sm">
+                      {NETS_BOWLING.map(({ id, label }) => (
+                        <button key={id} className={`seg-btn ${netsBowling === id ? 'is-active' : ''}`} onClick={() => setNetsBowling(id)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <span>Difficulty</span>
                   <div className="seg seg-sm">
@@ -399,14 +439,15 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
             <button
               className="btn btn-primary arena-start"
               disabled={busy || (mode === 'join' && code.trim().length < 4)}
-              onClick={() => (mode === 'quick' ? startQuick() : void openRoom())}
+              onClick={() => (mode === 'quick' ? startQuick() : mode === 'nets' ? startNets() : void openRoom())}
             >
-              <CircleDot size={18} /> {mode === 'quick' ? 'Play' : mode === 'host' ? (busy ? 'Creating…' : 'Create match') : busy ? 'Joining…' : 'Join match'}
+              <CircleDot size={18} />{' '}
+              {mode === 'quick' ? 'Play' : mode === 'nets' ? 'Into the nets' : mode === 'host' ? (busy ? 'Creating…' : 'Create match') : busy ? 'Joining…' : 'Join match'}
             </button>
             <button className="btn" onClick={() => setStage('builder')}>
               <Wrench size={16} /> Team builder
             </button>
-            {mode !== 'quick' && (
+            {(mode === 'host' || mode === 'join') && (
               <p className="muted small">Online play is peer-to-peer: the host's browser runs the match and your friend joins with the code. Some strict networks block it.</p>
             )}
             {error && <p className="notice">{error}</p>}
@@ -426,14 +467,15 @@ function Controls() {
     <section className="arena-panel arena-info">
       <h2 className="section-title">Batting</h2>
       <ul className="keys">
+        <li>The cyan ring on the pitch is where the ball will land; the yellow ring at your feet closes as it arrives</li>
         <li>
           Hold a direction: <kbd>W</kbd>
           <kbd>A</kbd>
           <kbd>S</kbd>
-          <kbd>D</kbd> or arrows (8 ways, none = natural shot)
+          <kbd>D</kbd> or arrows (8 ways, none = natural shot). The wedge on the ground shows where it goes
         </li>
         <li>
-          Time the shot: <kbd>J</kbd> defend · <kbd>K</kbd> along the ground · <kbd>L</kbd> lofted
+          Press when the ring turns green: <kbd>J</kbd> defend · <kbd>K</kbd> along the ground · <kbd>L</kbd> lofted
         </li>
         <li>
           Hold <kbd>Shift</kbd> front foot · <kbd>Space</kbd> back foot · <kbd>T</kbd> charge the spinner
@@ -456,8 +498,8 @@ function Controls() {
       </ul>
       <h2 className="section-title">Everything else</h2>
       <p className="muted small">
-        <kbd>Y</kbd> review (DRS) · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause. Build your own XI
-        (names, kit colours, roles and ratings) in the team builder.
+        <kbd>Y</kbd> review (DRS) · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera (batter's view, broadcast, high) ·{' '}
+        <kbd>Esc</kbd> pause. New to it? Start in the practice nets. Build your own XI (names, kit colours, roles and ratings) in the team builder.
       </p>
     </section>
   )

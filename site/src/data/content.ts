@@ -556,7 +556,8 @@ export const tiles: Tile[] = [
     period: 'Play now',
     genre: 'Sports',
     blurb:
-      'T20, T10, a 5-over Blitz or a Super Over between fictional sides, from the classic broadcast view behind the bowler. Hold a direction and time your shot off the front or back foot; place a marker and hit the green on the run-up meter. Swing, seam and spin off green, flat or dusty pitches, diving fielders, run outs, DRS ball-tracking and replays. Play the CPU or a friend online.',
+      'T20, T10, a 5-over Blitz or a Super Over between fictional sides, from over the batter\'s shoulder or the classic broadcast view. See where the ball will pitch, hold a direction and time your shot as the ring closes; place a marker on the length bands and hit the green on the run-up meter. Swing, seam and spin off green, flat or dusty pitches, diving fielders, run outs, DRS ball-tracking and replays. Practice nets, the CPU or a friend online.',
+    cover: 'cricket/keyart.webp',
     icon: CircleDot,
     accent: ['#14532d', '#86efac'],
     action: { kind: 'route', to: '#/cricket', label: 'Play' },
