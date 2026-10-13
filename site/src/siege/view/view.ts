@@ -2,7 +2,8 @@
 // instanced projectiles, deployables, loot, effects, optional bloom, and a 2D overlay for name tags, health bars
 // and floating damage numbers. It draws snapshots, so the host view and online clients share this code.
 import * as THREE from 'three'
-import type { SiegeAssets } from '../engine/assets'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { findClip, instance, type SiegeAssets } from '../engine/assets'
 import { HEROES, type HeroId } from '../engine/heroes'
 import { CELL, type MapDef } from '../engine/maps'
 import type { Quality } from '../engine/quality'
@@ -47,7 +48,7 @@ export class SiegeView {
   private mapDef: MapDef | null = null
   private sun: THREE.DirectionalLight
   private actors = new Map<number, FighterActor>()
-  private deploys = new Map<number, { obj: THREE.Object3D; kind: string; team: number; turretHead?: THREE.Object3D; lamp?: THREE.Mesh }>()
+  private deploys = new Map<number, { obj: THREE.Object3D; kind: string; team: number; turretHead?: THREE.Object3D; lamp?: THREE.Mesh; mixer?: THREE.AnimationMixer }>()
   private pickups = new Map<number, THREE.Object3D>()
   private projMeshes: Record<string, THREE.InstancedMesh> = {}
   private grenades: THREE.InstancedMesh
@@ -91,6 +92,12 @@ export class SiegeView {
     this.octx = this.overlay.getContext('2d')!
     this.scene.background = new THREE.Color('#07051a')
     this.scene.fog = new THREE.Fog('#07051a', 60, 110)
+    // A neutral room reflection so the characters' metal and glass read (the arena has no reflections of its own).
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    this.scene.environmentIntensity = 0.45
+    pmrem.dispose()
+    this.disposables.push(this.scene.environment)
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 160)
     const hemi = new THREE.HemisphereLight('#8f7fe8', '#1a1030', 1.4)
     this.scene.add(hemi)
@@ -125,7 +132,16 @@ export class SiegeView {
     gProto?.traverse((o) => {
       const m = o as THREE.Mesh
       if (m.isMesh && !gGeo) {
+        // Quantised positions are widened to floats before the transform is baked in (Int16 would clamp to ±1).
         gGeo = m.geometry.clone()
+        const pos = gGeo.attributes.position
+        const out = new Float32Array(pos.count * 3)
+        for (let i = 0; i < pos.count; i++) {
+          out[i * 3] = pos.getX(i)
+          out[i * 3 + 1] = pos.getY(i)
+          out[i * 3 + 2] = pos.getZ(i)
+        }
+        gGeo.setAttribute('position', new THREE.BufferAttribute(out, 3))
         gGeo.applyMatrix4(m.matrixWorld)
         gMat = m.material as THREE.Material
       }
@@ -217,7 +233,8 @@ export class SiegeView {
       const cloaked = !!(flags & SNAP_FLAGS.cloak)
       const rel = this.relation(id)
       const cloak = cloaked ? (rel === 'enemy' ? 0.06 : 0.35) : 0
-      a.update(dt, t, x, z, aim, vx, vz, alive, cloak, !!(flags & SNAP_FLAGS.shield), !!(flags & SNAP_FLAGS.superOn), !!(flags & SNAP_FLAGS.dash), !!(flags & SNAP_FLAGS.spawnShield))
+      const far = Math.hypot(x - this.focus.x, z - this.focus.z) > 26 * this.zoom
+      a.update(dt, t, x, z, aim, vx, vz, alive, cloak, !!(flags & SNAP_FLAGS.shield), !!(flags & SNAP_FLAGS.superOn), !!(flags & SNAP_FLAGS.dash), !!(flags & SNAP_FLAGS.spawnShield), far)
     }
     for (const [id, a] of this.actors)
       if (!seen.has(id)) {
@@ -280,8 +297,9 @@ export class SiegeView {
         this.deploys.set(id, d)
         this.scene.add(d.obj)
       }
-      d.obj.position.set(x, 0, z)
+      d.obj.position.set(x, d.mixer ? 0.9 + Math.sin(t * 2.2 + id) * 0.12 : 0, z)
       if (d.turretHead) d.turretHead.rotation.y = Math.atan2(Math.cos(aim), Math.sin(aim))
+      d.mixer?.update(dt)
       if (d.lamp) (d.lamp.material as THREE.MeshBasicMaterial).color.set(armed ? (Math.sin(t * 12) > 0 ? '#ff3366' : '#55001a') : '#333')
       if (kind === 'heal') {
         d.obj.rotation.y = t * 0.8
@@ -338,7 +356,12 @@ export class SiegeView {
         const m = this.meta.get(e.id)
         const hero = m ? HEROES[m.hero] : null
         const color = hero ? hero.colors[1] : '#facc15'
-        this.fx.muzzle(e.x, e.z, e.aim, color, e.kind === 'rail' || e.kind === 'grenade')
+        const a = this.actors.get(e.id)
+        if (a) {
+          a.fire()
+          const tip = a.gunTip
+          this.fx.muzzle(tip.x, tip.z, e.aim, color, e.kind === 'rail' || e.kind === 'grenade', tip.y)
+        } else this.fx.muzzle(e.x, e.z, e.aim, color, e.kind === 'rail' || e.kind === 'grenade')
         break
       }
       case 'hit': {
@@ -360,6 +383,7 @@ export class SiegeView {
       case 'super': {
         const hero = HEROES[e.hero]
         this.fx.superBurst(e.x, e.z, hero.colors[1])
+        this.actors.get(e.id)?.superNow()
         break
       }
       case 'dash': {
@@ -384,6 +408,28 @@ export class SiegeView {
   private makeDeploy(kind: string, team: number) {
     const color = this.br ? '#f0abfc' : team === this.meTeam ? '#22d3ee' : '#fb7185'
     if (kind === 'turret') {
+      // Sentry Pod: the hover drone, bobbing over a team-coloured ring, turning to face its target.
+      const drone = instance(this.assets, 'env-drone')
+      if (drone) {
+        const g = new THREE.Group()
+        const head = new THREE.Group()
+        head.add(drone)
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 28), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }))
+        ring.rotation.x = -Math.PI / 2
+        ring.position.y = -0.85
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color }))
+        lamp.position.set(0, 0.9, 0.3)
+        head.add(lamp)
+        g.add(head, ring)
+        const clips = this.assets.clips.get('env-drone')
+        const clip = findClip(clips, 'Scene')
+        let mixer: THREE.AnimationMixer | undefined
+        if (clip) {
+          mixer = new THREE.AnimationMixer(drone)
+          mixer.clipAction(clip).play()
+        }
+        return { obj: g, kind, team, turretHead: head, mixer }
+      }
       const g = new THREE.Group()
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 0.5, 10), new THREE.MeshStandardMaterial({ color: '#3b3b4f', metalness: 0.6, roughness: 0.4 }))
       base.position.y = 0.25

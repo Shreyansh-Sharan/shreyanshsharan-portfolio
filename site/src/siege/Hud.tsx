@@ -8,6 +8,7 @@ import { ARENA_MAPS, MAPS, type MapId } from './engine/maps'
 import { MODE_INFO, type ModeId } from './engine/sim'
 import type { Game, Hud } from './engine/game'
 import type { Profile } from './engine/progress'
+import { portrait } from './portraits'
 
 export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game; profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void; onQuit: () => void }) {
   const me = hud.me
@@ -64,6 +65,7 @@ export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game;
           {!me.alive && hud.mode === 'br' && <div className="sg-respawn">Eliminated · spectating</div>}
           <div className="sg-me">
             <div className="sg-mehero" style={{ ['--sg-accent' as string]: hero.colors[0] }}>
+              <img src={portrait(me.hero)} alt="" />
               {hero.name}
             </div>
             <div className="sg-hp">
@@ -120,6 +122,7 @@ function Lobby({ hud, game, profile, onQuit }: { hud: Hud; game: Game; profile: 
         <ul className="sg-players">
           {hud.players.map((p) => (
             <li key={p.peer}>
+              <img className="sg-avatar" src={portrait(p.hero)} alt="" />
               <strong>{p.name}</strong> <span className="muted small">{HEROES[p.hero].name}</span>
               {p.peer === 'host' && <em>host</em>}
             </li>
@@ -217,7 +220,8 @@ function ResultsPanel({ hud, game, onQuit }: { hud: Hud; game: Game; onQuit: () 
             {r.rows.map((row) => (
               <tr key={row.id} className={row.me ? 'is-me' : ''}>
                 <td>{r.mode === 'br' ? row.placement || '-' : row.team === 0 ? 'A' : 'B'}</td>
-                <td>
+                <td className="sg-fighter">
+                  <img className="sg-avatar" src={portrait(row.hero)} alt="" />
                   {row.name} <span className="muted small">{HEROES[row.hero].name}</span>
                 </td>
                 <td>{row.kills}</td>

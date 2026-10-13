@@ -63,7 +63,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 2200,
     prefRange: 3.5,
     colors: ['#f97316', '#fde68a'],
-    model: 'hero-rook',
+    model: 'char-rook',
     gun: 'gun-rook',
   },
   wren: {
@@ -80,7 +80,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 2000,
     prefRange: 14,
     colors: ['#22d3ee', '#e0f2fe'],
-    model: 'hero-wren',
+    model: 'char-wren',
     gun: 'gun-wren',
   },
   furnace: {
@@ -97,7 +97,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 2600,
     prefRange: 3,
     colors: ['#ef4444', '#fb923c'],
-    model: 'hero-furnace',
+    model: 'char-furnace',
     gun: 'gun-furnace',
   },
   flick: {
@@ -114,7 +114,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 2100,
     prefRange: 7,
     colors: ['#a855f7', '#f0abfc'],
-    model: 'hero-flick',
+    model: 'char-flick',
     gun: 'gun-flick',
   },
   pike: {
@@ -131,7 +131,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 2400,
     prefRange: 9,
     colors: ['#84cc16', '#d9f99d'],
-    model: 'hero-pike',
+    model: 'char-pike',
     gun: 'gun-pike',
   },
   salve: {
@@ -148,7 +148,7 @@ export const HEROES: Record<HeroId, Hero> = {
     chargeDmg: 1700,
     prefRange: 8,
     colors: ['#ec4899', '#fbcfe8'],
-    model: 'hero-salve',
+    model: 'char-salve',
     gun: 'gun-salve',
   },
 }

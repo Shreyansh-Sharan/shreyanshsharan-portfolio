@@ -20,6 +20,8 @@ import type { Game, Hud } from './engine/game'
 import type { NetSession } from './engine/net'
 import { SiegeHud } from './Hud'
 import { GearScreen } from './Gear'
+import { heroCard, portrait } from './portraits'
+import { CC_BY, CHARACTER_CREDITS, ENVIRONMENT_CREDITS } from './credits'
 import './siege.css'
 
 const accent = tiles.find((t) => t.id === 'neon-siege')?.accent ?? (['#4c1d95', '#f0abfc'] as [string, string])
@@ -231,6 +233,7 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
             <li><strong>Cover matters.</strong> Walls stop everything; low cover stops bullets but not grenades; crates break.</li>
             <li><strong>Grid Royale.</strong> The neon grid shrinks every half minute and burns anyone outside. Crack loot crates for gear.</li>
           </ul>
+          <Credits />
         </section>
       </div>
       <AdSlot />
@@ -257,22 +260,28 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
       <div className="sg-heroes">
         {HERO_IDS.map((id) => (
           <button key={id} className={`sg-herocard ${profile.hero === id ? 'is-on' : ''}`} style={{ ['--sg-accent' as string]: HEROES[id].colors[0] }} onClick={() => onProfile((p) => ({ ...p, hero: id }))} data-testid={`sg-hero-${id}`}>
+            <img src={portrait(id)} alt="" loading="lazy" />
             <strong>{HEROES[id].name}</strong>
             <span>{HEROES[id].role}</span>
           </button>
         ))}
       </div>
-      <h3 className="sg-sub" style={{ color: hero.colors[1] }}>
-        {hero.name} · {hero.role}
-      </h3>
-      <p className="muted small">{hero.blurb}</p>
-      {stat('Health', hero.hp, 2800)}
-      {stat('Speed', hero.speed, 7)}
-      {stat('Damage / s', dps, 900)}
-      {stat('Range', hero.weapon.range, 22)}
-      <p className="sg-super">
-        <Zap size={14} /> <strong>{hero.superName}</strong> · {hero.superBlurb}
-      </p>
+      <div className="sg-herosheet" style={{ ['--sg-accent' as string]: hero.colors[0] }}>
+        <img className="sg-herocardimg" src={heroCard(profile.hero)} alt={`${hero.name}, the ${hero.role.toLowerCase()}`} />
+        <div>
+          <h3 className="sg-sub" style={{ color: hero.colors[1] }}>
+            {hero.name} · {hero.role}
+          </h3>
+          <p className="muted small">{hero.blurb}</p>
+          {stat('Health', hero.hp, 2800)}
+          {stat('Speed', hero.speed, 7)}
+          {stat('Damage / s', dps, 900)}
+          {stat('Range', hero.weapon.range, 22)}
+          <p className="sg-super">
+            <Zap size={14} /> <strong>{hero.superName}</strong> · {hero.superBlurb}
+          </p>
+        </div>
+      </div>
       <h3 className="sg-sub">Palette</h3>
       <div className="sg-skins">
         {SKIN_IDS.map((id) => {
@@ -302,6 +311,56 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
         })}
       </div>
     </>
+  )
+}
+
+/* ---------- Credits ---------- */
+
+function Credits() {
+  const [open, setOpen] = useState(false)
+  const row = (c: (typeof CHARACTER_CREDITS)[number]) => (
+    <li key={c.url}>
+      <em>{c.use}</em>{' '}
+      <a href={c.url} target="_blank" rel="noreferrer">
+        {c.name}
+      </a>{' '}
+      by{' '}
+      <a href={c.authorUrl} target="_blank" rel="noreferrer">
+        {c.author}
+      </a>
+      ,{' '}
+      <a href={CC_BY.url} target="_blank" rel="noreferrer">
+        {CC_BY.name}
+      </a>
+    </li>
+  )
+  return (
+    <div className="sg-credits">
+      <h2 className="section-title">
+        <button className="sg-creditsbtn" onClick={() => setOpen((o) => !o)} aria-expanded={open} data-testid="sg-credits">
+          Model credits {open ? '−' : '+'}
+        </button>
+      </h2>
+      <p className="muted small">
+        Heroes and arena pieces are Creative Commons models from Sketchfab, used under{' '}
+        <a href={CC_BY.url} target="_blank" rel="noreferrer">
+          CC BY 4.0
+        </a>
+        . Blasters and grenades: Kenney Blaster Kit (CC0).
+      </p>
+      {open && (
+        <>
+          <h3 className="sg-sub">Heroes</h3>
+          <ul className="sg-creditlist">{CHARACTER_CREDITS.map(row)}</ul>
+          {ENVIRONMENT_CREDITS.length > 0 && (
+            <>
+              <h3 className="sg-sub">Arenas and props</h3>
+              <ul className="sg-creditlist">{ENVIRONMENT_CREDITS.map(row)}</ul>
+            </>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
