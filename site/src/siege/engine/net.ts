@@ -46,9 +46,11 @@ export interface PeerResult {
   damage: number
   supers: number
   placement: number
+  /** Coins from shards picked up in the match. */
+  coins: number
 }
 
-/** Inputs: [mx, mz, ax, az, aimDist, flags] with flags = fire | dash << 1 | super << 2. */
+/** Inputs: [mx, mz, ax, az, aimDist, flags] with flags = fire | dash << 1 | super << 2 | power << 3. */
 export type SiegeMsg =
   | { t: 'sg-hello'; look: Look }
   | { t: 'sg-look'; look: Look }

@@ -2,6 +2,7 @@
 // and a synthwave loop. Everything is generated with WebAudio; nothing is downloaded.
 import { isMuted } from '../../lib/sound'
 import type { HeroId } from './heroes'
+import type { PowerKind } from './powers'
 import type { ProjKind } from './sim'
 
 export class SiegeAudio {
@@ -125,7 +126,76 @@ export class SiegeAudio {
       case 'turret':
         this.tone(700, 'square', t, 0.06, 0.1 * v, 400)
         break
+      case 'dart':
+        this.tone(2400, 'sine', t, 0.12, 0.18 * v, 1200)
+        this.hiss(t, 0.1, 0.16 * v, 5000, 3)
+        break
+      case 'toxin':
+        this.tone(160, 'triangle', t, 0.25, 0.3 * v, 80)
+        this.hiss(t, 0.3, 0.2 * v, 900, 0.8, 'lowpass')
+        break
     }
+  }
+
+  /** Signature powers, one voice each. */
+  power(kind: PowerKind, x?: number, z?: number) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    const v = this.att(x, z)
+    switch (kind) {
+      case 'wall':
+        this.tone(90, 'square', t, 0.35, 0.3 * v, 180)
+        this.tone(440, 'sawtooth', t + 0.05, 0.4, 0.12 * v, 660)
+        break
+      case 'dart':
+        break
+      case 'vent':
+        this.hiss(t, 0.5, 0.45 * v, 400, 0.6, 'bandpass', 2400)
+        this.tone(80, 'sawtooth', t, 0.45, 0.25 * v, 220)
+        break
+      case 'blink':
+        this.tone(300, 'sine', t, 0.18, 0.22 * v, 2200)
+        this.tone(1800, 'triangle', t + 0.06, 0.16, 0.12 * v, 600)
+        break
+      case 'toxin':
+        break
+      case 'purge':
+        for (let i = 0; i < 3; i++) this.tone(660 * Math.pow(1.5, i), 'sine', t + i * 0.05, 0.35, 0.14 * v)
+        this.hiss(t, 0.35, 0.12 * v, 6000, 1, 'highpass')
+        break
+    }
+  }
+
+  /** A counter landed: glassy shatter for BROKEN!, a bright deflect for COUNTERED!. */
+  counter(broken: boolean, x?: number, z?: number) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    const v = Math.max(0.35, this.att(x, z))
+    if (broken) {
+      this.hiss(t, 0.35, 0.55 * v, 5200, 0.7, 'highpass', 1800)
+      for (let i = 0; i < 4; i++) this.tone(2600 - i * 420 + Math.random() * 120, 'square', t + i * 0.035, 0.09, 0.09 * v)
+      this.tone(110, 'sawtooth', t, 0.3, 0.25 * v, 45)
+    } else {
+      this.tone(880, 'triangle', t, 0.1, 0.2 * v, 1760)
+      this.tone(1320, 'sine', t + 0.07, 0.22, 0.16 * v, 1980)
+      this.hiss(t, 0.12, 0.2 * v, 3500, 4)
+    }
+  }
+
+  /** Scan Dart pulse: a sonar ping. */
+  scan(x?: number, z?: number) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    const v = this.att(x, z)
+    this.tone(1760, 'sine', t, 0.5, 0.18 * v, 1650)
+    this.tone(2640, 'sine', t + 0.12, 0.35, 0.08 * v)
+  }
+
+  powerup() {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    ;[660, 880, 1100, 1320].forEach((f, i) => this.tone(f, 'square', t + i * 0.05, 0.12, 0.1))
+    this.tone(220, 'sawtooth', t, 0.3, 0.12, 440)
   }
 
   hit(mine: boolean, x?: number, z?: number) {

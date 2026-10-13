@@ -11,10 +11,13 @@
 //     shot. The torso therefore always tracks the aim while the legs follow movement.
 //   - full-body overrides: death (plays once, holds, then the body sinks and fades) and the hero's super.
 //   - procedural extras on top of the mixer: run lean, dash lunge, shot recoil, hit flinch, spawn-in squash.
+//   - a status aura under the feet (Heat Vent wind-up, poison, scorch, slow, mark, buffs) and a heat column while
+//     venting; these are separate meshes, so the animation layers are untouched.
 // Far fighters (off the focus) step the mixer at 10 Hz.
 import * as THREE from 'three'
 import { MANIFEST, findClip, instance, type CharSpec, type SiegeAssets } from '../engine/assets'
 import { HEROES, type HeroId } from '../engine/heroes'
+import { STATUS_INFO, STATUS_KINDS } from '../engine/powers'
 import { SKINS } from '../engine/progress'
 
 export type Relation = 'me' | 'ally' | 'enemy'
@@ -103,6 +106,10 @@ export class FighterActor {
   private shadowMat: THREE.MeshBasicMaterial
   private shield: THREE.Mesh
   private shieldMat: THREE.MeshBasicMaterial
+  private aura: THREE.Mesh
+  private auraMat: THREE.MeshBasicMaterial
+  private heat: THREE.Mesh
+  private heatMat: THREE.MeshBasicMaterial
   private mats: THREE.Material[] = []
   private gun: THREE.Object3D | null = null
   private gunLen = 0.9
@@ -239,6 +246,53 @@ export class FighterActor {
     this.shield.position.y = 1.05
     this.shield.visible = false
     this.group.add(this.shield)
+    // Status aura (a second ring outside the team ring) and the Heat Vent column.
+    this.auraMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })
+    this.aura = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.9, 36), this.auraMat)
+    this.aura.rotation.x = -Math.PI / 2
+    this.aura.position.y = 0.04
+    this.aura.visible = false
+    this.heatMat = new THREE.MeshBasicMaterial({ color: '#ff7a1a', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })
+    this.heat = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 2.4, 24, 1, true), this.heatMat)
+    this.heat.position.y = 1.2
+    this.heat.visible = false
+    this.group.add(this.aura, this.heat)
+  }
+
+  /**
+   * Status effects from the snapshot mask: the most pressing one colours the aura (debuffs first), and a Heat Vent
+   * wind-up lights the column. Returns the aura colour (or null) so the view can add matching particles.
+   */
+  status(mask: number, channel: boolean, time: number) {
+    if (!this.alive) {
+      this.aura.visible = this.heat.visible = false
+      return null
+    }
+    this.heat.visible = channel
+    if (channel) {
+      this.heatMat.opacity = 0.35 + Math.sin(time * 40) * 0.12
+      this.heat.scale.set(1 + Math.sin(time * 30) * 0.05, 1, 1 + Math.sin(time * 30) * 0.05)
+    }
+    let pick = -1
+    for (const debuff of [true, false])
+      for (let i = 0; i < STATUS_KINDS.length && pick < 0; i++) if (mask & (1 << i) && STATUS_INFO[STATUS_KINDS[i]].debuff === debuff && STATUS_KINDS[i] !== 'revive') pick = i
+    if (channel) {
+      this.aura.visible = true
+      this.auraMat.color.set('#ff7a1a')
+      this.auraMat.opacity = 0.9
+      this.aura.scale.setScalar(1.2 + Math.sin(time * 25) * 0.15)
+      return '#ff7a1a'
+    }
+    if (pick < 0) {
+      this.aura.visible = false
+      return null
+    }
+    const info = STATUS_INFO[STATUS_KINDS[pick]]
+    this.aura.visible = true
+    this.auraMat.color.set(info.color)
+    this.auraMat.opacity = (info.debuff ? 0.75 : 0.5) * this.opacity
+    this.aura.scale.setScalar(1 + Math.sin(time * (info.debuff ? 9 : 4)) * 0.08)
+    return info.color
   }
 
   private setupClips(clips: THREE.AnimationClip[], s: CharSpec) {
@@ -651,6 +705,10 @@ export class FighterActor {
     this.shadowMat.dispose()
     this.shield.geometry.dispose()
     this.shieldMat.dispose()
+    this.aura.geometry.dispose()
+    this.auraMat.dispose()
+    this.heat.geometry.dispose()
+    this.heatMat.dispose()
   }
 }
 

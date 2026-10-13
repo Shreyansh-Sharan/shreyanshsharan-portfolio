@@ -9,7 +9,8 @@ import { INPUT_HZ, MAX_PEOPLE, SNAP_HZ, isSiegeMsg, type LobbyPlayer, type Look,
 import { applyMatch, gearMods, type Profile, type Reward } from './progress'
 import type { Quality } from './quality'
 import { Rng } from './rng'
-import { MODE_INFO, SNAP_FLAGS, Sim, type Input, type ModeId, type RosterEntry, type SimEvent, type Snap } from './sim'
+import { COUNTER_RULES, STATUS_KINDS, type StatusKind } from './powers'
+import { DEPLOY_KINDS, MODE_INFO, NO_INPUT, SNAP_F, SNAP_FLAGS, Sim, type Input, type ModeId, type RosterEntry, type SimEvent, type Snap } from './sim'
 import { SiegeView, type FighterMeta } from '../view/view'
 
 export interface ResultRow {
@@ -44,8 +45,28 @@ export interface Hud {
   target: number
   score: [number, number]
   myTeam: number
-  me: { id: number; hero: HeroId; hp: number; maxHp: number; super: number; dashCd: number; alive: boolean; respawnIn: number; kills: number; deaths: number; cloak: boolean; superName: string }
+  me: {
+    id: number
+    hero: HeroId
+    hp: number
+    maxHp: number
+    super: number
+    dashCd: number
+    alive: boolean
+    respawnIn: number
+    kills: number
+    deaths: number
+    cloak: boolean
+    superName: string
+    powerCd: number
+    shield: number
+    coins: number
+    /** Active effects with seconds left (buffs and debuffs). */
+    statuses: { kind: StatusKind; left: number }[]
+  }
   feed: { key: number; text: string; at: number }[]
+  /** Counter popups that involve you (yours landing, or landing on you). */
+  counters: { key: number; word: string; label: string; color: string; mine: boolean; at: number }[]
   br: { alive: number; stage: number; shrinkIn: number; outside: boolean } | null
   touch: boolean
   pad: boolean
@@ -97,7 +118,10 @@ export class Game {
   private settings: MatchSettings = { mode: 'tdm', map: 'kessho' }
   private players: LobbyPlayer[] = []
   private peerIds = new Map<string, number>()
-  private lastInput: Input = { mx: 0, mz: 0, ax: 1, az: 0, aimDist: 6, fire: false, dash: false, super: false }
+  private lastInput: Input = { ...NO_INPUT }
+  /** Button presses between two client input messages (so a tap between sends is not lost). */
+  private latch = { dash: false, super: false, power: false }
+  private counterPops: Hud['counters'] = []
   private aim = { x: 1, z: 0 }
   private snapTimer = 0
   private inputTimer = 0
@@ -128,8 +152,9 @@ export class Game {
       target: 20,
       score: [0, 0],
       myTeam: 0,
-      me: { id: 0, hero: opts.profile.hero, hp: 0, maxHp: 1, super: 0, dashCd: 0, alive: true, respawnIn: 0, kills: 0, deaths: 0, cloak: false, superName: HEROES[opts.profile.hero].superName },
+      me: { id: 0, hero: opts.profile.hero, hp: 0, maxHp: 1, super: 0, dashCd: 0, alive: true, respawnIn: 0, kills: 0, deaths: 0, cloak: false, superName: HEROES[opts.profile.hero].superName, powerCd: 0, shield: 0, coins: 0, statuses: [] },
       feed: [],
+      counters: [],
       br: null,
       touch: false,
       pad: false,
@@ -238,6 +263,7 @@ export class Game {
     this.settings = settings
     this.results = null
     this.feed = []
+    this.counterPops = []
     this.snaps = []
     this.pendingEvents = []
     this.superReadyShown = false
@@ -337,10 +363,14 @@ export class Game {
       }
     } else if (this.role === 'client') {
       this.inputTimer -= dt
+      this.latch.dash ||= frameIn.dash
+      this.latch.super ||= frameIn.super
+      this.latch.power ||= frameIn.power
       if (this.inputTimer <= 0 && this.lastSnap) {
         this.inputTimer = 1 / INPUT_HZ
-        const inp = this.humanInput(frameIn, this.lastSnap)
-        this.send({ t: 'sg-in', i: [inp.mx, inp.mz, inp.ax, inp.az, inp.aimDist, (inp.fire ? 1 : 0) | (inp.dash ? 2 : 0) | (inp.super ? 4 : 0)] })
+        const inp = this.humanInput({ ...frameIn, ...this.latch }, this.lastSnap)
+        this.latch = { dash: false, super: false, power: false }
+        this.send({ t: 'sg-in', i: [inp.mx, inp.mz, inp.ax, inp.az, inp.aimDist, (inp.fire ? 1 : 0) | (inp.dash ? 2 : 0) | (inp.super ? 4 : 0) | (inp.power ? 8 : 0)] })
       }
       const snap = this.interpolate()
       if (snap) {
@@ -426,6 +456,9 @@ export class Game {
       }
       if (sim) for (const o of sim.fighters) if (o.alive && o.id !== this.meId && (sim.mode === 'br' || o.team !== this.myTeam)) consider(o.x, o.z, o.cloakUntil > 0)
       if (!sim && snap) for (const r of snap.f) if (r[0] !== this.meId && r[6] & SNAP_FLAGS.alive && (this.settings.mode === 'br' || this.meta.get(r[0])?.team !== this.myTeam)) consider(r[1], r[2], !!(r[6] & SNAP_FLAGS.cloak))
+      // Decoys look like the real thing, so auto-aim falls for them too.
+      if (sim) for (const d of sim.deployables) if (d.kind === 'decoy' && d.hp > 0 && d.owner !== this.meId && (sim.mode === 'br' || d.team !== this.myTeam)) consider(d.x, d.z, false)
+      if (!sim && snap) for (const r of snap.d) if (DEPLOY_KINDS[r[1]] === 'decoy' && r[8] !== this.meId && (this.settings.mode === 'br' || this.meta.get(r[8])?.team !== this.myTeam)) consider(r[2], r[3], false)
       const b = best as { x: number; z: number; d: number } | null
       if (b) {
         const tx = (b.x - mx) / (b.d || 1)
@@ -445,7 +478,7 @@ export class Game {
     const l = Math.hypot(ax, az) || 1
     this.view.aimDx = (ax / l) * 2.5
     this.view.aimDz = (az / l) * 2.5
-    this.lastInput = { mx: f.mx, mz: f.mz, ax: ax / l, az: az / l, aimDist, fire, dash: f.dash, super: f.super }
+    this.lastInput = { mx: f.mx, mz: f.mz, ax: ax / l, az: az / l, aimDist, fire, dash: f.dash, super: f.super, power: f.power }
     return this.lastInput
   }
 
@@ -482,7 +515,8 @@ export class Game {
         else if (this.sim ? this.sim.fighter(e.target)?.lastHitBy === this.meId : true) this.audio.hit(false, e.x, e.z)
         break
       case 'explode':
-        this.audio.explosion(e.kind !== 'crate', e.x, e.z)
+        if (e.kind === 'reveal') this.audio.scan(e.x, e.z)
+        else if (e.kind !== 'purge') this.audio.explosion(e.kind !== 'crate' && e.kind !== 'toxin', e.x, e.z)
         break
       case 'death': {
         this.audio.death(e.x, e.z)
@@ -500,6 +534,27 @@ export class Game {
         this.audio.superUse(m?.hero ?? 'rook', e.x, e.z)
         break
       }
+      case 'power':
+        this.audio.power(e.kind, e.x, e.z)
+        break
+      case 'counter': {
+        const rule = COUNTER_RULES[e.rule]
+        this.audio.counter(rule.word === 'BROKEN!', e.x, e.z)
+        const mine = e.by === this.meId
+        if (mine || e.target === this.meId) {
+          const other = this.meta.get(mine ? e.target : e.by)?.name
+          const label = mine ? (other && e.target !== this.meId ? `${rule.label} · ${other}` : rule.label) : other ? `${other} · ${rule.label}` : rule.label
+          this.counterPops.unshift({ key: ++this.feedSeq, word: rule.word, label, color: rule.color, mine, at: performance.now() })
+          this.counterPops = this.counterPops.slice(0, 2)
+        }
+        break
+      }
+      case 'powerup':
+        if (e.id === this.meId) this.audio.powerup()
+        break
+      case 'revive':
+        if (e.id === this.meId) this.audio.powerup()
+        break
       case 'dash':
         if (e.id === this.meId) this.audio.dash()
         break
@@ -531,14 +586,14 @@ export class Game {
       if (this.role === 'host' && this.opts.net) {
         const results: PeerResult[] = []
         for (const f of sim.fighters)
-          if (f.peer && f.peer !== 'host') results.push({ peer: f.peer, win: sim.mode === 'br' ? winner === f.id : winner === f.team, kills: f.kills, deaths: f.deaths, damage: Math.round(f.damage), supers: f.supersUsed, placement: f.placement })
+          if (f.peer && f.peer !== 'host') results.push({ peer: f.peer, win: sim.mode === 'br' ? winner === f.id : winner === f.team, kills: f.kills, deaths: f.deaths, damage: Math.round(f.damage), supers: f.supersUsed, placement: f.placement, coins: f.coins })
         this.send({ t: 'sg-end', winner, results })
       }
     }
     const me = sim?.fighter(this.meId)
     const win = sim ? (sim.mode === 'br' ? winner === this.meId : winner === this.myTeam) : false
     const placement = me?.placement ?? 0
-    const { profile, reward } = applyMatch(this.profile, { mode: this.settings.mode, hero: this.hud.me.hero, win, kills: me?.kills ?? 0, deaths: me?.deaths ?? 0, damage: Math.round(me?.damage ?? 0), supers: me?.supersUsed ?? 0, placement })
+    const { profile, reward } = applyMatch(this.profile, { mode: this.settings.mode, hero: this.hud.me.hero, win, kills: me?.kills ?? 0, deaths: me?.deaths ?? 0, damage: Math.round(me?.damage ?? 0), supers: me?.supersUsed ?? 0, placement, coins: me?.coins ?? 0 })
     this.profile = profile
     this.results = { winner, win, placement, rows: sortRows(rows, this.settings.mode), reward, mode: this.settings.mode }
     this.hud.results = this.results
@@ -558,7 +613,7 @@ export class Game {
       void r
     }
     const win = mine?.win ?? false
-    const { profile, reward } = applyMatch(this.profile, { mode: this.settings.mode, hero: this.hud.me.hero, win, kills: mine?.kills ?? 0, deaths: mine?.deaths ?? 0, damage: mine?.damage ?? 0, supers: mine?.supers ?? 0, placement: mine?.placement ?? 0 })
+    const { profile, reward } = applyMatch(this.profile, { mode: this.settings.mode, hero: this.hud.me.hero, win, kills: mine?.kills ?? 0, deaths: mine?.deaths ?? 0, damage: mine?.damage ?? 0, supers: mine?.supers ?? 0, placement: mine?.placement ?? 0, coins: mine?.coins ?? 0 })
     this.profile = profile
     const meRow = rows.find((r) => r.me)
     if (meRow && mine) {
@@ -605,7 +660,14 @@ export class Game {
         h.me.super = row[7]
         h.me.alive = !!(row[6] & SNAP_FLAGS.alive)
         h.me.cloak = !!(row[6] & SNAP_FLAGS.cloak)
-        h.me.dashCd = me ? me.dashCd : 0
+        h.me.dashCd = row[SNAP_F.dashCd] ?? (me ? me.dashCd : 0)
+        h.me.powerCd = row[SNAP_F.powerCd] ?? 0
+        h.me.shield = row[10] ?? 0
+        h.me.coins = row[SNAP_F.coins] ?? 0
+        const st: Hud['me']['statuses'] = []
+        const bt = snap.bt ?? []
+        for (let i = 0; i + 2 < bt.length; i += 3) if (bt[i] === this.meId) st.push({ kind: STATUS_KINDS[bt[i + 1]], left: bt[i + 2] })
+        h.me.statuses = st
         h.me.respawnIn = me && !me.alive && !me.out ? Math.max(0, me.respawnAt - snap.t) : h.me.alive ? 0 : 3
         if (me) {
           h.me.kills = me.kills
@@ -619,11 +681,14 @@ export class Game {
       } else h.br = null
     }
     h.feed = this.feed
+    const nowMs = performance.now()
+    this.counterPops = this.counterPops.filter((c) => nowMs - c.at < 1600)
+    h.counters = this.counterPops
     h.players = this.players
     h.settings = this.settings
     h.touch = this.input.isTouchDevice
     void force
-    this.onHud?.({ ...h, me: { ...h.me }, feed: [...h.feed], players: [...h.players], score: [h.score[0], h.score[1]] })
+    this.onHud?.({ ...h, me: { ...h.me, statuses: [...h.me.statuses] }, feed: [...h.feed], counters: [...h.counters], players: [...h.players], score: [h.score[0], h.score[1]] })
   }
 
   /* ---------- Networking ---------- */
@@ -700,7 +765,7 @@ export class Game {
       const id = this.peerIds.get(from)
       if (!id) return
       const [mx, mz, ax, az, aimDist, flags] = m.i
-      this.sim.setInput(id, { mx, mz, ax, az, aimDist, fire: !!(flags & 1), dash: !!(flags & 2), super: !!(flags & 4) })
+      this.sim.setInput(id, { mx, mz, ax, az, aimDist, fire: !!(flags & 1), dash: !!(flags & 2), super: !!(flags & 4), power: !!(flags & 8) })
     }
   }
 
@@ -778,8 +843,8 @@ export class Game {
     for (let i = 0; i < steps; i++) {
       const frameIn = this.input.poll()
       this.stepHost(1 / 60, frameIn)
+      for (const e of this.sim.events) this.sound(e)
       if (i >= steps - 6) events.push(...this.sim.events)
-      else for (const e of this.sim.events) this.sound(e)
     }
     const snap = this.sim.buildSnap()
     this.lastSnap = snap
@@ -803,9 +868,10 @@ export class Game {
       score: sim?.score ?? this.lastSnap?.s,
       winner: sim?.winner ?? this.lastSnap?.w,
       alive: sim?.aliveCount() ?? this.lastSnap?.f.filter((r) => r[6] & SNAP_FLAGS.alive).length,
-      me: me ? { id: me.id, x: me.x, z: me.z, hp: me.hp, alive: me.alive, kills: me.kills, super: me.super, aim: me.aim, dashCd: me.dashCd, supersUsed: me.supersUsed, damage: me.damage } : null,
+      me: me ? { id: me.id, x: me.x, z: me.z, hp: me.hp, alive: me.alive, kills: me.kills, super: me.super, aim: me.aim, dashCd: me.dashCd, supersUsed: me.supersUsed, damage: me.damage, powerCd: me.powerCd, powersUsed: me.powersUsed, counters: me.counters, coins: me.coins, statuses: me.statuses.map((s) => s.kind) } : null,
       meId: this.meId,
-      fighters: sim?.fighters.map((f) => ({ id: f.id, name: f.name, hero: f.hero.id, team: f.team, x: f.x, z: f.z, hp: f.hp, alive: f.alive, kills: f.kills, human: f.human })),
+      fighters: sim?.fighters.map((f) => ({ id: f.id, name: f.name, hero: f.hero.id, team: f.team, x: f.x, z: f.z, hp: f.hp, alive: f.alive, kills: f.kills, human: f.human, powersUsed: f.powersUsed, counters: f.counters })),
+      pads: sim?.pads.map((p) => ({ id: p.id, x: p.x, z: p.z, kind: p.kind, wait: Math.max(0, p.readyAt - sim.time) })) ?? this.lastSnap?.pd.length,
       projectiles: sim?.projectiles.length ?? this.lastSnap?.p.length,
       br: sim?.br ? { ...sim.br } : null,
       frames: this.frames,
