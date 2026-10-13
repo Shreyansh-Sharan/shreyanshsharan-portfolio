@@ -134,8 +134,11 @@ const AVATAR_CLIPS = {
   run: /RunFast/,
   jump: /Regular_Jump/,
   spell: /Charged_Spell_Cast/,
-  fly: /\|Swim_Idle\|/,
-  hover: /\|Swim_Idle\|/,
+  fly: /\|Fly_Cruise\|/,
+  boost: /\|Fly_Boost\|/,
+  hover: /\|Fly_Hover\|/,
+  takeoff: /\|Fly_TakeOff\|/,
+  land: /\|Fly_Land\|/,
   punch: /Kung_Fu_Punch/,
   kick: /Roundhouse_Kick/,
   dash: /Flying_Fist_Kick/,
@@ -144,39 +147,31 @@ const AVATAR_CLIPS = {
 }
 type Anim = keyof typeof AVATAR_CLIPS
 /** If a clip is missing from the model, play this one instead. */
-const FALLBACK: Partial<Record<Anim, Anim>> = { fly: 'run', hover: 'idle', punch: 'spell', kick: 'spell', dash: 'run', spin: 'spell', cheer: 'spell' }
-const ONCE = new Set<Anim>(['jump', 'spell', 'punch', 'kick', 'dash', 'spin', 'cheer'])
+const FALLBACK: Partial<Record<Anim, Anim>> = { fly: 'run', hover: 'idle', takeoff: 'jump', land: 'idle', punch: 'spell', kick: 'spell', dash: 'run', spin: 'spell', cheer: 'spell' }
+const ONCE = new Set<Anim>(['jump', 'spell', 'punch', 'kick', 'dash', 'spin', 'cheer', 'takeoff', 'land'])
 /** Clips whose hips must stay over the feet (physics owns where the body goes). */
-const PINNED = new Set<Anim>(['punch', 'kick', 'dash', 'spin', 'fly', 'hover', 'cheer'])
+const PINNED = new Set<Anim>(['punch', 'kick', 'dash', 'spin', 'fly', 'boost', 'hover', 'takeoff', 'land', 'cheer'])
 /** Regular_Jump: crouch, take-off ~0.45 s, peak 0.83 s, landing ~1.25 s. Physics owns the height, so play from take-off. */
 const JUMP_FROM = 0.42
 /** The spell clip is long (2.7 s); play it briskly so a cast reads as a flick of the wrists. */
 const SPELL_SPEED = 1.6
 
 /**
- * The rig has no flying clip (the old fall clip read as plummeting), so flight is a pose laid over the hover
- * clip after the mixer runs: the classic superhero line (lead fist ahead, trailing arm tucked, legs trailing with
- * one knee bent, toes pointed), back arched and head lifted to look where it is going (the whole body pitches nose-down at speed, see the tilt group). Local Euler angles per bone; `?snap` exposes the
- * table as `__world.flyPose` for tuning.
+ * Flight has its own clips on the rig: the classic superhero cruise (body flat, head up, lead fist ahead, the
+ * other tucked at the chest, legs trailing with a knee flexing in turn), a both-fists boost blended in with speed,
+ * an upright hover, a crouch-and-spring take-off and the kneeling fist-down landing. `flyPose` is an optional
+ * additive tweak laid over the cruise / boost after the mixer (local Euler angles per bone, empty by default);
+ * `?snap` exposes it as `__world.flyPose` for tuning.
  */
-export const flyPose: Record<string, [number, number, number]> = {
-  // Lead fist punched ahead, the other arm bent in at the waist; one leg straight, the other knee bent.
-  RightArm: [1.35, 0.0, -0.15],
-  RightForeArm: [0.0, 0.0, 0.0],
-  LeftArm: [0.25, 0.0, 0.35],
-  LeftForeArm: [0.0, 1.6, 0.0],
-  LeftUpLeg: [0.12, 0.0, 0.0],
-  LeftLeg: [0.15, 0.0, 0.0],
-  RightUpLeg: [0.3, 0.0, 0.0],
-  RightLeg: [0.95, 0.0, 0.0],
-  LeftFoot: [0.7, 0.0, 0.0],
-  RightFoot: [0.7, 0.0, 0.0],
-  Spine01: [-0.12, 0.0, 0.0],
-  Spine02: [-0.22, 0.0, 0.0],
-  neck: [-0.6, 0.0, 0.0],
-  Head: [-0.5, 0.0, 0.0],
-}
+export const flyPose: Record<string, [number, number, number]> = {}
+/** Take-off clip: crouch on the ground for this long before springing up; total length of the clip. */
+const TAKEOFF_CROUCH = 0.28
+const TAKEOFF = 0.9
+/** Landing clip: the touchdown pose holds the player this long unless they move off (then it is cut short). */
+const LANDING = 1.5
+const LANDING_LOCK = 0.3
 const poseQuat = new THREE.Quaternion()
+const poseAdd = new THREE.Quaternion()
 const poseEuler = new THREE.Euler()
 
 /** Movement tiers (m/s): walk < run < fly (about 2.5x a run). */
@@ -297,8 +292,12 @@ export function Player() {
     casting: 0,
     /** Seconds since the feet last touched the ground (a short fall does not start the jump clip). */
     airT: 0,
-    /** How much of the flight pose is laid over the clip (0..1). */
+    /** How much of the flight pose tweak is laid over the clip (0..1), and of the boost clip over the cruise. */
     flyW: 0,
+    boostW: 0,
+    /** Seconds left of the take-off (crouch, spring) and of the superhero landing. */
+    takeoff: 0,
+    landing: 0,
     /** Ground speed eased towards the input (m/s), what the input asks for, and the last heading asked for. */
     moveSpeed: 0,
     moveTarget: 0,
@@ -465,6 +464,9 @@ export function Player() {
       const canFly = flightAllowed() && (!mount || mount.spec.ride === 'fly')
       if (!modalOpen && !s.flying && !s.move && canFly) {
         s.flying = true
+        // From the ground (on foot): crouch, then spring up; from the air, straight into flight.
+        s.takeoff = s.grounded && !mount ? TAKEOFF : 0
+        s.landing = 0
         s.grounded = false
         s.stomp = false
         s.vy = Math.max(s.vy, 7)
@@ -512,7 +514,10 @@ export function Player() {
       controls.jump = false
       const target = axis * 10 + (axis === 0 ? Math.sin(performance.now() / 420) * 0.35 : 0)
       s.vy += (target - s.vy) * Math.min(1, dt * 4)
-      player.pos.y += s.vy * dt
+      if (s.takeoff > 0) s.takeoff -= dt
+      // The take-off crouch keeps the feet down, then the spring launches up.
+      if (s.takeoff > TAKEOFF - TAKEOFF_CROUCH) s.vy = Math.max(s.vy, 9)
+      else player.pos.y += s.vy * dt
       const ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const ceiling = Math.min(ground + FLY_CEILING, FLY_MAX_Y)
       if (player.pos.y > ceiling) {
@@ -526,6 +531,12 @@ export function Player() {
           s.flying = false
           s.grounded = true
           s.vy = 0
+          s.takeoff = 0
+          // The superhero landing: one knee and one fist down.
+          if (!mount) {
+            s.landing = LANDING
+            fadeTo('land', 0, true)
+          }
           puff(12, player.pos.x, ground + 0.1, player.pos.z, dust, 3, 0.6, 0.5, true)
         } else s.vy = Math.max(s.vy, 0)
       }
@@ -722,8 +733,10 @@ export function Player() {
     let yawRate = player.yaw - s.lastYaw
     yawRate = Math.atan2(Math.sin(yawRate), Math.cos(yawRate)) / Math.max(dt, 1e-3)
     s.lastYaw = player.yaw
-    // Flat out at speed, superhero style; the pose table arches the back and trails the legs so it is not a plank.
-    const pitchTo = s.flying ? THREE.MathUtils.clamp(speed / FLY, 0, 1) * 1.25 : s.stomp ? 0.5 : 0
+    // The flight clips already lie flat; at speed the body only noses a little into climbs and dives (and a flying
+    // mount's rider leans forward).
+    const flat = THREE.MathUtils.clamp(speed / FLY, 0, 1)
+    const pitchTo = s.flying ? (mount ? flat * 0.5 : flat * (0.08 - THREE.MathUtils.clamp(s.vy / 10, -1, 1) * 0.3)) : s.stomp ? 0.5 : 0
     const bankTo = s.flying ? THREE.MathUtils.clamp(-yawRate * 0.18, -0.6, 0.6) : 0
     s.pitch += (pitchTo - s.pitch) * Math.min(1, raw * 5)
     s.bank += (bankTo - s.bank) * Math.min(1, raw * 4)
@@ -771,11 +784,16 @@ export function Player() {
       // The move's clip is already playing.
     } else if (s.stomp) {
       // Diving: keep the flying-kick pose.
+    } else if (s.flying && !mount) {
+      if (s.takeoff > 0 && speed < 12) fadeTo('takeoff')
+      else if (speed > (s.current === 'fly' ? 3 : 5)) fadeTo('fly')
+      else fadeTo('hover')
     } else if (s.flying) {
-      if (speed > 4) {
-        fadeTo('fly')
-        if (actions.fly) actions.fly.timeScale = 1
-      } else fadeTo('hover')
+      fadeTo('idle')
+    } else if (s.landing > 0 && s.grounded && s.current === 'land') {
+      // The superhero landing plays out unless the player moves off (or jumps) after the impact.
+      s.landing -= dt
+      if (LANDING - s.landing > LANDING_LOCK && (s.moveTarget > 0.3 || s.move)) s.landing = 0
     } else if (!s.grounded && (s.vy > 0.5 || s.airT > 0.12)) {
       fadeTo('jump', JUMP_FROM)
       // Physics owns the height: keep the clip's crouch but drop its own upward hip travel.
@@ -799,6 +817,20 @@ export function Player() {
       } else fadeTo('idle')
     }
     player.anim = s.current
+    // Flat out (the boost key): the both-fists streamline is blended over the cruise by speed.
+    const boost = actions.boost
+    if (boost) {
+      const wantBoost = s.current === 'fly' ? THREE.MathUtils.clamp((speed - FLY_NOW) / (BOOST_NOW - FLY_NOW), 0, 1) : 0
+      s.boostW += (wantBoost - s.boostW) * Math.min(1, dt * 3)
+      if (s.boostW > 0.01) {
+        if (!boost.isRunning()) boost.reset().setLoop(THREE.LoopRepeat, Infinity).play()
+        boost.weight = s.boostW
+        if (actions.fly) actions.fly.weight = 1 - s.boostW
+      } else if (boost.isRunning()) {
+        boost.stop()
+        if (actions.fly) actions.fly.weight = 1
+      }
+    }
 
     // The mission fight (enemies, waves), the wild creatures and the mini-game run off the player's clock.
     stepCombat(dt, raw, player)
@@ -834,10 +866,9 @@ export function Player() {
       if (PINNED.has(cur)) {
         hips.bone.position.x = hips.rest.x
         hips.bone.position.z = hips.rest.z
-        if (cur === 'fly' || cur === 'hover') hips.bone.position.y = hips.rest.y
       }
     }
-    // Blend the flight pose in over the clip while flying at speed, and out again when slowing or landing.
+    // The optional flight pose tweak (additive, local) eases in over the cruise and out again when slowing or landing.
     const dt = Math.min(rawDt, 0.05)
     const to = cur === 'fly' ? 1 : 0
     s.flyW += (to - s.flyW) * Math.min(1, dt * (to ? 5 : 7))
@@ -847,7 +878,7 @@ export function Player() {
         if (!bone) continue
         const e = flyPose[name]
         poseQuat.setFromEuler(poseEuler.set(e[0], e[1], e[2]))
-        bone.quaternion.slerp(poseQuat, s.flyW)
+        bone.quaternion.multiply(poseAdd.identity().slerp(poseQuat, s.flyW))
       }
     }
   }, 1)
