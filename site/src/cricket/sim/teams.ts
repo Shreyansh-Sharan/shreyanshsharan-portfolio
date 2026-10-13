@@ -5,7 +5,7 @@ import type { BowlStyle } from './delivery.ts'
 
 export type Role = 'batter' | 'bowler' | 'allrounder' | 'keeper'
 export const ROLE_NAMES: Record<Role, string> = { batter: 'Batter', bowler: 'Bowler', allrounder: 'All-rounder', keeper: 'Keeper' }
-export const STYLE_NAMES: Record<BowlStyle, string> = { fast: 'Fast', medium: 'Medium', offspin: 'Off-spin', legspin: 'Leg-spin' }
+export const STYLE_NAMES: Record<BowlStyle, string> = { fast: 'Fast', swing: 'Swing', medium: 'Medium', offspin: 'Off-spin', legspin: 'Leg-spin' }
 
 export interface Player {
   name: string
@@ -50,11 +50,30 @@ export const initials = (p: Player) => {
   return parts.length > 1 ? `${parts[0][0]}. ${parts[parts.length - 1]}` : p.name
 }
 
+/** Short broadcast label for the bowler card ("RA FAST", "SLA"...). */
+export function styleTag(p: Player) {
+  const a = p.leftArm ? 'L' : 'R'
+  switch (p.bowl) {
+    case 'fast':
+      return `${a}A FAST`
+    case 'swing':
+      return `${a}A SWING`
+    case 'medium':
+      return `${a}A MED`
+    case 'offspin':
+      return p.leftArm ? 'SLA ORTH' : 'RA OFF-SPIN'
+    default:
+      return p.leftArm ? 'LA WRIST' : 'RA LEG-SPIN'
+  }
+}
+
 export function styleName(p: Player) {
   const arm = p.leftArm ? 'Left-arm' : 'Right-arm'
   switch (p.bowl) {
     case 'fast':
       return `${arm} fast`
+    case 'swing':
+      return `${arm} swing`
     case 'medium':
       return `${arm} medium`
     case 'offspin':
@@ -149,7 +168,7 @@ export function generateTeam(side: Side): Team {
   const rng = new Rng(hashString(side.id))
   const used = new Set<string>()
   const roles: Role[] = ['batter', 'batter', 'batter', 'batter', 'keeper', 'allrounder', 'allrounder', 'bowler', 'bowler', 'bowler', 'bowler']
-  const styles: BowlStyle[] = ['medium', 'offspin', 'medium', 'legspin', 'medium', 'medium', 'offspin', 'fast', 'fast', 'legspin', 'fast']
+  const styles: BowlStyle[] = ['medium', 'offspin', 'medium', 'legspin', 'medium', 'swing', 'offspin', 'fast', 'swing', 'legspin', 'fast']
   const st = side.strength
   const players: Player[] = []
   for (let i = 0; i < 11; i++) {

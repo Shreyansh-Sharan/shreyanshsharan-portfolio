@@ -47,6 +47,8 @@ export interface ContactContext {
   /** Where it pitched, from the batter's stumps (m), or -1 for a full toss. */
   length: number
   lateMovement: number
+  /** Signed movement at the batter (m, + away towards the off side, - in to the pads); optional. */
+  movement?: number
   spin: boolean
   batterSkill: number
   batterPower: number
@@ -67,10 +69,12 @@ export interface ShotResult {
   direction: number
   playedOn: boolean
   hitWicket: boolean
+  /** Beaten on the inside by a ball coming back in (a drive or a push with a gap between bat and pad). */
+  gate: boolean
   note: string
 }
 
-export const emptyShot = (): ShotResult => ({ shot: 'leave', feet: 'auto', contact: 'none', edge: 'none', timing: 'noshot', quality: 0, exitVel: new V3(), exitSpin: new V3(), direction: 0, playedOn: false, hitWicket: false, note: '' })
+export const emptyShot = (): ShotResult => ({ shot: 'leave', feet: 'auto', contact: 'none', edge: 'none', timing: 'noshot', quality: 0, exitVel: new V3(), exitSpin: new V3(), direction: 0, playedOn: false, hitWicket: false, gate: false, note: '' })
 
 const S = (o: ShotSpec) => o
 export const SHOTS: Record<Exclude<ShotType, 'auto'>, ShotSpec> = {
@@ -170,16 +174,31 @@ export function resolveShot(input0: ShotInput, c: ContactContext, rng: Rng): Sho
 
   const skill = lerp(0.82, 1, c.batterSkill)
   const late = Math.max(0, c.lateMovement - 0.04)
+  // Shot selection against the movement: driving at the one going away finds the edge, playing straight at the
+  // one coming back leaves the gate open, and a cross-bat shot to a full straight ball is a big risk.
+  const move = c.movement ?? 0
+  const away = Math.max(0, move - 0.03)
+  const into = Math.max(0, -move - 0.03)
+  const straightBat = input.type === 'drive' || input.type === 'defend'
+  const crossBat = input.type === 'pull' || input.type === 'cut' || input.type === 'sweep'
+  const fullStraight = c.length >= 0 && c.length < 5 && Math.abs(f.offsetOff(c.ballPos)) < Geo.StumpsHalfWidth + 0.15
+  let selection = 0
+  if (straightBat && u > -0.15) selection += away * 1.4
+  if (input.type === 'drive') selection += into * 1.1
+  if (input.type === 'cut' && u < 0.15) selection += 0.25 // cutting a ball too close to the body
+  if (crossBat && fullStraight && !(input.type === 'sweep' && c.spin)) selection += 0.22
+  if (input.type === 'flick' && u > 0.35) selection += 0.18 // working it across the line from outside off
 
-  let pMiss = timingQ <= 0 ? 0.85 : clamp01(zoneMiss > 0.45 ? 0.9 : (1 - zoneQ) * 0.55 + late * 1.0 - c.batterSkill * 0.05)
+  let pMiss = timingQ <= 0 ? 0.85 : clamp01(zoneMiss > 0.45 ? 0.9 : (1 - zoneQ) * 0.55 + late * 1.0 + selection * 0.45 - c.batterSkill * 0.05)
   if (input.type === 'defend') pMiss *= 0.6
   if (rng.chance(pMiss)) {
     r.contact = 'miss'
-    r.note = timingQ <= 0 ? (err < 0 ? 'Through the shot far too early' : 'Beaten for pace') : late > 0.05 ? 'Beaten by the movement' : 'Played and missed'
+    r.gate = straightBat && into > 0.02
+    r.note = timingQ <= 0 ? (err < 0 ? 'Through the shot far too early' : 'Beaten for pace') : r.gate ? 'Beaten through the gate' : away > 0.02 ? 'Beaten outside off by the movement' : late > 0.05 ? 'Beaten by the movement' : crossBat && fullStraight ? 'Played across the line' : 'Played and missed'
     return r
   }
 
-  let pEdge = clamp(0.03 + 0.55 * (1 - zoneQ) + 0.28 * (1 - timingQ) + late * 1.6 + (1 - lengthQ) * 0.3 - 0.04 * c.batterSkill, 0, 0.85)
+  let pEdge = clamp(0.03 + 0.55 * (1 - zoneQ) + 0.28 * (1 - timingQ) + late * 1.6 + (1 - lengthQ) * 0.3 + selection * 0.8 - 0.04 * c.batterSkill, 0, 0.88)
   if (input.type === 'defend') pEdge *= 0.7
   if (rng.chance(pEdge)) {
     r.contact = 'edge'
@@ -194,7 +213,7 @@ export function resolveShot(input0: ShotInput, c: ContactContext, rng: Rng): Sho
       r.exitVel = launch(f, dir, el, speed)
       r.exitSpin = UP.cross(r.exitVel.norm()).mul(rng.range(-60, 60))
       r.note = 'Top edge!'
-    } else if (u > centre - 0.05) {
+    } else if (move > 0.05 || (move > -0.05 && u > centre - 0.05)) {
       r.edge = 'outside'
       const thin = rng.chance(0.55)
       const dir = thin ? rng.range(150, 176) : rng.range(105, 150)

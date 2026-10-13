@@ -9,9 +9,17 @@ export interface FieldSpot {
   dist: number
 }
 
-export type FieldPreset = 'attacking' | 'normal' | 'defensive' | 'death' | 'spin'
-export const PRESET_NAMES: Record<FieldPreset, string> = { attacking: 'Attacking', normal: 'Normal', defensive: 'Defensive', death: 'Death', spin: 'Spin attack' }
-export const PRESET_ORDER: FieldPreset[] = ['attacking', 'normal', 'defensive', 'death']
+export type FieldPreset = 'attacking' | 'normal' | 'defensive' | 'death' | 'spin' | 'custom'
+export const PRESET_NAMES: Record<FieldPreset, string> = { attacking: 'Attacking', normal: 'Balanced', defensive: 'Defensive', death: 'Death overs', spin: 'Spin', custom: 'Custom' }
+export const PRESET_ORDER: FieldPreset[] = ['attacking', 'normal', 'defensive', 'death', 'spin']
+export const PRESET_BLURB: Record<FieldPreset, string> = {
+  attacking: 'Slips, gully and a short leg: catchers in for the edge',
+  normal: 'A slip, the ring sealed, two out on the hook and the cut',
+  defensive: 'Sweepers on the rope, singles on offer, boundaries saved',
+  death: 'Five out, fine and square: yorker and slower-ball field',
+  spin: 'Bat-pad close in, a slip, the ring saving one',
+  custom: 'Your own field',
+}
 
 const P = (name: string, angle: number, dist: number): FieldSpot => ({ name, angle, dist })
 export const SPOTS = {
@@ -40,6 +48,14 @@ export const SPOTS = {
   DeepMidwicket: P('Deep midwicket', -55, 62),
   DeepSquareLeg: P('Deep square leg', -98, 58),
   DeepFineLeg: P('Deep fine leg', -140, 60),
+  LegGully: P('Leg gully', -128, 13),
+  ShortMidwicket: P('Short midwicket', -55, 14),
+  ShortCover: P('Short cover', 55, 14),
+  CowCorner: P('Cow corner', -38, 66),
+  DeepExtraCover: P('Deep extra cover', 36, 66),
+  DeepBackwardPoint: P('Deep backward point', 122, 60),
+  FlySlip: P('Fly slip', 158, 38),
+  LongStop: P('Long leg', -168, 62),
 }
 const s = SPOTS
 
@@ -61,6 +77,30 @@ export function presetSpots(preset: FieldPreset, spin: boolean): FieldSpot[] {
 }
 
 export const isOutside = (spot: FieldSpot) => spot.dist > Geo.InnerCircle + 2
+/** Behind square on the leg side (the law allows two). */
+export const behindSquareLeg = (spot: FieldSpot) => spot.angle < -97
+export const onLegSide = (spot: FieldSpot) => spot.angle < 0
+
+export interface FieldCheck {
+  outside: number
+  maxOutside: number
+  behindSquareLeg: number
+  legSide: number
+  ok: boolean
+  problems: string[]
+}
+
+/** Fielding restrictions for a field (nine fielders, the keeper and bowler excluded). */
+export function checkField(spots: FieldSpot[], maxOutside: number): FieldCheck {
+  const outside = spots.filter(isOutside).length
+  const bsl = spots.filter(behindSquareLeg).length
+  const leg = spots.filter(onLegSide).length
+  const problems: string[] = []
+  if (outside > maxOutside) problems.push(`${outside} outside the circle (max ${maxOutside})`)
+  if (bsl > 2) problems.push(`${bsl} behind square on the leg side (max 2)`)
+  if (leg > 5) problems.push(`${leg} on the leg side (max 5)`)
+  return { outside, maxOutside, behindSquareLeg: bsl, legSide: leg, ok: problems.length === 0, problems }
+}
 
 /** At most `maxOutside` outside the 30-yard circle; extra deep fielders come in to the ring. */
 export function enforce(spots: FieldSpot[], maxOutside: number): FieldSpot[] {
@@ -72,6 +112,24 @@ export function enforce(spots: FieldSpot[], maxOutside: number): FieldSpot[] {
     const x = result[deep[k]]
     x.name = x.name.replace('Deep ', '').replace('Long-', 'Mid-')
     x.dist = Geo.InnerCircle - 3
+  }
+  // At most two behind square on the leg side: the rest come round to square leg.
+  let bsl = 0
+  for (const x of result) {
+    if (!behindSquareLeg(x)) continue
+    if (++bsl > 2) {
+      x.angle = -86
+      x.name = x.dist > Geo.InnerCircle ? 'Deep square leg' : 'Square leg'
+    }
+  }
+  // At most five on the leg side: the extras cross to the mirror spot on the off side.
+  let leg = 0
+  for (const x of result) {
+    if (!onLegSide(x)) continue
+    if (++leg > 5) {
+      x.angle = -x.angle
+      x.name = 'Fielder'
+    }
   }
   return result
 }
@@ -85,9 +143,8 @@ export function spotToWorld(spot: FieldSpot, f: BatFrame) {
   return p
 }
 
-export function nameOf(p: V3, f: BatFrame) {
-  const a = f.angleOf(p)
-  const d = p.flatDist(f.origin)
+/** The nearest named position to a spot (angle, distance). */
+export function spotName(a: number, d: number) {
   let best = 'Fielder'
   let bestScore = Infinity
   for (const x of Object.values(SPOTS)) {
@@ -98,4 +155,21 @@ export function nameOf(p: V3, f: BatFrame) {
     }
   }
   return best
+}
+
+export function nameOf(p: V3, f: BatFrame) {
+  return spotName(f.angleOf(p), p.flatDist(f.origin))
+}
+
+/** A custom field from (angle, distance) pairs: nine spots, inside the rope, named. */
+export function customSpots(list: readonly (readonly [number, number])[]): FieldSpot[] {
+  const out: FieldSpot[] = []
+  for (let i = 0; i < 9; i++) {
+    const v = list[i] ?? [0, 24]
+    let a = Number(v[0]) || 0
+    a = ((((a + 180) % 360) + 360) % 360) - 180
+    const d = Math.max(9, Math.min(75, Number(v[1]) || 24))
+    out.push({ name: spotName(a, d), angle: Math.round(a * 10) / 10, dist: Math.round(d * 10) / 10 })
+  }
+  return out
 }

@@ -169,6 +169,38 @@ export class CricketAudio {
   release() {
     this.burst({ freq: 400, q: 0.8, gain: 0.08, dur: 0.15 })
   }
+  /** A replay's swish between shots. */
+  whoosh() {
+    this.burst({ freq: 1400, q: 0.7, gain: 0.12, dur: 0.35, attack: 0.12 })
+    this.tone(420, 0.3, 0.03, 'sine', 600)
+  }
+  /** The third umpire / ball tracking: two electronic blips. */
+  drs() {
+    this.tone(880, 0.09, 0.07, 'square')
+    this.tone(1320, 0.12, 0.06, 'square', 0, 0.12)
+  }
+  /** Broadcast stings: a short chord, rising for runs, falling for a wicket. */
+  sting(kind: 'four' | 'six' | 'wicket' | 'milestone' | 'maiden') {
+    const chords: Record<string, number[]> = { four: [392, 494, 587], six: [392, 494, 587, 784], wicket: [440, 349, 262], milestone: [523, 659, 784, 1047], maiden: [330, 392] }
+    const notes = chords[kind]
+    const rising = kind !== 'wicket'
+    notes.forEach((f, i) => {
+      const d = i * (kind === 'milestone' ? 0.11 : 0.07)
+      this.tone(f, 0.5 + (rising ? i * 0.05 : 0), 0.06, 'sawtooth', rising ? 0 : -20, d)
+      this.tone(f * 2, 0.35, 0.025, 'triangle', 0, d)
+    })
+    if (kind === 'wicket' || kind === 'six') this.burst({ freq: 120, q: 0.8, gain: 0.35, dur: 0.5, attack: 0.01 })
+  }
+  /** A batter's call between the wickets ("yes!", "no!", "wait!"). */
+  call(kind: string) {
+    const f = kind === 'yes' ? 300 : kind === 'no' ? 220 : 260
+    this.tone(f, 0.16, 0.12, 'sawtooth', kind === 'no' ? -60 : 40)
+    this.burst({ freq: kind === 'yes' ? 1300 : 800, q: 2, gain: 0.12, dur: 0.14 })
+  }
+  /** The meter needle crossing into the green. */
+  tick() {
+    this.tone(1600, 0.03, 0.04, 'square')
+  }
   close() {
     void this.ctx?.close()
     this.ctx = null
