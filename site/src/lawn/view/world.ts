@@ -6,7 +6,7 @@
 // meshes (one per material) and is keyed by id so chips, barricades, moves and breaks update in place.
 import * as THREE from 'three'
 import { instance, type LawnAssets } from '../engine/assets'
-import { FLOOR_H, HEAD_H, SILL_H, houseStyle, type HouseStyle } from '../engine/houses'
+import { FLOOR_H, GARAGE, HEAD_H, HX, PORCH, ROOMS, SILL_H, STAIR, houseStyle, roomAt, type HouseStyle } from '../engine/houses'
 import { HOUSE_THEMES, type HouseTheme } from '../engine/progress'
 import type { MapInfo, MapTheme } from '../engine/maps'
 import type { Piece } from '../engine/pieces'
@@ -161,13 +161,13 @@ export class World {
     }
     for (const hs of this.map.houses) {
       // Front path from the porch steps to the sidewalk, on the door's axis.
-      const z0 = hs.oz + hs.dir * 7.2
+      const z0 = hs.oz + hs.dir * (PORCH.z1 + 0.42)
       const z1 = hs.dir > 0 ? road.z0 - 2 : road.z1 + 2
       this.flat(1.4, Math.abs(z1 - z0), hs.ox, 0.016, (z0 + z1) / 2, walkMat)
       // Driveway to the garage.
-      const gx = hs.ox + hs.dir * 8.15
-      const gz0 = hs.oz + hs.dir * 1.65
-      this.flat(3.6, Math.abs(z1 - gz0), gx, 0.014, (gz0 + z1) / 2, surf('sidewalk', snowy ? '#d9e0e8' : '#e3ddd2', { roughness: 0.95 }, 1))
+      const gx = hs.ox + hs.dir * 9.75
+      const gz0 = hs.oz + hs.dir * GARAGE.z1
+      this.flat(3.4, Math.abs(z1 - gz0), gx, 0.014, (gz0 + z1) / 2, surf('sidewalk', snowy ? '#d9e0e8' : '#e3ddd2', { roughness: 0.95 }, 1))
     }
     // Street lamps and distant neighbour houses for depth.
     for (const x of [6, 34, 62]) this.addStreetLamp(x, road.z0 - 1.6)
@@ -273,21 +273,11 @@ export class World {
   private lodge(theme: Theme) {
     return theme.name.includes('lodge')
   }
-  /** Which room of a house a world point is in (house-local floor plan; see houses.ts). */
+  /** Which room of a house a world point is in (the shared floor plan in houses.ts). */
   private roomAt(house: number, wx: number, wz: number, upper: boolean) {
     const hs = this.map.houses[house]
     if (!hs) return 'hall'
-    const x = (wx - hs.ox) * hs.dir
-    const z = (wz - hs.oz) * hs.dir
-    if (x > 6.05) return 'garage'
-    if (!upper) {
-      if (x < -1.25) return z > -1 ? 'living' : 'dining'
-      if (x < 1.25) return x > 0.1 && z < 0 && z > -2.4 ? 'wc' : 'hall'
-      return 'kitchen'
-    }
-    if (x < -1.25) return z > -0.6 ? 'bed1' : 'bed2'
-    if (x < 1.25) return 'landing'
-    return z < -1 ? 'bath' : 'study'
+    return roomAt((wx - hs.ox) * hs.dir, (wz - hs.oz) * hs.dir, upper)
   }
   /** Wall finish per room: patterned papers in the living room and bedrooms, painted walls elsewhere. */
   private roomMat(room: string, house: number) {
@@ -302,14 +292,16 @@ export class World {
         return paintM(alt ? '#cfe3ef' : '#f3e2a6')
       case 'wc':
         return paintM('#bfe3d6')
-      case 'bed1':
+      case 'master':
         return M.paper(alt ? '#dfe9f6' : '#f6ddd8', alt ? stripes('#dfe9f6', '#c8d8ee') : stripes('#f7e3dc', '#efc9c1'))
       case 'bed2':
         return paintM(alt ? '#f3d9a8' : '#b9d6ef')
+      case 'bed3':
+        return paintM(alt ? '#d8cbe8' : '#cfe6c4')
       case 'bath':
         return paintM('#a9d8de')
       case 'study':
-        return paintM(alt ? '#a9b98f' : '#8fa5bf')
+        return paintM(alt ? '#a9b98f' : '#9fb3c9')
       case 'garage':
         return paintM('#c1bdb5')
       default:
@@ -366,8 +358,8 @@ export class World {
     if (!hs) return 1
     // The garage block sits beside the house: measure from the centre of whichever block the piece belongs to.
     const lx = (p.x - hs.ox) * hs.dir
-    const cx = lx > 6.05 ? hs.ox + hs.dir * 8 : hs.ox
-    const cz = lx > 6.05 ? hs.oz - hs.dir * 1.5 : hs.oz
+    const cx = lx > HX + 0.05 ? hs.ox + hs.dir * 9.75 : hs.ox
+    const cz = lx > HX + 0.05 ? hs.oz - hs.dir * 2 : hs.oz
     return along ? (p.z >= cz ? 1 : -1) : p.x >= cx ? 1 : -1
   }
 
@@ -509,13 +501,16 @@ export class World {
         // An interior doorway: papered lintel with painted casings on both faces.
         const ky = along ? 0 : Math.PI / 2
         const k = Kit.at(ky, origin, this.shadows)
-        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [itrim, itrim, itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
+        const t = (along ? p.d : p.w) / 2
+        k.box(-hw, hw, 0, p.h, -t, t, [itrim, itrim, itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
         for (const s of [-1, 1]) {
-          k.box(-hw - 0.08, hw + 0.08, -0.02, 0.08, s > 0 ? 0.15 : -0.17, s > 0 ? 0.17 : -0.15, itrim)
-          for (const e of [-1, 1]) k.box(e > 0 ? hw : -hw - 0.08, e > 0 ? hw + 0.08 : -hw, -2.1, 0, s > 0 ? 0.15 : -0.17, s > 0 ? 0.17 : -0.15, itrim)
+          const z0 = s > 0 ? t : -t - 0.02
+          const z1 = s > 0 ? t + 0.02 : -t
+          k.box(-hw - 0.08, hw + 0.08, -0.02, 0.08, z0, z1, itrim)
+          for (const e of [-1, 1]) k.box(e > 0 ? hw : -hw - 0.08, e > 0 ? hw + 0.08 : -hw, -HEAD_H, 0, z0, z1, itrim)
         }
-        k.box(-hw, -hw + 0.03, -2.1, 0, -0.15, 0.15, itrim)
-        k.box(hw - 0.03, hw, -2.1, 0, -0.15, 0.15, itrim)
+        k.box(-hw, -hw + 0.03, -HEAD_H, 0, -t, t, itrim)
+        k.box(hw - 0.03, hw, -HEAD_H, 0, -t, t, itrim)
         view.colour = '#e8dcc5'
         return k.build()
       }
@@ -523,10 +518,11 @@ export class World {
         view.colour = '#e8dcc5'
         const ky = along ? 0 : Math.PI / 2
         const k = Kit.at(ky, origin, this.shadows)
-        k.box(-hw, hw, 0, p.h, -0.15, 0.15, [this.paperOn(p, ky, 1), this.paperOn(p, ky, 1), itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
-        k.box(-hw, hw, 0, 0.12, -0.17, 0.17, M.skirting())
+        const t = (along ? p.d : p.w) / 2
+        k.box(-hw, hw, 0, p.h, -t, t, [this.paperOn(p, ky, 1), this.paperOn(p, ky, 1), itrim, itrim, this.paperOn(p, ky, 1), this.paperOn(p, ky, -1)])
+        k.box(-hw, hw, 0, 0.12, -t - 0.02, t + 0.02, M.skirting())
         const side = Math.abs(Math.sin(p.x * 3.7 + p.z * 1.3)) > 0.5 ? 1 : -1
-        this.hangArt(k, p, len, side * 0.15, side)
+        this.hangArt(k, p, len, side * t, side)
         return k.build()
       }
       case m === 'edge' || m === 'roofstep':
@@ -535,17 +531,15 @@ export class World {
         const k = new Kit(new THREE.Matrix4(), origin, false)
         if (m === 'floor') {
           k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, this.floorMat())
-          // Kitchen tiles (local x 1.4..5.85), mirrored with the house.
+          // Tiles in the kitchen and the WC (the rooms' rectangles from the plan), mirrored with the house.
           const dir = this.map.houses[p.house]?.dir ?? 1
-          const t = new THREE.PlaneGeometry(4.45, 8.7)
-          t.rotateX(-Math.PI / 2)
-          t.translate(dir * 3.625, p.h + 0.004, 0)
-          k.geo(t, M.floor(tiled('tiles'), '#ffffff', 0.3))
-          // The WC behind the stairs.
-          const wc = new THREE.PlaneGeometry(0.85, 2.25)
-          wc.rotateX(-Math.PI / 2)
-          wc.translate(dir * 0.675, p.h + 0.004, -dir * 1.125)
-          k.geo(wc, M.floor(tiled('tiles'), '#dfeaf2', 0.3))
+          for (const r of ROOMS) {
+            if (r.upper || (r.id !== 'kitchen' && r.id !== 'wc')) continue
+            const t = new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0)
+            t.rotateX(-Math.PI / 2)
+            t.translate(dir * (r.x0 + r.x1) / 2, p.h + 0.004, dir * (r.z0 + r.z1) / 2)
+            k.geo(t, M.floor(tiled('tiles'), r.id === 'wc' ? '#dfeaf2' : '#ffffff', 0.3))
+          }
         } else k.box(-p.w / 2, p.w / 2, 0, p.h, -p.d / 2, p.d / 2, M.floor(tiled('sidewalk'), '#bdb8b0', 0.85))
         return k.build()
       }
@@ -604,16 +598,43 @@ export class World {
       }
       case m === 'rail' || m === 'rail:stair':
         return this.railing(p, m === 'rail' ? trim : M.indoorTrim('#f4efe6'))
-      case m === 'step': {
-        // The whole flight is one kit model, hung off the bottom step; the other steps are collision only.
-        if (p.h > 0.3) return null
-        const k = this.kit('kit-stairs', { stairs: '#ffffff' })
-        if (!k) return box(p.w, p.h, p.d, std('stair', { map: planks('#b98a55') }))
-        const g = new THREE.Group()
-        g.rotation.y = p.yaw
-        k.position.z = 0.15
-        g.add(indoorModel(k))
-        return g
+      case m === 'step':
+        return null
+      case m === 'stair': {
+        // The whole flight, drawn from the bottom step: oak treads with a carpet runner, white risers, a closed
+        // stringer on the open side, balusters and a sloped handrail ending on a newel post. Matches the collision
+        // steps exactly (STAIR in houses.ts).
+        const k = Kit.at(this.houseYaw(p), origin, this.shadows)
+        const R = FLOOR_H / STAIR.risers
+        const n = STAIR.risers - 1
+        const sw = STAIR.x1 - STAIR.x0
+        const t = STAIR.tread
+        const z0 = t / 2
+        const oak = M.floor(tiled('oak'), '#c79a6a', 0.45)
+        const white = M.indoorTrim('#f4efe6')
+        const carpet = std('stair-carpet', { color: paint('#7a2e2a', 0.5), roughness: 1 })
+        for (let i = 0; i < n; i++) {
+          const zf = z0 - t * i
+          const top = R * (i + 1)
+          k.box(-sw / 2, sw / 2, top - 0.035, top, zf - t, zf + 0.025, oak)
+          k.box(-0.42, 0.42, top, top + 0.012, zf - t + 0.02, zf + 0.01, carpet)
+          k.box(-sw / 2, sw / 2, top - R, top - 0.035, zf - 0.02, zf, white)
+          k.box(-sw / 2 - 0.05, -sw / 2, 0, top + 0.05, zf - t, zf, white)
+          // Two balusters a tread.
+          for (const f of [0.25, 0.75]) k.box(-sw / 2 + 0.01, -sw / 2 + 0.05, top, top + 0.9, zf - t * f - 0.02, zf - t * f + 0.02, white)
+        }
+        // Handrail along the rake, newel post at the foot.
+        const rise = R * n
+        const run = t * n
+        const len = Math.hypot(rise, run)
+        const rail = new THREE.BoxGeometry(0.07, 0.06, len)
+        rail.rotateX(Math.atan2(rise, run))
+        rail.translate(-sw / 2 + 0.03, R + 0.93 + rise / 2 - R / 2, z0 - run / 2)
+        k.geo(rail, oak)
+        k.box(-sw / 2 - 0.04, -sw / 2 + 0.1, 0, 1.12, z0 - 0.12, z0 + 0.02, white)
+        k.box(-sw / 2 - 0.06, -sw / 2 + 0.12, 1.12, 1.2, z0 - 0.14, z0 + 0.04, oak)
+        view.colour = '#c79a6a'
+        return k.build()
       }
       case m === 'chimney': {
         const k = Kit.at(this.houseYaw(p), origin, this.shadows)

@@ -26,15 +26,23 @@ export const FLOOR_H = 3.2
 export const ROOF_Y = 6.2
 /** Storey wall height. */
 export const WALL_H = 3.0
-/** Window sill and head heights above the storey floor; doors share the head height. */
-export const SILL_H = 0.9
-export const HEAD_H = 2.2
+/** Window sill and head heights above the storey floor; doors and doorways share the head height. */
+export const SILL_H = 1.0
+export const HEAD_H = 2.4
+/** Plan of the main block (wall centre lines): 15 m x 11 m, with the 3.6 m entry hall on the door's axis. */
+export const HX = 7.5
+export const HZ = 5.5
+export const HALL = 1.8
+/** Doorway width (doors, inner doorways). */
+export const DOORWAY = 1.2
+/** The straight stair: 1.2 m wide against the hall's right wall, 18 risers of ~0.18 m on 0.28 m treads. */
+export const STAIR = { x0: 0.52, x1: 1.72, front: 2.8, risers: 18, tread: 0.28 }
 
 /* ---------- roof geometry (shared by the sim's walkable steps and the view's roof planes) ---------- */
 
 /** Half extents of the main block's outer wall faces. */
-export const MAIN_HX = 6.15
-export const MAIN_HZ = 4.65
+export const MAIN_HX = 7.65
+export const MAIN_HZ = 5.65
 /** Eave overhang past the wall face, and the rake overhang at gable ends. */
 export const EAVE_OH = 0.5
 export const RAKE_OH = 0.3
@@ -44,11 +52,11 @@ export const EAVE_Y = 6.25
 export const PITCH = 0.3 / 0.45
 export const STEP_RUN = 0.45
 /** Garage block (local, outer faces) and its gable roof, ridge running front to back. */
-export const GARAGE = { x0: 6.15, x1: 10.15, z0: -4.65, z1: 1.65, ridgeX: 8.15, eaveY: 3.05, oh: 0.4 }
+export const GARAGE = { x0: 7.65, x1: 12.15, z0: -5.65, z1: 1.65, ridgeX: 9.9, eaveY: 3.05, oh: 0.4 }
 /** The front porch: deck footprint, posts and the balcony on its roof. */
-export const PORCH = { x0: -2.2, x1: 2.2, z0: 4.65, z1: 6.85, deck: 0.18 }
+export const PORCH = { x0: -2.4, x1: 2.4, z0: 5.65, z1: 8.05, deck: 0.18 }
 /** The cross gable's half width over the porch bay (outer edge of its rake). */
-export const CROSS_HW = 2.6
+export const CROSS_HW = 2.8
 
 export type RoofKind = 'gable' | 'hip' | 'cross'
 export interface HouseStyle {
@@ -76,8 +84,37 @@ export function houseStyle(theme: string): HouseStyle {
 
 /** Window centres (local x) along the front and back walls, and their width. */
 export function facadeBays(style: HouseStyle) {
-  return style.bays === 5 ? { xs: [-4.4, -2.2, 2.2, 4.4], w: 1.0 } : { xs: [-3.6, 3.6], w: 1.6 }
+  return style.bays === 5 ? { xs: [-6.0, -3.2, 3.2, 6.0], w: 1.2 } : { xs: [-4.6, 4.6], w: 2.0 }
 }
+
+export type RoomId = 'living' | 'dining' | 'hall' | 'wc' | 'kitchen' | 'study' | 'garage' | 'master' | 'bed2' | 'bed3' | 'bath' | 'landing'
+/** Which room a house-local point is in (the floor plan in buildHouse). */
+export function roomAt(x: number, z: number, upper: boolean): RoomId {
+  if (x > HX) return 'garage'
+  if (!upper) {
+    if (x < -HALL) return z > -0.5 ? 'living' : 'dining'
+    if (x < HALL) return x > 0 && z < -2 && z > -3.8 ? 'wc' : 'hall'
+    return z > 0.5 ? 'study' : 'kitchen'
+  }
+  if (x < -HALL) return z > 0 ? 'master' : 'bed2'
+  if (x < HALL) return 'landing'
+  return z > 0.5 ? 'bed3' : 'bath'
+}
+/** Interior rectangles of each room (inside the wall faces), for tests and the view. */
+export const ROOMS: { id: RoomId; upper: boolean; x0: number; x1: number; z0: number; z1: number }[] = [
+  { id: 'living', upper: false, x0: -HX + 0.15, x1: -HALL - 0.08, z0: -0.42, z1: HZ - 0.15 },
+  { id: 'dining', upper: false, x0: -HX + 0.15, x1: -HALL - 0.08, z0: -HZ + 0.15, z1: -0.58 },
+  { id: 'hall', upper: false, x0: -HALL + 0.08, x1: HALL - 0.08, z0: -HZ + 0.15, z1: HZ - 0.15 },
+  { id: 'wc', upper: false, x0: 0.08, x1: HALL - 0.08, z0: -3.72, z1: -2.08 },
+  { id: 'kitchen', upper: false, x0: HALL + 0.08, x1: HX - 0.15, z0: -HZ + 0.15, z1: 0.42 },
+  { id: 'study', upper: false, x0: HALL + 0.08, x1: HX - 0.15, z0: 0.58, z1: HZ - 0.15 },
+  { id: 'garage', upper: false, x0: HX + 0.15, x1: 12.0 - 0.15, z0: -HZ + 0.15, z1: 1.35 },
+  { id: 'master', upper: true, x0: -HX + 0.15, x1: -HALL - 0.08, z0: 0.08, z1: HZ - 0.15 },
+  { id: 'bed2', upper: true, x0: -HX + 0.15, x1: -HALL - 0.08, z0: -HZ + 0.15, z1: -0.08 },
+  { id: 'landing', upper: true, x0: -HALL + 0.08, x1: HALL - 0.08, z0: -HZ + 0.15, z1: HZ - 0.15 },
+  { id: 'bed3', upper: true, x0: HALL + 0.08, x1: HX - 0.15, z0: 0.58, z1: HZ - 0.15 },
+  { id: 'bath', upper: true, x0: HALL + 0.08, x1: HX - 0.15, z0: -HZ + 0.15, z1: 0.42 },
+]
 
 export interface RoofBox {
   x0: number
@@ -189,7 +226,9 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
   let frontDoor: Piece | null = null
   const W = (lx: number) => ox + lx * dir
   const Z = (lz: number) => oz + lz * dir
+  /** Outer walls are 0.3 m thick; partitions 0.16 m. */
   const T = 0.3
+  const TI = 0.16
 
   /** Add a piece given in local coords (centre x/z, bottom y). */
   const add = (init: Parameters<typeof makePiece>[0]) => {
@@ -213,34 +252,36 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
   }
   /** A wall along x at local z, from x0 to x1, with openings; `floor` picks the nav floor. */
   const wallX = (z: number, x0: number, x1: number, y: number, h: number, openings: Opening[], inner = false, floor = 0) => {
+    const t = inner ? TI : T
     for (const s of run(x0, x1, openings)) {
       if (s.open) {
-        emitOpening(s.open, (s.a + s.b) / 2, z, s.b - s.a, T, y, h, 0, floor)
+        emitOpening(s.open, (s.a + s.b) / 2, z, s.b - s.a, t, y, h, 0, floor)
         continue
       }
       // Split long runs into ~2 m panels so chips and breaks stay local.
       const n = Math.max(1, Math.round((s.b - s.a) / 2))
       const len = (s.b - s.a) / n
       for (let i = 0; i < n; i++)
-        add({ kind: 'wall', model: inner ? 'innerwall' : 'wall', x: s.a + len * (i + 0.5), z, w: len, d: T, h, y, hp: inner ? INNER_WALL_HP : WALL_HP, inside: inner, floor, yaw: 0 })
+        add({ kind: 'wall', model: inner ? 'innerwall' : 'wall', x: s.a + len * (i + 0.5), z, w: len, d: t, h, y, hp: inner ? INNER_WALL_HP : WALL_HP, inside: inner, floor, yaw: 0 })
     }
   }
   const wallZ = (x: number, z0: number, z1: number, y: number, h: number, openings: Opening[], inner = false, floor = 0) => {
+    const t = inner ? TI : T
     for (const s of run(z0, z1, openings)) {
       if (s.open) {
-        emitOpening(s.open, x, (s.a + s.b) / 2, T, s.b - s.a, y, h, Math.PI / 2, floor)
+        emitOpening(s.open, x, (s.a + s.b) / 2, t, s.b - s.a, y, h, Math.PI / 2, floor)
         continue
       }
       const n = Math.max(1, Math.round((s.b - s.a) / 2))
       const len = (s.b - s.a) / n
       for (let i = 0; i < n; i++)
-        add({ kind: 'wall', model: inner ? 'innerwall' : 'wall', x, z: s.a + len * (i + 0.5), w: T, d: len, h, y, hp: inner ? INNER_WALL_HP : WALL_HP, inside: inner, floor, yaw: Math.PI / 2 })
+        add({ kind: 'wall', model: inner ? 'innerwall' : 'wall', x, z: s.a + len * (i + 0.5), w: t, d: len, h, y, hp: inner ? INNER_WALL_HP : WALL_HP, inside: inner, floor, yaw: Math.PI / 2 })
     }
   }
   function emitOpening(o: Opening, x: number, z: number, w: number, d: number, y: number, h: number, yaw: number, floor: number) {
     if (o.kind === 'gap') {
       // A doorway without a door: header above it.
-      add({ kind: 'wall', model: 'header:gap', x, z, w, d, h: h - 2.1, y: y + 2.1, hp: 0, breakable: false, floor, yaw })
+      add({ kind: 'wall', model: 'header:gap', x, z, w, d, h: h - HEAD_H, y: y + HEAD_H, hp: 0, breakable: false, floor, yaw })
       return
     }
     if (o.kind === 'window') {
@@ -267,68 +308,77 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
 
   const bays = facadeBays(style)
   const windows = (xs: number[], w: number): Opening[] => xs.map((c) => ({ a: c - w / 2, b: c + w / 2, kind: 'window' as const }))
+  /** A 1.2 m doorway centred at c (doorway centres sit on the half-metre nav grid). */
+  const gap = (c: number): Opening => ({ a: c - DOORWAY / 2, b: c + DOORWAY / 2, kind: 'gap' })
   const H = WALL_H
   const Y1 = FLOOR_H
+  const GX = 12
 
   /* ---------- ground floor ---------- */
-  add({ kind: 'slab', model: 'floor', x: 0, z: 0, w: 12, d: 9, h: 0.03, y: 0, hp: 0, breakable: false, solid: false, inside: true, floor: 0 })
-  add({ kind: 'slab', model: 'garagefloor', x: 8, z: -1.5, w: 4, d: 6, h: 0.03, y: 0, hp: 0, breakable: false, solid: false, inside: true, floor: 0 })
-  wallX(4.5, -6, 6, 0, H, [{ a: -0.5, b: 0.5, kind: 'door' }, ...windows(bays.xs, bays.w)])
-  wallX(-4.5, -6, 6, 0, H, [{ a: -0.5, b: 0.5, kind: 'door', flap: true }, ...windows(bays.xs, bays.w)])
-  wallZ(-6, -4.5, 4.5, 0, H, windows([-2.2, 2.2], 1.0))
-  wallZ(6, 1.5, 4.5, 0, H, windows([3.0], 1.0))
-  // Wall shared with the garage: interior door through to it.
-  wallZ(6, -4.5, 1.5, 0, H, [{ a: -1, b: 0, kind: 'gap' }], true)
+  // Plan (front = +z): the entry hall (3.6 m) runs front to back on the door's axis with the stair against its
+  // right wall and a WC behind the stair; the living room (front left) opens wide into the dining room (back left);
+  // the study (front right) opens wide into the kitchen (back right); the garage is on the right.
+  add({ kind: 'slab', model: 'floor', x: 0, z: 0, w: 2 * HX, d: 2 * HZ, h: 0.03, y: 0, hp: 0, breakable: false, solid: false, inside: true, floor: 0 })
+  add({ kind: 'slab', model: 'garagefloor', x: (HX + GX) / 2, z: (-HZ + 1.5) / 2, w: GX - HX, d: HZ + 1.5, h: 0.03, y: 0, hp: 0, breakable: false, solid: false, inside: true, floor: 0 })
+  wallX(HZ, -HX, HX, 0, H, [{ a: -DOORWAY / 2, b: DOORWAY / 2, kind: 'door' }, ...windows(bays.xs, bays.w)])
+  wallX(-HZ, -HX, HX, 0, H, [{ a: -DOORWAY / 2, b: DOORWAY / 2, kind: 'door', flap: true }, ...windows(bays.xs, bays.w)])
+  wallZ(-HX, -HZ, HZ, 0, H, windows([-3.75, 3.75], 1.2))
+  wallZ(HX, 1.5, HZ, 0, H, windows([3.5], 1.2))
+  // Wall shared with the garage: a doorway through from the kitchen.
+  wallZ(HX, -HZ, 1.5, 0, H, [gap(-2)], true)
   // Garage.
-  wallX(1.5, 6, 10, 0, H, [{ a: 6.5, b: 9.5, kind: 'garage' }])
-  wallX(-4.5, 6, 10, 0, H, [])
-  wallZ(10, -4.5, 1.5, 0, H, [])
+  wallX(1.5, HX, GX, 0, H, [{ a: 8.25, b: 11.25, kind: 'garage' }])
+  wallX(-HZ, HX, GX, 0, H, [])
+  wallZ(GX, -HZ, 1.5, 0, H, windows([-2], 1.2))
   for (const b of garageSteps()) add({ kind: 'roof', model: 'roofstep', x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, w: b.x1 - b.x0, d: b.z1 - b.z0, h: b.y1 - b.y0, y: b.y0, hp: 0, breakable: false, floor: 1 })
-  // Interior walls. Ground floor: living room (front left) and dining room (back left) through a wide opening, the
-  // entry hall with the stairs and a WC tucked behind them, the kitchen with its breakfast nook (right). Doorways
-  // are 1 m and centred on the half-metre grid so bots and the biggest heroes walk straight through.
-  wallZ(-1.25, -4.5, 4.5, 0, H, [{ a: 1.5, b: 2.5, kind: 'gap' }, { a: -3.5, b: -2.5, kind: 'gap' }], true)
-  wallZ(1.25, -4.5, 4.5, 0, H, [{ a: 3.5, b: 4.5, kind: 'gap' }, { a: -3.5, b: -2.5, kind: 'gap' }], true)
-  wallX(-1, -6, -1.25, 0, H, [{ a: -2.5, b: -1.5, kind: 'gap' }], true)
-  wallZ(0.1, -2.4, 0, 0, H, [{ a: -1.5, b: -0.5, kind: 'gap' }], true)
-  wallX(-2.4, 0.25, 1.1, 0, H, [], true)
-  // Stairs in the hall, rising toward the back.
-  // The flight runs along the hall's right wall: its outer edge stops at the wall face (x 1.1).
-  const SX = 0.6
+  // Partitions.
+  wallZ(-HALL, -HZ, HZ, 0, H, [gap(2.5), gap(-3)], true)
+  wallZ(HALL, -HZ, HZ, 0, H, [gap(4), gap(-4.5)], true)
+  wallX(-0.5, -HX, -HALL, 0, H, [{ a: -5.6, b: -2.6, kind: 'gap' }], true)
+  wallX(0.5, HALL, HX, 0, H, [{ a: 3.2, b: 5.8, kind: 'gap' }], true)
+  // The WC behind the stair.
+  wallZ(0, -3.8, -2, 0, H, [gap(-3)], true)
+  wallX(-3.8, 0.08, HALL, 0, H, [], true)
+  // The stair: 17 treads then the landing (each step a solid box from the floor up to its tread).
+  const R = FLOOR_H / STAIR.risers
+  const SX = (STAIR.x0 + STAIR.x1) / 2
+  const SW = STAIR.x1 - STAIR.x0
+  const top = STAIR.front - STAIR.tread * (STAIR.risers - 1)
   const stairPath: Waypoint[] = []
-  for (let i = 0; i < 12; i++) {
-    const top = 0.25 * (i + 1)
-    const zc = 3.6 - 0.3 * (i + 0.5)
-    add({ kind: 'step', model: 'step', x: SX, z: zc, w: 1.0, d: 0.3, h: top, y: 0, hp: 0, breakable: false, inside: true, floor: 0 })
-    if (i % 3 === 1) stairPath.push({ x: W(SX), z: Z(zc), y: top })
+  for (let i = 0; i < STAIR.risers - 1; i++) {
+    const zc = STAIR.front - STAIR.tread * (i + 0.5)
+    add({ kind: 'step', model: i === 0 ? 'stair' : 'step', x: SX, z: zc, w: SW, d: STAIR.tread, h: R * (i + 1), y: 0, hp: 0, breakable: false, inside: true, floor: 0 })
+    if (i % 3 === 1) stairPath.push({ x: W(SX), z: Z(zc), y: R * (i + 1) })
   }
   // Front porch: a low deck, two posts and the balcony on its roof.
   const P = PORCH
   add({ kind: 'slab', model: 'porch', x: (P.x0 + P.x1) / 2, z: (P.z0 + P.z1) / 2, w: P.x1 - P.x0, d: P.z1 - P.z0, h: P.deck, y: 0, hp: 0, breakable: false, floor: 0 })
   for (const sx of [-1, 1]) add({ kind: 'rail', model: 'porchpost', x: sx * (P.x1 - 0.2), z: P.z1 - 0.2, w: 0.22, d: 0.22, h: Y1 - 0.2 - P.deck, y: P.deck, hp: 0, breakable: false, floor: 0 })
-  // Chimney on the left gable wall.
-  add({ kind: 'wall', model: 'chimney', x: -MAIN_HX - 0.32, z: 0, w: 0.64, d: 1.3, h: ridgeY(style) + 0.9, y: 0, hp: 0, breakable: false, floor: 0 })
+  // Chimney on the left gable wall, behind the living room's TV wall.
+  add({ kind: 'wall', model: 'chimney', x: -MAIN_HX - 0.32, z: 1.4, w: 0.64, d: 1.3, h: ridgeY(style) + 0.9, y: 0, hp: 0, breakable: false, floor: 0 })
 
   /* ---------- upper floor ---------- */
-  // Slabs leave the stairwell open (x 0.15..1.35, z 0.3..3.15): long enough that the tallest hero's head clears the
-  // upper floor all the way up the flight. A balustrade guards the open side and the front of the well.
-  const WELL = 3.15
+  // The stairwell stays open from the top tread to where the tallest hero's head clears the floor above, with a
+  // balustrade round its open sides.
+  const WELL = 3.1
+  const HOLE0 = STAIR.x0 - 0.1
   const slab = (x0: number, z0: number, x1: number, z1: number) => add({ kind: 'slab', model: 'slab', x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, h: 0.2, y: Y1 - 0.2, hp: 0, breakable: false, inside: true, floor: 1 })
-  slab(-6, -4.5, SX - 0.6, 4.5)
-  slab(SX + 0.6, -4.5, 6, 4.5)
-  slab(SX - 0.6, WELL, SX + 0.6, 4.5)
-  slab(SX - 0.6, -4.5, SX + 0.6, 0.3)
-  add({ kind: 'rail', model: 'rail:stair', x: SX - 0.65, z: (0.6 + WELL + 0.1) / 2, w: 0.1, d: WELL + 0.1 - 0.6, h: 0.95, y: Y1, hp: 0, breakable: false, inside: true, floor: 1, yaw: Math.PI / 2 })
-  add({ kind: 'rail', model: 'rail:stair', x: SX - 0.05, z: WELL + 0.05, w: 1.1, d: 0.1, h: 0.95, y: Y1, hp: 0, breakable: false, inside: true, floor: 1 })
-  wallX(4.5, -6, 6, Y1, H, [{ a: -0.5, b: 0.5, kind: 'door' }, ...windows(bays.xs, bays.w)], false, 1)
-  wallX(-4.5, -6, 6, Y1, H, [...windows(bays.xs, bays.w), ...windows([0], 0.8)], false, 1)
-  wallZ(-6, -4.5, 4.5, Y1, H, windows([-2.2, 2.2], 1.0), false, 1)
-  wallZ(6, -4.5, 4.5, Y1, H, windows([-2.2, 2.2], 1.0), false, 1)
-  // Upstairs: two bedrooms on the left, the landing round the stairwell, the bathroom and the study on the right.
-  wallZ(-1.25, -4.5, 4.5, Y1, H, [{ a: 1.5, b: 2.5, kind: 'gap' }, { a: -3, b: -2, kind: 'gap' }], true, 1)
-  wallX(-0.6, -6, -1.25, Y1, H, [], true, 1)
-  wallZ(1.25, -4.5, 4.5, Y1, H, [{ a: -3.5, b: -2.5, kind: 'gap' }, { a: 3.5, b: 4.5, kind: 'gap' }], true, 1)
-  wallX(-1, 1.25, 6, Y1, H, [{ a: 2, b: 3, kind: 'gap' }], true, 1)
+  slab(-HX, -HZ, HOLE0, HZ)
+  slab(HALL, -HZ, HX, HZ)
+  slab(HOLE0, WELL, HALL, HZ)
+  slab(HOLE0, -HZ, HALL, top)
+  add({ kind: 'rail', model: 'rail:stair', x: HOLE0 - 0.05, z: (top + 0.5 + WELL + 0.1) / 2, w: 0.1, d: WELL + 0.1 - top - 0.5, h: 0.95, y: Y1, hp: 0, breakable: false, inside: true, floor: 1, yaw: Math.PI / 2 })
+  add({ kind: 'rail', model: 'rail:stair', x: (HOLE0 + HALL - 0.08) / 2, z: WELL + 0.05, w: HALL - 0.08 - HOLE0, d: 0.1, h: 0.95, y: Y1, hp: 0, breakable: false, inside: true, floor: 1 })
+  wallX(HZ, -HX, HX, Y1, H, [{ a: -DOORWAY / 2, b: DOORWAY / 2, kind: 'door' }, ...windows(bays.xs, bays.w)], false, 1)
+  wallX(-HZ, -HX, HX, Y1, H, [...windows(bays.xs, bays.w), ...windows([0], 1.0)], false, 1)
+  wallZ(-HX, -HZ, HZ, Y1, H, windows([-3.75, 3.75], 1.2), false, 1)
+  wallZ(HX, -HZ, HZ, Y1, H, windows([-3, 3], 1.2), false, 1)
+  // Upstairs: master bedroom (front left), bedroom 2 (back left), the landing round the stairwell, bedroom 3
+  // (front right) and the family bathroom (back right).
+  wallZ(-HALL, -HZ, HZ, Y1, H, [gap(2), gap(-3)], true, 1)
+  wallX(0, -HX, -HALL, Y1, H, [], true, 1)
+  wallZ(HALL, -HZ, HZ, Y1, H, [gap(4), gap(-4)], true, 1)
+  wallX(0.5, HALL, HX, Y1, H, [], true, 1)
   // The balcony: the porch roof, railed on three sides.
   add({ kind: 'slab', model: 'balcony', x: (P.x0 + P.x1) / 2, z: (P.z0 + P.z1) / 2, w: P.x1 - P.x0, d: P.z1 - P.z0, h: 0.2, y: Y1 - 0.2, hp: 0, breakable: false, floor: 1 })
   add({ kind: 'rail', model: 'rail', x: 0, z: P.z1 - 0.05, w: P.x1 - P.x0, d: 0.1, h: 1.0, y: Y1, hp: 0, breakable: false, floor: 1 })
@@ -337,99 +387,118 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
   for (const b of roofSteps(style)) add({ kind: 'roof', model: 'roofstep', x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, w: b.x1 - b.x0, d: b.z1 - b.z0, h: b.y1 - b.y0, y: b.y0, hp: 0, breakable: false, floor: 2 })
 
   /* ---------- furniture ---------- */
+  // Sizes are the axis-aligned footprint after the yaw (w along x, d along z); yaw turns the model's front (+z).
   const furn = (model: string, x: number, z: number, w: number, d: number, h: number, floor = 0, yaw = 0, solid = true) =>
     add({ kind: 'furniture', model: `furniture:${model}`, x, z, w, d, h, y: floor ? Y1 : 0, hp: solid ? FURNITURE_HP : 0, breakable: solid, solid, inside: true, floor, yaw })
-  // Living room: sofa facing the TV wall (the chimney breast), coffee table, armchair, rug, floor lamp, bookshelf.
-  furn('sofa', -3.3, 0.3, 0.9, 2.2, 0.9, 0, -Math.PI / 2)
-  furn('coffeetable', -4.4, 0.3, 0.6, 1.2, 0.45, 0, Math.PI / 2)
-  furn('rug', -4.2, 0.3, 2.2, 2.8, 0.02, 0, Math.PI / 2, false)
-  furn('armchair', -2.7, 3.6, 0.85, 0.85, 0.9, 0, -Math.PI * 0.77)
-  furn('floorlamp', -1.75, 3.95, 0.35, 0.35, 1.6, 0, 0, false)
-  furn('shelf', -5.4, 4.15, 0.8, 0.36, 1.8, 0, Math.PI)
-  // Dining room: table and four chairs on a rug, a sideboard.
-  furn('rug', -4.2, -2.6, 2.4, 2.0, 0.02, 0, 0, false)
-  furn('diningtable', -4.2, -2.6, 1.4, 0.9, 0.76)
-  for (const [x, z, yaw] of [[-4.55, -1.85, Math.PI], [-3.85, -1.85, Math.PI], [-4.55, -3.35, 0], [-3.85, -3.35, 0]] as const) furn('chair', x, z, 0.46, 0.46, 0.9, 0, yaw)
-  furn('sideboard', -5.6, -2.2, 0.45, 1.2, 0.85, 0, Math.PI / 2)
-  // Hall: a runner up to the stairs, a coat stand and a plant by the door.
-  furn('runner', -0.45, 1.6, 0.9, 4.6, 0.02, 0, 0, false)
-  furn('plant', -0.9, 4.05, 0.4, 0.4, 1.1, 0, 0, false)
-  // WC behind the stairs.
-  furn('toilet', 0.68, -1.86, 0.6, 0.75, 0.8, 0, 0)
-  furn('basin', 0.88, -0.35, 0.36, 0.45, 0.85, 0, -Math.PI / 2, false)
-  // Kitchen: counters on the back wall, an island, the breakfast nook.
-  furn('counter', 4, -4.0, 3.6, 0.7, 0.95)
-  furn('island', 3.3, -2.2, 1.6, 0.8, 0.95)
-  furn('table', 3.9, 1.5, 1.4, 1.0, 0.75)
-  furn('chair', 3.0, 1.5, 0.5, 0.5, 0.9, 0, Math.PI / 2)
-  furn('chair', 4.8, 1.5, 0.5, 0.5, 0.9, 0, -Math.PI / 2)
-  furn('rug', 3.9, 1.5, 2.6, 2.0, 0.02, 0, 0, false)
-  furn('plant', 5.55, 4.05, 0.4, 0.4, 1.1, 0, 0, false)
-  // Front bedroom: double bed with nightstands and a lamp, wardrobe, rug.
-  furn('bed', -3.4, 0.68, 1.8, 2.2, 0.7, 1, 0)
-  furn('nightstand', -1.95, -0.15, 0.5, 0.45, 0.6, 1, 0)
-  furn('tablelamp', -1.95, -0.15, 0.3, 0.3, 0.5, 1, 0, false)
-  furn('rug', -3.4, 1.9, 2.6, 1.6, 0.02, 1, 0, false)
-  furn('wardrobe', -5.6, 3.5, 0.6, 1.6, 2.1, 1, Math.PI / 2)
-  // Back bedroom: the kid's room.
-  furn('bed', -4.8, -2.45, 1.8, 2.2, 0.7, 1, 0)
-  furn('rug', -3.2, -2.4, 1.6, 1.8, 0.02, 1, Math.PI / 2, false)
-  furn('shelf', -1.65, -3.6, 0.36, 0.8, 1.6, 1, -Math.PI / 2)
-  // Bathroom: toilet, basin, bath.
-  furn('toilet', 5.3, -3.6, 0.6, 0.8, 0.8, 1, 0)
-  furn('sink', 3.0, -4.0, 0.7, 0.5, 0.9, 1, 0)
-  furn('bathtub', 5.32, -2.3, 0.75, 1.6, 0.6, 1, 0)
-  // Study: desk under the window, armchair, bookshelf, runner on the landing.
-  furn('desk', 5.2, 2.5, 0.7, 1.4, 0.8, 1, -Math.PI / 2)
-  furn('armchair', 2.3, 1.0, 0.85, 0.85, 0.9, 1, Math.PI * 0.8)
-  furn('shelf', 4.1, -0.65, 0.8, 0.36, 1.8, 1, 0)
-  furn('rug', 3.5, 2.0, 2.4, 2.0, 0.02, 1, 0, false)
-  furn('runner', -0.55, -1.8, 0.8, 3.6, 0.02, 1, 0, false)
-  furn('toolrack', 9.6, -3.5, 0.4, 1.6, 1.6, 0, -Math.PI / 2)
-  add({ kind: 'prop', model: 'prop:golfcart', x: 8.25, z: -2.1, w: 1.3, d: 2.4, h: 1.6, y: 0, hp: 0, breakable: false, inside: true, floor: 0 })
+  const L = -Math.PI / 2
+  const Rt = Math.PI / 2
+  // Living room: sofa facing the TV on the chimney wall, coffee table, two armchairs, rugs, lamp, bookshelf.
+  furn('sofa', -4.0, 1.4, 0.9, 2.2, 0.9, 0, L)
+  furn('coffeetable', -5.5, 1.4, 0.6, 1.2, 0.45, 0, Rt)
+  furn('rug', -5.4, 1.4, 2.6, 3.2, 0.02, 0, Rt, false)
+  furn('armchair', -5.2, 3.9, 0.85, 0.85, 0.9, 0, -Math.PI * 0.8)
+  furn('armchair', -3.4, 3.9, 0.85, 0.85, 0.9, 0, Math.PI * 0.85)
+  furn('floorlamp', -2.35, 4.95, 0.35, 0.35, 1.6, 0, 0, false)
+  furn('shelf', -6.5, -0.2, 0.9, 0.36, 1.8, 0, 0)
+  furn('plant', -7.0, 4.95, 0.4, 0.4, 1.1, 0, 0, false)
+  // Dining room: a table for six on a rug, a sideboard.
+  furn('rug', -4.6, -3.0, 3.2, 2.4, 0.02, 0, 0, false)
+  furn('diningtable', -4.6, -3.0, 2.0, 1.0, 0.76)
+  for (const x of [-5.3, -4.6, -3.9]) {
+    furn('chair', x, -2.15, 0.46, 0.46, 0.9, 0, Math.PI)
+    furn('chair', x, -3.85, 0.46, 0.46, 0.9, 0, 0)
+  }
+  furn('sideboard', -7.1, -2.0, 0.45, 1.2, 0.85, 0, Rt)
+  furn('plant', -2.3, -0.95, 0.4, 0.4, 1.1, 0, 0, false)
+  // Entry hall: a runner from the door, a plant and a bench.
+  furn('runner', -0.6, 2.6, 1.0, 5.0, 0.02, 0, 0, false)
+  furn('plant', -1.4, 4.95, 0.4, 0.4, 1.1, 0, 0, false)
+  furn('bench', -1.5, 1.2, 0.45, 1.2, 0.45, 0, Rt)
+  // WC behind the stair.
+  furn('toilet', 1.2, -3.35, 0.6, 0.75, 0.8, 0, 0)
+  furn('basin', 1.5, -2.45, 0.36, 0.45, 0.85, 0, L, false)
+  // Kitchen: counters along the back wall, an island with stools, a pantry shelf.
+  furn('counter', 5.0, -5.0, 3.6, 0.7, 0.95)
+  furn('island', 4.4, -2.6, 2.0, 0.9, 0.95)
+  furn('shelf', 2.5, -0.1, 0.9, 0.36, 1.8, 0, Math.PI)
+  furn('plant', 7.0, 0.05, 0.4, 0.4, 1.1, 0, 0, false)
+  // Study / den: desk under the side window, a reading chair, shelves, rug.
+  furn('desk', 6.95, 3.5, 0.7, 1.4, 0.8, 0, L)
+  furn('armchair', 3.0, 2.0, 0.85, 0.85, 0.9, 0, Math.PI * 0.7)
+  furn('shelf', 6.95, 1.45, 0.36, 0.9, 1.8, 0, L)
+  furn('rug', 4.6, 3.0, 3.0, 2.4, 0.02, 0, 0, false)
+  // Master bedroom: double bed between nightstands, wardrobe, rug, lamp.
+  furn('bed', -4.6, 1.2, 1.8, 2.2, 0.7, 1, 0)
+  furn('nightstand', -6.0, 0.4, 0.5, 0.45, 0.6, 1, 0)
+  furn('tablelamp', -6.0, 0.4, 0.3, 0.3, 0.5, 1, 0, false)
+  furn('nightstand', -3.2, 0.4, 0.5, 0.45, 0.6, 1, 0)
+  furn('tablelamp', -3.2, 0.4, 0.3, 0.3, 0.5, 1, 0, false)
+  furn('rug', -4.6, 2.9, 3.0, 1.8, 0.02, 1, 0, false)
+  furn('wardrobe', -7.0, 4.2, 0.6, 1.6, 2.1, 1, Rt)
+  // Bedroom 2: bed against the side wall, a desk, shelves.
+  furn('bed', -6.25, -2.6, 2.2, 1.8, 0.7, 1, Rt)
+  furn('rug', -4.4, -2.6, 2.0, 2.4, 0.02, 1, 0, false)
+  furn('shelf', -2.3, -1.2, 0.36, 0.9, 1.6, 1, L)
+  furn('nightstand', -6.9, -0.9, 0.45, 0.5, 0.6, 1, Rt)
+  furn('tablelamp', -6.9, -0.9, 0.3, 0.3, 0.5, 1, 0, false)
+  // Bedroom 3: bed against the partition, wardrobe, rug.
+  furn('bed', 4.6, 1.7, 1.8, 2.2, 0.7, 1, 0)
+  furn('nightstand', 3.3, 0.95, 0.5, 0.45, 0.6, 1, 0)
+  furn('tablelamp', 3.3, 0.95, 0.3, 0.3, 0.5, 1, 0, false)
+  furn('rug', 4.6, 3.4, 2.8, 1.6, 0.02, 1, 0, false)
+  furn('wardrobe', 7.0, 4.5, 0.6, 1.6, 2.1, 1, L)
+  // Family bathroom: bath along the side wall, toilet, basin.
+  furn('bathtub', 6.95, -4.4, 0.75, 1.6, 0.6, 1, 0)
+  furn('toilet', 5.2, -4.9, 0.6, 0.8, 0.8, 1, 0)
+  furn('sink', 3.4, -5.1, 0.7, 0.5, 0.9, 1, 0)
+  furn('rug', 4.6, -2.6, 1.8, 1.1, 0.02, 1, 0, false)
+  furn('runner', -0.8, -1.0, 0.9, 6.0, 0.02, 1, 0, false)
+  // Garage: the tool rack and the golf cart.
+  furn('toolrack', 11.65, -4.4, 0.4, 1.6, 1.6, 0, L)
+  add({ kind: 'prop', model: 'prop:golfcart', x: 9.4, z: -2.4, w: 1.3, d: 2.4, h: 1.6, y: 0, hp: 0, breakable: false, inside: true, floor: 0 })
 
   /* ---------- valuables by layout ---------- */
   type Spot = [ValuableKind, number, number, number, number]
   const layouts: Record<LayoutId, Spot[]> = {
     classic: [
-      ['tv', -5.5, 0, 0, Math.PI / 2],
-      ['aquarium', -4, 4.0, 0, 0],
-      ['clock', -5.6, -3.9, 0, Math.PI / 2],
-      ['piano', -2.6, -3.8, 0, 0],
-      ['fridge', 5.4, -2.0, 0, Math.PI / 2],
-      ['trophy', -5.5, 0.4, 1, Math.PI / 2],
-      ['console', 2.8, 3.9, 1, 0],
-      ['mower', 7.3, 0.7, 0, 0],
+      ['tv', -7.05, 1.4, 0, Rt],
+      ['aquarium', -4.6, 5.0, 0, Math.PI],
+      ['clock', -7.05, -5.0, 0, Rt],
+      ['piano', -3.0, -5.0, 0, 0],
+      ['fridge', 6.95, -3.6, 0, L],
+      ['trophy', -7.05, 2.6, 1, Rt],
+      ['console', 4.6, 5.0, 1, Math.PI],
+      ['mower', 8.6, 0.6, 0, 0],
     ],
     bunker: [
-      ['tv', -5.5, 0.8, 1, Math.PI / 2],
-      ['aquarium', -2.6, -3.9, 1, 0],
-      ['clock', -5.6, -3.9, 1, Math.PI / 2],
-      ['piano', 4.2, 3.6, 1, 0],
-      ['trophy', 4.5, 0.2, 1, Math.PI],
-      ['console', -4, 4.0, 1, 0],
-      ['fridge', 5.4, -2.0, 0, Math.PI / 2],
-      ['mower', 7.3, 0.7, 0, 0],
+      ['tv', -3.0, -5.0, 1, 0],
+      ['aquarium', -4.6, 5.0, 1, Math.PI],
+      ['clock', -7.05, -5.0, 1, Rt],
+      ['piano', 2.6, 1.6, 1, Rt],
+      ['trophy', 4.6, 0.1, 1, Math.PI],
+      ['console', -3.0, 5.0, 1, Math.PI],
+      ['fridge', 6.95, -3.6, 0, L],
+      ['mower', 8.6, 0.6, 0, 0],
     ],
     spread: [
-      ['tv', -5.5, 0, 0, Math.PI / 2],
-      ['piano', -2.6, -3.8, 0, 0],
-      ['fridge', 5.4, -2.0, 0, Math.PI / 2],
-      ['clock', 2.8, 3.9, 0, 0],
-      ['trophy', -5.5, 0.4, 1, Math.PI / 2],
-      ['aquarium', 4.2, 3.6, 1, 0],
-      ['console', 4.5, -3.0, 1, Math.PI],
-      ['mower', 7.3, 0.7, 0, 0],
+      ['tv', -7.05, 1.4, 0, Rt],
+      ['piano', -3.0, -5.0, 0, 0],
+      ['fridge', 6.95, -3.6, 0, L],
+      ['clock', 4.6, 5.0, 0, Math.PI],
+      ['trophy', -7.05, 2.6, 1, Rt],
+      ['aquarium', 4.6, 5.0, 1, Math.PI],
+      ['console', -4.6, -5.0, 1, 0],
+      ['mower', 8.6, 0.6, 0, 0],
     ],
     garage: [
-      ['tv', 9.3, 0.3, 0, Math.PI],
-      ['piano', 7.4, -3.85, 0, 0],
-      ['mower', 7.3, 0.7, 0, 0],
-      ['trophy', 9.4, -1.6, 0, Math.PI / 2],
-      ['fridge', 5.4, -2.0, 0, Math.PI / 2],
-      ['aquarium', -4, 4.0, 0, 0],
-      ['clock', -5.6, -3.9, 0, Math.PI / 2],
-      ['console', 2.8, 3.9, 1, 0],
+      ['tv', 11.55, -1.0, 0, L],
+      ['piano', 9.2, -5.0, 0, 0],
+      ['mower', 8.6, 0.6, 0, 0],
+      ['trophy', 11.6, -3.0, 0, L],
+      ['fridge', 6.95, -3.6, 0, L],
+      ['aquarium', -4.6, 5.0, 0, Math.PI],
+      ['clock', -7.05, -5.0, 0, Rt],
+      ['console', 4.6, 5.0, 1, Math.PI],
     ],
   }
   for (const [kind, x, z, floor, yaw] of layouts[opts.layout]) {
@@ -440,6 +509,7 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
   }
 
   const front = dir
+  const face = front > 0 ? 0 : Math.PI
   const info: HouseInfo = {
     team,
     ox,
@@ -447,38 +517,38 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
     dir,
     style,
     pieces,
-    main: norm(W(-6), Z(-4.5), W(6), Z(4.5)),
-    garage: norm(W(6), Z(-4.5), W(10), Z(1.5)),
+    main: norm(W(-HX), Z(-HZ), W(HX), Z(HZ)),
+    garage: norm(W(HX), Z(-HZ), W(GX), Z(1.5)),
     spawns: [
-      { x: W(-0.3), z: Z(3.95), yaw: front > 0 ? 0 : Math.PI },
-      { x: W(-1.85), z: Z(0.6), yaw: front > 0 ? 0 : Math.PI },
-      { x: W(3.6), z: Z(-1), yaw: front > 0 ? 0 : Math.PI },
-      { x: W(-2.6), z: Z(-2.5), yaw: front > 0 ? 0 : Math.PI },
+      { x: W(-0.6), z: Z(4.4), yaw: face },
+      { x: W(-2.6), z: Z(0.4), yaw: face },
+      { x: W(3.4), z: Z(-1.2), yaw: face },
+      { x: W(-2.6), z: Z(-1.4), yaw: face },
     ],
     doors,
     valuables,
-    stairs: { bottom: { x: W(SX), z: Z(4.0), y: 0 }, top: { x: W(SX), z: Z(-0.4), y: FLOOR_H }, path: stairPath },
+    stairs: { bottom: { x: W(SX), z: Z(STAIR.front + 0.8), y: 0 }, top: { x: W(SX), z: Z(top - 0.7), y: FLOOR_H }, path: stairPath },
     balcony: { x: W(0), z: Z((P.z0 + P.z1) / 2), y: FLOOR_H },
     balconyDoor: balconyDoor!,
     frontDoor: frontDoor!,
-    ladderSpot: { x: W(-4.95), z: Z(6.0), yaw: front > 0 ? Math.PI : 0 },
+    ladderSpot: { x: W(-4.6), z: Z(7.1), yaw: front > 0 ? Math.PI : 0 },
     doorSteps: [
-      { x: W(0), z: Z(5.6), y: P.deck },
-      { x: W(0), z: Z(-5.4), y: 0 },
-      { x: W(8), z: Z(2.6), y: 0 },
+      { x: W(0), z: Z(6.6), y: P.deck },
+      { x: W(0), z: Z(-6.4), y: 0 },
+      { x: W(9.75), z: Z(2.6), y: 0 },
     ],
     insideSpots: [
-      { x: W(0), z: Z(3.9), y: 0 },
-      { x: W(0), z: Z(-3.4), y: 0 },
-      { x: W(-2.0), z: Z(2.2), y: 0 },
-      { x: W(2.2), z: Z(2.5), y: 0 },
-      { x: W(-2.8), z: Z(-2.4), y: 0 },
-      { x: W(3.6), z: Z(0), y: 0 },
-      { x: W(-0.5), z: Z(-3), y: 0 },
-      { x: W(-0.6), z: Z(0.8), y: FLOOR_H },
-      { x: W(-2.0), z: Z(2.6), y: FLOOR_H },
-      { x: W(-3.0), z: Z(-2.6), y: FLOOR_H },
-      { x: W(8), z: Z(0.5), y: 0 },
+      { x: W(-0.6), z: Z(4.6), y: 0 },
+      { x: W(-0.6), z: Z(-4.6), y: 0 },
+      { x: W(-2.6), z: Z(2.5), y: 0 },
+      { x: W(2.6), z: Z(4.0), y: 0 },
+      { x: W(-2.6), z: Z(-3.0), y: 0 },
+      { x: W(3.0), z: Z(-1.2), y: 0 },
+      { x: W(-0.8), z: Z(-1.0), y: 0 },
+      { x: W(-0.8), z: Z(-3.0), y: FLOOR_H },
+      { x: W(-2.6), z: Z(2.0), y: FLOOR_H },
+      { x: W(-2.6), z: Z(-3.0), y: FLOOR_H },
+      { x: W(8.6), z: Z(-0.6), y: 0 },
     ],
   }
   return info

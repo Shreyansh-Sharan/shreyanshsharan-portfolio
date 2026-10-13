@@ -4,7 +4,8 @@
 // valuable through the nav graph. Run: node src/lawn/engine/houses.test.ts
 declare const process: { argv: string[]; exitCode?: number }
 import { HERO_IDS, type HeroId } from './heroes.ts'
-import { FLOOR_H, ROOF_Y } from './houses.ts'
+import { FLOOR_H, LAYOUTS, ROOF_Y, ROOMS, buildHouse, type LayoutId } from './houses.ts'
+import { boxOf, overlaps } from './pieces.ts'
 import { MAP_IDS, type MapId } from './maps.ts'
 import { Sim, emptyInput, type Player } from './sim.ts'
 
@@ -56,42 +57,66 @@ function walk(sim: Sim, p: Player, team: number, route: { x: number; z: number; 
 }
 
 /** Local waypoints: in at the front door, through the hall to the stair foot, up the flight onto the landing. */
+const SX = 1.12
 const UP = [
-  { x: 0, z: 7.0 },
-  { x: 0, z: 5.4 },
-  { x: 0, z: 4.1 },
-  { x: 0.6, z: 4.0 },
-  { x: 0.6, z: 2.0 },
-  { x: 0.6, z: 0.2 },
-  { x: 0.6, z: -0.9, y: FLOOR_H },
+  { x: 0, z: 8.6 },
+  { x: 0, z: 6.6 },
+  { x: 0, z: 4.6 },
+  { x: SX, z: 3.5 },
+  { x: SX, z: 1.0 },
+  { x: SX, z: -1.5 },
+  { x: SX, z: -2.6, y: FLOOR_H },
 ]
 const DOWN = [
-  { x: 0.6, z: -0.5, y: FLOOR_H },
-  { x: 0.6, z: 1.5 },
-  { x: 0.6, z: 3.6 },
-  { x: 0.6, z: 4.1, y: 0 },
-  { x: -0.4, z: 4.1, y: 0 },
+  { x: SX, z: -2.6, y: FLOOR_H },
+  { x: SX, z: -0.5 },
+  { x: SX, z: 2.0 },
+  { x: SX, z: 3.5, y: 0 },
+  { x: -0.6, z: 3.8, y: 0 },
 ]
 /** Every room through its doorway, ground floor then upstairs (starting from the hall / the landing). */
 const GROUND_ROOMS = [
-  { name: 'living room', route: [{ x: -0.5, z: 3.0 }, { x: -0.5, z: 2.0 }, { x: -2.2, z: 2.0 }, { x: -3.0, z: 2.4 }, { x: -4.6, z: 1.9 }] },
-  { name: 'dining room (through the opening)', route: [{ x: -2.2, z: 1.9 }, { x: -2.0, z: 0.0 }, { x: -2.0, z: -1.6 }, { x: -2.6, z: -2.5 }] },
-  { name: 'back hall from the dining room', route: [{ x: -2.4, z: -3.0 }, { x: -0.5, z: -3.0 }, { x: -0.5, z: -1.0 }] },
-  { name: 'WC', route: [{ x: -0.5, z: -1.0 }, { x: 0.65, z: -1.0 }] },
-  { name: 'kitchen', route: [{ x: -0.5, z: -1.0 }, { x: -0.5, z: -3.0 }, { x: 0.6, z: -3.0 }, { x: 2.0, z: -3.0 }, { x: 4.6, z: -3.0 }, { x: 4.6, z: -0.8 }] },
-  { name: 'garage', route: [{ x: 5.0, z: -0.5 }, { x: 7.0, z: -0.5 }, { x: 9.2, z: -0.5 }] },
-  { name: 'kitchen front door to the hall', route: [{ x: 7.0, z: -0.5 }, { x: 5.0, z: -0.5 }, { x: 2.2, z: 0.4 }, { x: 2.2, z: 3.0 }, { x: 2.0, z: 4.0 }, { x: 0.4, z: 4.0 }, { x: -0.5, z: 4.0 }] },
+  { name: 'living room', route: [{ x: -0.8, z: 3.0 }, { x: -1.0, z: 2.5 }, { x: -2.6, z: 2.5 }, { x: -2.8, z: 3.0 }] },
+  { name: 'dining room (through the opening)', route: [{ x: -2.6, z: 2.5 }, { x: -2.4, z: 0.2 }, { x: -3.0, z: -1.2 }, { x: -2.4, z: -3.0 }] },
+  { name: 'back hall from the dining room', route: [{ x: -1.0, z: -3.0 }, { x: -0.8, z: -4.6 }] },
+  { name: 'WC', route: [{ x: -0.8, z: -3.0 }, { x: 0.5, z: -2.6 }] },
+  { name: 'kitchen', route: [{ x: -0.8, z: -3.0 }, { x: -0.8, z: -4.5 }, { x: 1.0, z: -4.3 }, { x: 2.2, z: -4.3 }, { x: 2.45, z: -4.25 }, { x: 3.0, z: -3.6 }, { x: 5.9, z: -3.6 }] },
+  { name: 'garage', route: [{ x: 6.5, z: -2.0 }, { x: 8.2, z: -2.0 }, { x: 8.2, z: -0.6 }, { x: 10.8, z: -0.6 }] },
+  { name: 'study (through the kitchen) and back to the hall', route: [{ x: 8.2, z: -0.6 }, { x: 8.2, z: -2.0 }, { x: 6.5, z: -2.0 }, { x: 5.0, z: -1.0 }, { x: 5.0, z: 1.6 }, { x: 4.0, z: 3.4 }, { x: 2.6, z: 4.0 }, { x: 0.4, z: 4.0 }, { x: -0.6, z: 4.0 }] },
 ]
 const UPPER_ROOMS = [
-  { name: 'front bedroom', route: [{ x: -0.5, z: -0.9 }, { x: -0.5, z: 2.0 }, { x: -2.0, z: 2.0 }, { x: -3.4, z: 2.6 }] },
-  { name: 'back bedroom', route: [{ x: -2.0, z: 2.0 }, { x: -0.5, z: 2.0 }, { x: -0.5, z: -2.5 }, { x: -2.0, z: -2.5 }, { x: -3.2, z: -2.4 }] },
-  { name: 'bathroom', route: [{ x: -2.0, z: -2.5 }, { x: -0.5, z: -2.5 }, { x: -0.5, z: -3.0 }, { x: 0.6, z: -3.0 }, { x: 2.0, z: -3.0 }, { x: 3.6, z: -2.0 }] },
-  { name: 'study (through the bathroom)', route: [{ x: 2.5, z: -2.0 }, { x: 2.5, z: -0.5 }, { x: 2.6, z: 0.2 }, { x: 3.6, z: 2.0 }] },
-  { name: 'landing from the study', route: [{ x: 2.2, z: 2.6 }, { x: 2.0, z: 4.0 }, { x: 0.6, z: 4.0 }, { x: -0.5, z: 4.0 }] },
-  { name: 'balcony', route: [{ x: 0, z: 4.0 }, { x: 0, z: 5.6 }] },
+  { name: 'master bedroom', route: [{ x: -0.8, z: -2.0 }, { x: -0.8, z: 2.0 }, { x: -2.6, z: 2.0 }, { x: -4.6, z: 3.2 }] },
+  { name: 'bedroom 2', route: [{ x: -2.6, z: 2.0 }, { x: -0.8, z: 2.0 }, { x: -0.8, z: -3.0 }, { x: -2.6, z: -3.0 }, { x: -4.0, z: -3.6 }] },
+  { name: 'bathroom', route: [{ x: -2.6, z: -3.0 }, { x: -0.8, z: -3.0 }, { x: -0.8, z: -4.0 }, { x: 0.8, z: -4.0 }, { x: 2.6, z: -4.0 }, { x: 4.6, z: -2.6 }] },
+  { name: 'bedroom 3', route: [{ x: 2.6, z: -4.0 }, { x: 0.8, z: -4.0 }, { x: -0.8, z: -3.0 }, { x: -0.8, z: 4.0 }, { x: 0.8, z: 4.0 }, { x: 2.6, z: 4.0 }, { x: 4.6, z: 3.6 }] },
+  { name: 'balcony', route: [{ x: 2.6, z: 4.0 }, { x: 0.4, z: 4.2 }, { x: 0, z: 4.6 }, { x: 0, z: 6.6 }] },
 ]
 
 const started = Date.now()
+
+// Room sizes (interior, wall face to wall face).
+console.log('Rooms (interior metres):', ROOMS.map((r) => `${r.upper ? 'up' : 'gf'} ${r.id} ${(r.x1 - r.x0).toFixed(1)}x${(r.z1 - r.z0).toFixed(1)}`).join(', '))
+for (const r of ROOMS) {
+  const small = r.id === 'wc' || r.id === 'hall' || r.id === 'landing' ? 1.6 : 4.0
+  check(`room ${r.id} is roomy`, Math.min(r.x1 - r.x0, r.z1 - r.z0) >= small, `${(r.x1 - r.x0).toFixed(2)} x ${(r.z1 - r.z0).toFixed(2)}`)
+}
+// No furniture or valuable overlaps a wall, a step or another solid piece, in any layout or facing.
+for (const layout of Object.keys(LAYOUTS) as LayoutId[])
+  for (const dir of [1, -1])
+    for (const theme of ['lemon', 'mint']) {
+      const h = buildHouse(0, 34.25, 16.25, dir, { layout, theme })
+      const movable = h.pieces.filter((q) => q.solid && (q.kind === 'furniture' || q.kind === 'valuable' || q.kind === 'prop'))
+      const others = h.pieces.filter((q) => q.solid && q.kind !== 'roof')
+      const shrink = (b: ReturnType<typeof boxOf>) => ({ ...b, x0: b.x0 + 0.01, x1: b.x1 - 0.01, z0: b.z0 + 0.01, z1: b.z1 - 0.01, y0: b.y0 + 0.01, y1: b.y1 - 0.01 })
+      const clash: string[] = []
+      for (const a of movable)
+        for (const b of others) {
+          if (a === b || (movable.includes(b) && b.id < a.id)) continue
+          if (overlaps(shrink(boxOf(a)), shrink(boxOf(b)))) clash.push(`${a.model}@(${((a.x - 34.25) * dir).toFixed(1)},${((a.z - 16.25) * dir).toFixed(1)}) x ${b.model}`)
+        }
+      check(`${layout} dir ${dir} ${theme}: furniture clear of walls and each other`, clash.length === 0, clash.slice(0, 6).join('; '))
+    }
+
 for (const map of MAP_IDS)
   for (const team of [0, 1])
     for (const hero of HERO_IDS) {
@@ -100,7 +125,7 @@ for (const map of MAP_IDS)
       const p = sim.players[0]
       const h = sim.houses[team]
       p.x = h.ox
-      p.z = h.oz + 8 * h.dir
+      p.z = h.oz + 9.5 * h.dir
       p.y = 0
       const up = walk(sim, p, team, UP, 25)
       check(`${tag}: front door to the upper floor`, up === UP.length && Math.abs(p.y - FLOOR_H) < 0.1, `reached ${up}/${UP.length} at y ${p.y.toFixed(2)} (${p.x.toFixed(1)}, ${p.z.toFixed(1)})`)
@@ -110,7 +135,7 @@ for (const map of MAP_IDS)
         const n = walk(sim, p, team, r.route, 20)
         check(`${tag}: upstairs ${r.name}`, n === r.route.length && p.y > FLOOR_H - 0.1, `reached ${n}/${r.route.length} at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})`)
       }
-      walk(sim, p, team, [{ x: 0, z: 4.0 }, { x: -0.5, z: 3.6 }, { x: -0.5, z: -0.9 }], 15)
+      walk(sim, p, team, [{ x: 0, z: 4.6 }, { x: -0.8, z: 3.6 }, { x: -0.8, z: -2.6 }, { x: SX, z: -2.6 }], 15)
       const down = walk(sim, p, team, DOWN, 25)
       check(`${tag}: back down the stairs`, down === DOWN.length && p.y < 0.2, `reached ${down}/${DOWN.length} at y ${p.y.toFixed(2)}`)
       for (const r of GROUND_ROOMS) {
@@ -126,7 +151,7 @@ for (const map of MAP_IDS)
     const p = sim.players[0]
     const h = sim.houses[team]
     p.x = h.ox + 1.2 * h.dir
-    p.z = h.oz + 5.3 * h.dir
+    p.z = h.oz + 6.3 * h.dir
     p.y = FLOOR_H
     for (let i = 0; i < 10; i++) sim.step(1 / 60)
     const inp = emptyInput()
@@ -169,14 +194,14 @@ for (const map of MAP_IDS)
     const bot = sim.players[0]
     const h = sim.houses[team]
     const target = h.valuables.find((v) => v.floor >= 1)!
-    const path = sim.nav.find(h.ox, 0, h.oz + 8 * h.dir, target.x, target.y, target.z, [], 1 - team)
+    const path = sim.nav.find(h.ox, 0, h.oz + 9.5 * h.dir, target.x, target.y, target.z, [], 1 - team)
     const usesStairs = !!path && path.some((pt) => pt.link?.kind === 'stairs')
     check(`${map} house ${team}: nav path to the upstairs ${target.name} takes the stairs`, usesStairs, path ? `${path.length} points` : 'no path')
     // Follow that path with the bot's own body (deterministic walk, no combat).
     bot.bot = null
     bot.human = true
     bot.x = h.ox
-    bot.z = h.oz + 8 * h.dir
+    bot.z = h.oz + 9.5 * h.dir
     bot.y = 0
     let k = 0
     for (let t = 0; t < 40 && path && k < path.length; t += 1 / 60) {

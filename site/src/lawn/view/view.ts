@@ -96,7 +96,7 @@ export class LawnView {
     this.renderer.toneMappingExposure = 1
     this.renderer.domElement.className = 'lawn-canvas'
     container.appendChild(this.renderer.domElement)
-    this.camera = new THREE.PerspectiveCamera(opts.fov, 1, 0.08, 400)
+    this.camera = new THREE.PerspectiveCamera(opts.fov, 1, 0.05, 400)
     this.scene.add(this.camera)
     this.sun = new THREE.DirectionalLight('#fff2cc', 3)
     this.sun.castShadow = quality.shadows
@@ -193,7 +193,8 @@ export class LawnView {
     this.hemi.color.set(m.hemiSky)
     this.hemi.groundColor.set(m.hemiGround)
     this.hemi.intensity = m.hemiIntensity
-    indoorAmbient.value = m.indoor
+    // Without interior lamps (low quality by day) rooms take more of the sky light so they never go murky.
+    indoorAmbient.value = this.quality.lamps > 0 ? m.indoor : Math.max(m.indoor, 0.9)
     this.renderer.toneMappingExposure = this.post ? 1 : m.exposure
     this.post?.setMood(m)
     this.placeSun()
@@ -315,7 +316,7 @@ export class LawnView {
     this.syncZones(snap, dt)
     this.syncChaos(snap, dt)
     this.fx.update(dt)
-    this.fp?.update(dt, hud.moving, hud.sprinting, hud.blocking, hud.drawing)
+    this.fp?.update(dt, hud.moving, hud.sprinting, hud.blocking, hud.drawing, hud.ladder)
     if (this.fp) this.fp.group.visible = hud.alive && !this.cine && !hud.riding
     this.updateWeather(dt)
     if (this.blowerUntil > this.time) {

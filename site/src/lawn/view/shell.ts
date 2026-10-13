@@ -4,7 +4,7 @@
 // the frieze under the eaves; the upstairs and garage ceilings; porch, coach and interior lamps; and a soft contact
 // shadow skirt where the walls meet the ground.
 import * as THREE from 'three'
-import { CROSS_HW, EAVE_OH, EAVE_Y, FLOOR_H, GARAGE, MAIN_HX, MAIN_HZ, PITCH, PORCH, RAKE_OH, WALL_H, type HouseStyle } from '../engine/houses'
+import { CROSS_HW, DOORWAY, EAVE_OH, EAVE_Y, FLOOR_H, GARAGE, HX, HZ, MAIN_HX, MAIN_HZ, PITCH, PORCH, RAKE_OH, ROOMS, WALL_H, type HouseStyle, type RoomId } from '../engine/houses'
 import { Kit, polygon } from './kit'
 import { M, cached, paint } from './housemats'
 import { ramp } from './surfaces'
@@ -308,12 +308,12 @@ export function buildShell(o: ShellOptions) {
   const P = 0.06
   plinth(-MAIN_HX - P, -PORCH.x1, MAIN_HZ - 0.02, MAIN_HZ + P)
   plinth(PORCH.x1, MAIN_HX + P, MAIN_HZ - 0.02, MAIN_HZ + P)
-  plinth(-MAIN_HX - P, -0.55, -MAIN_HZ - P, -MAIN_HZ + 0.02)
-  plinth(0.55, GARAGE.x1 + P, -MAIN_HZ - P, -MAIN_HZ + 0.02)
+  plinth(-MAIN_HX - P, -DOORWAY / 2 - 0.05, -MAIN_HZ - P, -MAIN_HZ + 0.02)
+  plinth(DOORWAY / 2 + 0.05, GARAGE.x1 + P, -MAIN_HZ - P, -MAIN_HZ + 0.02)
   plinth(-MAIN_HX - P, -MAIN_HX + 0.02, -MAIN_HZ - P, MAIN_HZ + P)
   plinth(MAIN_HX - 0.02, MAIN_HX + P, GARAGE.z1, MAIN_HZ + P)
-  plinth(MAIN_HX, 6.5, GARAGE.z1 - 0.02, GARAGE.z1 + P)
-  plinth(9.5, GARAGE.x1 + P, GARAGE.z1 - 0.02, GARAGE.z1 + P)
+  plinth(MAIN_HX, 8.25, GARAGE.z1 - 0.02, GARAGE.z1 + P)
+  plinth(11.25, GARAGE.x1 + P, GARAGE.z1 - 0.02, GARAGE.z1 + P)
   plinth(GARAGE.x1 - 0.02, GARAGE.x1 + P, GARAGE.z0 - P, GARAGE.z1 + P)
   // Belly band between the storeys.
   const band = (x0: number, x1: number, z0: number, z1: number) => kit.box(x0, x1, FLOOR_H - 0.22, FLOOR_H, z0, z1, trim)
@@ -334,15 +334,22 @@ export function buildShell(o: ShellOptions) {
   }
 
   /* ---------- ceilings ---------- */
-  kit.geo(polygon([V(-5.85, ROOF_CEIL, -4.35), V(5.85, ROOF_CEIL, -4.35), V(5.85, ROOF_CEIL, 4.35), V(-5.85, ROOF_CEIL, 4.35)]), M.ceiling())
-  kit.geo(polygon([V(6.15, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z1 - 0.3), V(6.15, WALL_H - 0.01, GARAGE.z1 - 0.3)]), M.ceiling())
+  kit.geo(polygon([V(-HX + 0.15, ROOF_CEIL, -HZ + 0.15), V(HX - 0.15, ROOF_CEIL, -HZ + 0.15), V(HX - 0.15, ROOF_CEIL, HZ - 0.15), V(-HX + 0.15, ROOF_CEIL, HZ - 0.15)]), M.ceiling())
+  kit.geo(polygon([V(MAIN_HX, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z0 + 0.3), V(GARAGE.x1 - 0.3, WALL_H - 0.01, GARAGE.z1 - 0.3), V(MAIN_HX, WALL_H - 0.01, GARAGE.z1 - 0.3)]), M.ceiling())
 
   /* ---------- floor coverings upstairs ---------- */
   kit = baseKit
   const cover = (x0: number, x1: number, z0: number, z1: number, mat: THREE.Material) => kit.geo(polygon([V(x0, FLOOR_H + 0.004, z1), V(x1, FLOOR_H + 0.004, z1), V(x1, FLOOR_H + 0.004, z0), V(x0, FLOOR_H + 0.004, z0)]), mat)
-  cover(-5.85, -1.4, -0.45, 4.35, M.carpet(o.dir > 0 ? '#c9b49a' : '#b9c6d6'))
-  cover(-5.85, -1.4, -4.35, -0.75, M.carpet(o.dir > 0 ? '#9fb7c9' : '#c9a9a0'))
-  cover(1.4, 5.85, -4.35, -1.15, M.tiles())
+  const covers: Partial<Record<RoomId, THREE.Material>> = {
+    master: M.carpet(o.dir > 0 ? '#c9b49a' : '#b9c6d6'),
+    bed2: M.carpet(o.dir > 0 ? '#9fb7c9' : '#c9a9a0'),
+    bed3: M.carpet(o.dir > 0 ? '#c4b8d4' : '#bccfae'),
+    bath: M.tiles(),
+  }
+  for (const r of ROOMS) {
+    const m = r.upper ? covers[r.id] : undefined
+    if (m) cover(r.x0, r.x1, r.z0, r.z1, m)
+  }
 
   /* ---------- lamps ---------- */
   const fixture = (x: number, y: number, z: number, lit: boolean) => {
@@ -354,25 +361,19 @@ export function buildShell(o: ShellOptions) {
   }
   const G = FLOOR_H - 0.22
   const U = ROOF_CEIL - 0.01
-  const rooms: [number, number, number, number][] = [
-    // x, ceiling y, z, priority (the first `lamps` get a real light; every room has its fixture)
-    [-3.6, G, 1.6, 0], // living room
-    [-3.6, U, 1.9, 1], // front bedroom
-    [3.6, G, -0.6, 2], // kitchen
-    [3.6, U, 1.8, 3], // study
-    [-3.6, G, -2.8, 4], // dining room
-    [-3.6, U, -2.6, 5], // back bedroom
-    [3.6, U, -2.8, 6], // bathroom
-    [8.15, WALL_H - 0.02, -1.5, 7], // garage
-    [0, G, 3.9, 8], // hall
-    [0.68, G, -1.1, 9], // WC
-    [-0.5, U, 1.6, 10], // landing
-  ]
+  // A ceiling fixture in every room; the first `lamps` (by this priority) also cast real light.
+  const order: RoomId[] = ['living', 'master', 'kitchen', 'bed3', 'dining', 'bed2', 'bath', 'study', 'garage', 'hall', 'wc', 'landing']
+  const rooms: [number, number, number, number][] = ROOMS.map((r) => {
+    const x = r.id === 'hall' || r.id === 'landing' ? -0.6 : (r.x0 + r.x1) / 2
+    const z = r.id === 'hall' ? 4.2 : r.id === 'landing' ? -3.6 : (r.z0 + r.z1) / 2
+    const y = r.id === 'garage' ? WALL_H - 0.02 : r.upper ? U : G
+    return [x, y, z, order.indexOf(r.id)]
+  })
   for (const [x, y, z, prio] of rooms) {
     const lit = prio < o.lamps && o.lampScale > 0
     fixture(x, y, z, o.lampScale > 0)
     if (!lit) continue
-    const l = new THREE.PointLight(LAMP, 9 * o.lampScale, 8, 2)
+    const l = new THREE.PointLight(LAMP, 11 * o.lampScale, 10, 2)
     l.position.set(x, y - 0.35, z)
     group.add(l)
     lights.push(l)
@@ -384,16 +385,16 @@ export function buildShell(o: ShellOptions) {
     kit.box(x - 0.065, x + 0.065, y - 0.13, y + 0.1, z + sz * 0.02, z + sz * 0.15, o.outdoorLamps ? M.bulb('#ffb860', 3.2) : M.glass(0))
   }
   fixture(0, FLOOR_H - 0.23, (PORCH.z0 + PORCH.z1) / 2, o.outdoorLamps)
-  for (const sx of [-1, 1]) lantern(sx * 0.82, 1.95, MAIN_HZ, 1)
-  lantern(6.3, 2.2, GARAGE.z1, 1)
-  lantern(9.75, 2.2, GARAGE.z1, 1)
+  for (const sx of [-1, 1]) lantern(sx * 0.95, 2.05, MAIN_HZ, 1)
+  lantern(8.0, 2.2, GARAGE.z1, 1)
+  lantern(11.5, 2.2, GARAGE.z1, 1)
   if (o.outdoorLamps) {
     const pl = new THREE.PointLight('#ffc27a', 9, 9, 2)
     pl.position.set(0, FLOOR_H - 0.5, (PORCH.z0 + PORCH.z1) / 2 + 0.2)
     group.add(pl)
     lights.push(pl)
     const gl = new THREE.PointLight('#ffc27a', 6, 7, 2)
-    gl.position.set(8.0, 2.3, GARAGE.z1 + 0.6)
+    gl.position.set(9.75, 2.3, GARAGE.z1 + 0.6)
     group.add(gl)
     lights.push(gl)
   }

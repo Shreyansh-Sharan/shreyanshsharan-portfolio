@@ -69,7 +69,8 @@ export const M = {
   snow: () => cached('roof-snow', () => new THREE.MeshStandardMaterial({ color: paint('#f2f6fb', 0.82), roughness: 0.95 })),
   /** Interior surfaces. */
   paper: (hex: string, map: THREE.Texture) => cached(`paper-${hex}`, () => indoor(new THREE.MeshStandardMaterial({ map, color: paint(hex, 0.85), roughness: 0.9 }))),
-  ceiling: () => cached('ceiling', () => indoor(new THREE.MeshStandardMaterial({ color: paint('#f3eee6', 0.78), roughness: 0.95 }))),
+  /** Ceilings: cream paint with a faint brush texture and a touch of bounce light so rooms read airy. */
+  ceiling: () => cached('ceiling', () => indoor(new THREE.MeshStandardMaterial({ map: trimSurface().map, color: paint('#f7f2ea', 0.82), roughness: 0.92, emissive: '#fff4e4', emissiveIntensity: 0.07 }))),
   skirting: () => cached('skirting', () => indoor(new THREE.MeshStandardMaterial({ color: paint('#f4efe6', 0.72), roughness: 0.55 }))),
   indoorTrim: (hex: string) => cached(`itrim-${hex}`, () => indoor(new THREE.MeshStandardMaterial({ color: paint(hex, 0.74), roughness: 0.55 }))),
   floor: (map: THREE.Texture, tint = '#ffffff', rough = 0.55) => cached(`floor-${map.uuid}-${tint}`, () => indoor(new THREE.MeshStandardMaterial({ map, color: paint(tint, 0.9), roughness: rough }))),

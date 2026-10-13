@@ -32,9 +32,9 @@ export interface HeroSpec {
 /** Pieces that make up the outside shell of a floor (hidden in the cutaway). */
 const SHELL = new Set(['wall', 'sill', 'window', 'door', 'header:window', 'header:door', 'header:frontdoor', 'garagedoor', 'header:garage'])
 const ROOF = new Set(['chimney'])
-/** The house's footprint centre (main block x -6..6 plus the garage to x 10; porch steps to z 7.2). */
-const CX = 2
-const CZ = 1
+/** The house's footprint centre (main block x -7.5..7.5 plus the garage to x 12; porch steps to z 8.5). */
+const CX = 2.25
+const CZ = 1.2
 const GROUND = '#ff8a2b'
 const UPSTAIRS = '#ffd93b'
 /** Marker size as a fraction of the view height. */
@@ -346,10 +346,10 @@ export class LobbyStage {
       this.owned.push(geo, m.material as THREE.Material)
       return m
     }
-    const pathLen = Math.sqrt(R * R - 1) - 7.2 + CZ - 0.3
+    const pathLen = Math.sqrt(R * R - CX * CX) - 8.45 + CZ - 0.3
     const driveZ0 = 1.65
-    const driveLen = Math.sqrt(R * R - 60) - driveZ0 + CZ - 0.2
-    this.pivot.add(plinth, walk(1.4, pathLen, 0, 7.2 + pathLen / 2, '#ffffff'), walk(3.6, driveLen, 8.15, driveZ0 + driveLen / 2, '#e6e0d6'))
+    const driveLen = Math.sqrt(R * R - 57) - driveZ0 + CZ - 0.2
+    this.pivot.add(plinth, walk(1.4, pathLen, 0, 8.45 + pathLen / 2, '#ffffff'), walk(3.4, driveLen, 9.75, driveZ0 + driveLen / 2, '#e6e0d6'))
     this.owned.push(plinthGeo, grass, soil)
     const prop = (name: string, x: number, z: number, yaw = 0, scale = 1) => {
       const o = instance(this.assets, name)
@@ -363,12 +363,12 @@ export class LobbyStage {
       })
       this.pivot.add(o)
     }
-    prop('mailbox', 2.4, 10.6)
-    prop('gnome', -3, 8.6, 0.4)
-    prop('gnome', 4.6, 7.8, -0.5)
-    for (let i = 0; i < 3; i++) prop('bush', -6.4 + i, 7.2)
-    prop('bush', 11.2, -3.5, 0.6, 1.2)
-    prop('bush', -8.2, -2.5, 1.2, 1.1)
+    prop('mailbox', 2.4, 11.4)
+    prop('gnome', -3, 9.6, 0.4)
+    prop('gnome', 4.6, 9.4, -0.5)
+    for (let i = 0; i < 3; i++) prop('bush', -6.4 + i, 9.4)
+    prop('bush', 13.0, -4.0, 0.6, 1.2)
+    prop('bush', -9.4, -3.0, 1.2, 1.1)
     this.markerGroup.renderOrder = 20
     this.pivot.add(this.markerGroup)
   }
@@ -425,9 +425,9 @@ export class LobbyStage {
         continue
       }
       if (!SHELL.has(p.model) || p.inside) continue
-      const garage = p.x > 6.05
-      const cx = garage ? 8 : 0
-      const cz = garage ? -1.5 : 0
+      const garage = p.x > 7.55
+      const cx = garage ? 9.75 : 0
+      const cz = garage ? -2 : 0
       const along = p.w >= p.d
       const nx = along ? 0 : Math.sign(p.x - cx)
       const nz = along ? Math.sign(p.z - cz) : 0
@@ -462,7 +462,7 @@ export class LobbyStage {
     const cam = this.houseCam
     const t = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))
     // Fit the ~28 m wide diorama and the ~10.6 m tall house (to the chimney) in either orientation.
-    const d = Math.max(15.4 / (t * cam.aspect), 11.6 / t)
+    const d = Math.max(15.6 / (t * cam.aspect), 12.4 / t)
     const el = 0.5
     cam.position.set(0, 1.9 + Math.sin(el) * d, Math.cos(el) * d)
     cam.lookAt(0, 1.6, 0)

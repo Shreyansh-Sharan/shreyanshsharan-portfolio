@@ -163,6 +163,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 col = inputColor.rgb * uExposure;
   if (uIntensity <= 0.0 || depth >= 0.9999) { outputColor = vec4(col, inputColor.a); return; }
   vec3 P = vpos(uv, depth);
+  // The first-person viewmodel lives within a few centimetres of the lens: no occlusion there.
+  if (-P.z < 0.35) { outputColor = vec4(col, inputColor.a); return; }
   vec2 tx = texelSize;
   vec3 pr = vpos(uv + vec2(tx.x, 0.0), readDepth(uv + vec2(tx.x, 0.0)));
   vec3 pl = vpos(uv - vec2(tx.x, 0.0), readDepth(uv - vec2(tx.x, 0.0)));
