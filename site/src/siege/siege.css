@@ -874,8 +874,26 @@
 }
 
 .sg-hud.is-touch .sg-me {
-  bottom: 190px;
-  width: min(260px, 60vw);
+  top: 56px;
+  bottom: auto;
+  left: 12px;
+  width: min(220px, 42vw);
+}
+
+.sg-hud.is-touch .sg-feed {
+  top: 100px;
+  font-size: 11px;
+}
+
+.sg-tbtn-super {
+  right: 180px;
+  bottom: 118px;
+  background: rgba(253, 224, 71, 0.3);
+}
+
+.sg-tbtn-super.is-ready {
+  border-color: #fde047;
+  box-shadow: 0 0 18px rgba(253, 224, 71, 0.7);
 }
 
 .sg-hud.is-touch .sg-hint {

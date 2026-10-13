@@ -34,11 +34,11 @@ export function floorTexture(theme: Theme): THREE.Texture {
     }
   }
   if (theme === 'street' || theme === 'district') {
-    x.fillStyle = theme === 'street' ? '#17122a' : '#141026'
+    x.fillStyle = theme === 'street' ? '#2a2347' : '#262040'
     x.fillRect(0, 0, S, S)
-    noise(1600, 0.06)
+    noise(1600, 0.09)
     // Kerb-side lane edge and a dashed centre line every tile.
-    x.strokeStyle = 'rgba(240,171,252,0.16)'
+    x.strokeStyle = 'rgba(240,171,252,0.35)'
     x.lineWidth = 3
     x.setLineDash([40, 28])
     x.beginPath()
@@ -64,9 +64,9 @@ export function floorTexture(theme: Theme): THREE.Texture {
       x.stroke()
     }
   } else if (theme === 'roof') {
-    x.fillStyle = '#1b2433'
+    x.fillStyle = '#2c3a52'
     x.fillRect(0, 0, S, S)
-    noise(1200, 0.05)
+    noise(1200, 0.07)
     x.strokeStyle = 'rgba(0,0,0,0.45)'
     x.lineWidth = 4
     for (let i = 0; i <= 2; i++) {
@@ -81,12 +81,12 @@ export function floorTexture(theme: Theme): THREE.Texture {
     x.fillRect(0, 0, S, 10)
   } else {
     // Subway: glossy tiles with grout.
-    x.fillStyle = '#2a2a33'
+    x.fillStyle = '#34343f'
     x.fillRect(0, 0, S, S)
     const n = 8
     for (let i = 0; i < n; i++)
       for (let j = 0; j < n; j++) {
-        const v = 38 + Math.random() * 14
+        const v = 58 + Math.random() * 16
         x.fillStyle = `rgb(${v},${v + 2},${v + 8})`
         x.fillRect(i * (S / n) + 2, j * (S / n) + 2, S / n - 4, S / n - 4)
       }

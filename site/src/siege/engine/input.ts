@@ -86,6 +86,11 @@ export class SiegeInput {
     } else this.touchHeld.delete(name)
   }
 
+  /** Whether this looks like a touch device (the HUD shows the sticks). */
+  get isTouchDevice() {
+    return this.isTouch
+  }
+
   /** Programmatic key press/release (tests). */
   key(code: string, down: boolean) {
     if (down) {

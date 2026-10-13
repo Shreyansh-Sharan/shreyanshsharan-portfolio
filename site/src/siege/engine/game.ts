@@ -64,6 +64,8 @@ export interface GameOptions {
   net?: NetSession
   snap?: boolean
   autopilot?: boolean
+  /** Fixed hero lineup for the bots (key art and tests). */
+  lineup?: HeroId[]
 }
 
 const BOT_NAMES = ['Vex', 'Mira', 'Tolo', 'Kade', 'Juno', 'Rhys', 'Oona', 'Bask', 'Lio', 'Ceres', 'Dax', 'Wyn', 'Pria', 'Hale', 'Nox', 'Suki', 'Brom', 'Ilsa', 'Ryo', 'Tamsin']
@@ -189,7 +191,7 @@ export class Game {
       roster.push({ name: look.name, hero: look.hero, team: 0, human: true, peer: 'host', gear: look.gear, skin: look.skin })
       const pool = HERO_IDS.filter((h) => h !== look.hero)
       for (let i = 0; i < 5; i++) {
-        const hero = i < 2 ? pool[(i * 2 + rng.int(pool.length)) % pool.length] : HERO_IDS[rng.int(HERO_IDS.length)]
+        const hero = this.opts.lineup?.[i] ?? (i < 2 ? pool[(i * 2 + rng.int(pool.length)) % pool.length] : HERO_IDS[rng.int(HERO_IDS.length)])
         roster.push({ name: names[i], hero, team: i < 2 ? 0 : 1, human: false })
       }
     }
@@ -619,6 +621,7 @@ export class Game {
     h.feed = this.feed
     h.players = this.players
     h.settings = this.settings
+    h.touch = this.input.isTouchDevice
     void force
     this.onHud?.({ ...h, me: { ...h.me }, feed: [...h.feed], players: [...h.players], score: [h.score[0], h.score[1]] })
   }

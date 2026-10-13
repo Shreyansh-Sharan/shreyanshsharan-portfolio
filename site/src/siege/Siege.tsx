@@ -10,7 +10,7 @@ import { Page } from '../components/Page'
 import { AdSlot } from '../components/AdSlot'
 import { GearShelf } from '../components/GearShelf'
 import { loadSiegeAssets, type SiegeAssets } from './engine/assets'
-import { HEROES, HERO_IDS } from './engine/heroes'
+import { HEROES, HERO_IDS, type HeroId } from './engine/heroes'
 import { ARENA_MAPS, MAPS, type MapId } from './engine/maps'
 import { MODE_INFO, type ModeId } from './engine/sim'
 import { buySkin, level, loadProfile, ownsSkin, saveProfile, selectSkin, SKINS, SKIN_IDS, xpForLevel, type Profile, type Settings } from './engine/progress'
@@ -355,7 +355,8 @@ function Stage(p: { launch: Launch; assets: SiegeAssets | null; pct: number; pro
         const { Game } = await import('./engine/game')
         if (cancelled || !host.current) return
         const quality = resolveQuality(q.get('quality') === 'low' || q.get('quality') === 'medium' || q.get('quality') === 'high' ? (q.get('quality') as 'low') : profileRef.current.settings.quality)
-        game = new Game(host.current, { assets: p.assets!, profile: profileRef.current, quality, net: net ?? undefined, snap: q.has('snap'), autopilot: q.has('autopilot') })
+        const lineup = q.get('lineup')?.split(',').filter((h): h is HeroId => HERO_IDS.includes(h as HeroId))
+        game = new Game(host.current, { assets: p.assets!, profile: profileRef.current, quality, net: net ?? undefined, snap: q.has('snap'), autopilot: q.has('autopilot'), lineup })
         gameRef.current = game
         game.onHud = setHud
         game.onResult = (_r, prof) => p.onProfile(prof)

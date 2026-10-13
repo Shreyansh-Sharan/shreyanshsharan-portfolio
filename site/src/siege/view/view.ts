@@ -68,6 +68,8 @@ export class SiegeView {
   aimDz = 0
   /** Camera distance multiplier (royale maps sit a little higher). */
   zoom = 1
+  /** Cinematic override for key art and close-ups: look at a point from a yaw/pitch/distance. */
+  cine: { x: number; z: number; yaw: number; pitch: number; dist: number; height: number } | null = null
   shakeOn = true
 
   constructor(container: HTMLElement, assets: SiegeAssets, quality: Quality, opts: { preserve?: boolean } = {}) {
@@ -90,9 +92,9 @@ export class SiegeView {
     this.scene.background = new THREE.Color('#07051a')
     this.scene.fog = new THREE.Fog('#07051a', 60, 110)
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 160)
-    const hemi = new THREE.HemisphereLight('#6d5bd0', '#120a1f', 0.9)
+    const hemi = new THREE.HemisphereLight('#8f7fe8', '#1a1030', 1.4)
     this.scene.add(hemi)
-    this.sun = new THREE.DirectionalLight('#dcd6ff', 1.6)
+    this.sun = new THREE.DirectionalLight('#e6e0ff', 2.2)
     this.sun.position.set(14, 30, 10)
     this.sun.castShadow = quality.shadows
     this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize)
@@ -457,8 +459,17 @@ export class SiegeView {
     const k = snapNow ? 1 : 1 - Math.exp(-dt * 6)
     this.focus.x += (tx - this.focus.x) * k
     this.focus.z += (tz - this.focus.z) * k
-    const h = 25 * this.zoom
-    const back = 13 * this.zoom
+    if (this.cine) {
+      const c = this.cine
+      this.camera.position.set(c.x + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist, c.height + Math.sin(c.pitch) * c.dist, c.z + Math.sin(c.yaw) * Math.cos(c.pitch) * c.dist)
+      this.camera.lookAt(c.x, c.height, c.z)
+      this.sun.position.set(c.x + 14, 30, c.z + 10)
+      this.sun.target.position.set(c.x, 0, c.z)
+      this.sun.target.updateMatrixWorld()
+      return
+    }
+    const h = 29 * this.zoom
+    const back = 14 * this.zoom
     const sh = this.shakeOn ? this.fx.shake : 0
     const jx = (Math.random() - 0.5) * sh * 0.8
     const jz = (Math.random() - 0.5) * sh * 0.8

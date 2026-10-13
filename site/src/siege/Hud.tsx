@@ -87,7 +87,7 @@ export function SiegeHud({ hud, game, profile, onQuit }: { hud: Hud; game: Game;
               </div>
             </div>
           </div>
-          {hud.touch && <TouchControls game={game} />}
+          {hud.touch && <TouchControls game={game} superReady={me.super >= 1} />}
           {!hud.touch && hud.phase === 'play' && hud.time < 6 && <div className="sg-hint">WASD move · mouse aim · LMB fire · Space dash · Q/E super</div>}
         </>
       )}
@@ -281,12 +281,23 @@ function Stick({ onMove, onEnd, label, className }: { onMove: (x: number, y: num
   )
 }
 
-function TouchControls({ game }: { game: Game }) {
+function TouchControls({ game, superReady }: { game: Game; superReady: boolean }) {
   useEffect(() => () => game.input.touchMove(0, 0), [game])
   return (
     <div className="sg-touch" data-testid="sg-touch">
       <Stick className="sg-stick-move" label="MOVE" onMove={(x, y) => game.input.touchMove(x, y)} onEnd={() => game.input.touchMove(0, 0)} />
       <Stick className="sg-stick-aim" label="AIM · FIRE" onMove={(x, y) => game.input.touchAim(x, y, true)} onEnd={() => game.input.touchAim(0, 0, false)} />
+      <button
+        className={`sg-tbtn sg-tbtn-super ${superReady ? 'is-ready' : ''}`}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          game.input.touchButton('super', true)
+        }}
+        onPointerUp={() => game.input.touchButton('super', false)}
+        onPointerCancel={() => game.input.touchButton('super', false)}
+      >
+        SUPER
+      </button>
       <button
         className="sg-tbtn sg-tbtn-dash"
         onPointerDown={(e) => {

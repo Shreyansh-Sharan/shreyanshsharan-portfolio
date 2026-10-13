@@ -78,33 +78,47 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
       if (k === 'wall' && (ch === '#' || ch === 'n' || ch === 'h')) wallCells.push([cx, cz, ch])
     }
 
-  // Walls: instanced boxes plus a neon cap. Perimeter walls are lower so the camera sees past them.
+  // Walls: instanced boxes with a neon trim along the top edges that face open cells.
   const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL)
-  const wallMat = new THREE.MeshStandardMaterial({ color: map.theme === 'subway' ? '#3a3a46' : map.theme === 'roof' ? '#2b3446' : '#241c3a', roughness: 0.7, metalness: 0.2 })
-  const capGeo = new THREE.BoxGeometry(CELL + 0.04, 0.07, CELL + 0.04)
+  const wallMat = new THREE.MeshStandardMaterial({ color: map.theme === 'subway' ? '#4a4a58' : map.theme === 'roof' ? '#34405a' : '#2e2550', roughness: 0.7, metalness: 0.2 })
+  const capGeo = new THREE.BoxGeometry(CELL + 0.06, 0.07, 0.14)
   const capMat = new THREE.MeshBasicMaterial({ color: neon })
   const walls = new THREE.InstancedMesh(wallGeo, wallMat, Math.max(1, wallCells.length))
-  const caps = new THREE.InstancedMesh(capGeo, capMat, Math.max(1, wallCells.length))
   walls.castShadow = quality > 0
   walls.receiveShadow = true
   const m4 = new THREE.Matrix4()
+  const capList: THREE.Matrix4[] = []
   wallCells.forEach(([cx, cz], i) => {
     const edge = cx === 0 || cz === 0 || cx === W - 1 || cz === H - 1
     const h = edge ? WALL_H * 0.7 : WALL_H
     m4.makeScale(1, h / WALL_H, 1).setPosition((cx + 0.5) * CELL, h / 2, (cz + 0.5) * CELL)
     walls.setMatrixAt(i, m4)
-    m4.makeTranslation((cx + 0.5) * CELL, h + 0.03, (cz + 0.5) * CELL)
-    caps.setMatrixAt(i, m4)
+    for (const [dx, dz] of [
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+    ]) {
+      const nk = kindAt(cx + dx, cz + dz)
+      if (nk === 'wall') continue
+      const m = new THREE.Matrix4().makeRotationY(dx ? Math.PI / 2 : 0)
+      m.setPosition((cx + 0.5) * CELL + dx * (CELL / 2 - 0.07), h + 0.03, (cz + 0.5) * CELL + dz * (CELL / 2 - 0.07))
+      capList.push(m)
+    }
   })
-  walls.count = caps.count = wallCells.length
+  walls.count = wallCells.length
+  const caps = new THREE.InstancedMesh(capGeo, capMat, Math.max(1, capList.length))
+  capList.forEach((m, i) => caps.setMatrixAt(i, m))
+  caps.count = capList.length
   g.add(walls, caps)
   disposables.push(wallGeo, wallMat, capGeo, capMat)
 
   // Voids: rooftop drops, the subway trench, a sunken plaza.
   if (voidCells.length) {
-    const depth = map.theme === 'roof' ? 0 : map.theme === 'subway' ? -1.5 : -0.7
+    // Drawn just above the floor plane (the floor is one quad), with the rims selling the drop.
+    const depth = 0
     const vGeo = new THREE.PlaneGeometry(CELL, CELL)
-    const vMat = new THREE.MeshStandardMaterial({ color: map.theme === 'roof' ? '#020108' : map.theme === 'subway' ? '#15151c' : '#0a1a2a', roughness: 1 })
+    const vMat = new THREE.MeshStandardMaterial({ color: map.theme === 'roof' ? '#020108' : map.theme === 'subway' ? '#101016' : '#071424', roughness: 1 })
     const voids = new THREE.InstancedMesh(vGeo, vMat, voidCells.length)
     voidCells.forEach(([cx, cz], i) => {
       m4.makeRotationX(-Math.PI / 2).setPosition((cx + 0.5) * CELL, depth + 0.02, (cz + 0.5) * CELL)
@@ -142,9 +156,9 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
       const railMat = new THREE.MeshStandardMaterial({ color: '#8d8d99', metalness: 0.8, roughness: 0.3 })
       const rails = new THREE.InstancedMesh(railGeo, railMat, voidCells.length * 2)
       voidCells.forEach(([cx, cz], i) => {
-        m4.makeTranslation((cx + 0.5) * CELL, depth + 0.08, (cz + 0.5) * CELL - 0.45)
+        m4.makeTranslation((cx + 0.5) * CELL, depth + 0.06, (cz + 0.5) * CELL - 0.45)
         rails.setMatrixAt(i * 2, m4)
-        m4.makeTranslation((cx + 0.5) * CELL, depth + 0.08, (cz + 0.5) * CELL + 0.45)
+        m4.makeTranslation((cx + 0.5) * CELL, depth + 0.06, (cz + 0.5) * CELL + 0.45)
         rails.setMatrixAt(i * 2 + 1, m4)
       })
       g.add(rails)
@@ -297,8 +311,12 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
           const color = ['#f0abfc', '#22d3ee', '#facc15', '#4ade80'][rng.int(4)]
           const t = holoTexture(brand, color)
           const geo = new THREE.PlaneGeometry(1.6, 3.2)
-          const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false })
-          const holo = new THREE.Mesh(geo, mat)
+          const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.85, depthWrite: false })
+          const holo = new THREE.Group()
+          const front = new THREE.Mesh(geo, mat)
+          const back = new THREE.Mesh(geo, mat)
+          back.rotation.y = Math.PI
+          holo.add(front, back)
           holo.position.set(x, WALL_H + 1.9, z)
           g.add(holo)
           disposables.push(t, geo, mat)
@@ -442,8 +460,11 @@ export function buildMap(map: MapDef, chars: string[], assets: SiegeAssets, seed
       const color = ['#f0abfc', '#22d3ee', '#facc15'][i % 3]
       const t = holoTexture(brand, color)
       const geo = new THREE.PlaneGeometry(2.4, 4.8)
-      const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
-      const holo = new THREE.Mesh(geo, mat)
+      const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.8, depthWrite: false })
+      const holo = new THREE.Group()
+      const back = new THREE.Mesh(geo, mat)
+      back.rotation.y = Math.PI
+      holo.add(new THREE.Mesh(geo, mat), back)
       const side = i % 4
       holo.position.set(side === 0 ? -1.5 : side === 1 ? wm + 1.5 : rng.range(6, wm - 6), 6 + rng.next() * 2, side === 2 ? -1.5 : side === 3 ? hm + 1.5 : rng.range(6, hm - 6))
       g.add(holo)

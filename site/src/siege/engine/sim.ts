@@ -710,7 +710,7 @@ export class Sim {
       team: f.team,
       x: f.x + Math.cos(a) * muzzle,
       z: f.z + Math.sin(a) * muzzle,
-      y: 1.1,
+      y: 1.3,
       vx: Math.cos(a) * w.speed,
       vz: Math.sin(a) * w.speed,
       vy: 0,

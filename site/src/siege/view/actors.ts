@@ -66,13 +66,13 @@ export class FighterActor {
         if (!m.isMesh) return
         const mat = (m.material as THREE.MeshLambertMaterial).clone()
         mat.emissive = new THREE.Color(palette.glow)
-        mat.emissiveIntensity = 0.25
+        mat.emissiveIntensity = 0.1
         mat.transparent = true
         m.material = mat
         this.gunMats.push(mat)
       })
-      gun.position.set(0.28, 0.95, 0.35)
-      gun.rotation.y = Math.PI / 2
+      gun.position.set(0.34, 1.32, 0.62)
+      gun.rotation.y = Math.PI
       this.group.add(gun)
       this.gun = gun
     }
@@ -165,7 +165,7 @@ export class FighterActor {
   }
 
   get gunTip() {
-    return new THREE.Vector3(0.28, 0.95, 0.9).applyMatrix4(this.group.matrixWorld)
+    return new THREE.Vector3(0.34, 1.32, 1.1).applyMatrix4(this.group.matrixWorld)
   }
 
   dispose() {

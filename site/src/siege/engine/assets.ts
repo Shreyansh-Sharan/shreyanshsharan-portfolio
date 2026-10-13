@@ -9,7 +9,7 @@ export interface ModelSpec {
   file: string
   /** Target height in metres (0 = keep the file's scale). */
   height?: number
-  /** Target width (X) in metres, used instead of height when set. */
+  /** Target footprint (largest horizontal extent) in metres, used instead of height when set. */
   width?: number
   /** Yaw offset in radians so the piece faces +X by default. */
   yaw?: number
@@ -17,16 +17,18 @@ export interface ModelSpec {
   lit?: boolean
   /** Emissive tint for neon pieces. */
   glow?: string
+  /** Emissive strength (default 0.55). */
+  glowIntensity?: number
 }
 
 export const MANIFEST: Record<string, ModelSpec> = {
   // Heroes (node-animated characters) and their blasters.
-  'hero-rook': { file: 'hero-rook.glb', height: 1.75 },
-  'hero-wren': { file: 'hero-wren.glb', height: 1.75 },
-  'hero-furnace': { file: 'hero-furnace.glb', height: 1.75 },
-  'hero-flick': { file: 'hero-flick.glb', height: 1.75 },
-  'hero-pike': { file: 'hero-pike.glb', height: 1.75 },
-  'hero-salve': { file: 'hero-salve.glb', height: 1.75 },
+  'hero-rook': { file: 'hero-rook.glb', height: 2.1 },
+  'hero-wren': { file: 'hero-wren.glb', height: 2.1 },
+  'hero-furnace': { file: 'hero-furnace.glb', height: 2.1 },
+  'hero-flick': { file: 'hero-flick.glb', height: 2.1 },
+  'hero-pike': { file: 'hero-pike.glb', height: 2.1 },
+  'hero-salve': { file: 'hero-salve.glb', height: 2.1 },
   'gun-rook': { file: 'gun-rook.glb', width: 0.9 },
   'gun-wren': { file: 'gun-wren.glb', width: 1.25 },
   'gun-furnace': { file: 'gun-furnace.glb', width: 1.0 },
@@ -36,7 +38,7 @@ export const MANIFEST: Record<string, ModelSpec> = {
   grenade: { file: 'grenade.glb', height: 0.35 },
   // Cover and props.
   'supply-crate': { file: 'supply-crate.glb', height: 1.5 },
-  'ammo-crate': { file: 'ammo-crate.glb', width: 1.7, glow: '#f0abfc' },
+  'ammo-crate': { file: 'ammo-crate.glb', width: 1.7, glow: '#f0abfc', glowIntensity: 0.12 },
   'barrel-stack': { file: 'barrel-stack.glb', width: 1.9 },
   'sandbag-stack': { file: 'sandbag-stack.glb', width: 1.95 },
   'checkpoint-barrier': { file: 'checkpoint-barrier.glb', width: 1.95 },
@@ -101,7 +103,7 @@ function normalise(root: THREE.Object3D, spec: ModelSpec) {
   const box = new THREE.Box3().setFromObject(root)
   const size = box.getSize(new THREE.Vector3())
   let s = 1
-  if (spec.width && size.x > 0) s = spec.width / size.x
+  if (spec.width && Math.max(size.x, size.z) > 0) s = spec.width / Math.max(size.x, size.z)
   else if (spec.height && size.y > 0) s = spec.height / size.y
   root.scale.setScalar(s)
   root.updateMatrixWorld(true)
@@ -124,7 +126,7 @@ function normalise(root: THREE.Object3D, spec: ModelSpec) {
       if (spec.glow) {
         // Vertex-coloured neon: brightest vertices glow in the given tint.
         lam.emissive = new THREE.Color(spec.glow)
-        lam.emissiveIntensity = 0.55
+        lam.emissiveIntensity = spec.glowIntensity ?? 0.55
       }
       lam.name = src.name
       return lam

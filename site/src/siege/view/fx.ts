@@ -43,8 +43,7 @@ export class Fx {
     this.geo = new THREE.BufferGeometry()
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3))
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3))
-    this.geo.setAttribute('size', new THREE.BufferAttribute(this.size, 1))
-    this.mat = new THREE.PointsMaterial({ size: 0.35, map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true })
+    this.mat = new THREE.PointsMaterial({ size: 0.5, map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true })
     // Per-particle size through the `size` attribute.
     this.mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('uniform float size;', 'uniform float size; attribute float size2;').replace('gl_PointSize = size;', 'gl_PointSize = size * size2;')
@@ -117,7 +116,7 @@ export class Fx {
   muzzle(x: number, z: number, aim: number, color: string, big = false) {
     const dx = Math.cos(aim)
     const dz = Math.sin(aim)
-    const y = 1.0
+    const y = 1.3
     this.emit(x, y, z, dx * 2, 0, dz * 2, '#ffffff', 0.06, big ? 1.4 : 0.9)
     this.burst(x + dx * 0.2, y, z + dz * 0.2, big ? 8 : 4, color, 5, 0.18, 0.35)
     if (big) this.light(x, z, color, 8)
