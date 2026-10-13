@@ -1,6 +1,6 @@
 // DOM overlay for explore mode: mission log, objective compass, minimap, prompts, briefing, touch controls.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleCheck, Compass, Crosshair, Feather, Footprints, Map as MapIcon, Swords, X, Zap } from 'lucide-react'
+import { CircleCheck, Compass, Crosshair, Feather, Footprints, Gauge, Map as MapIcon, Swords, X, Zap } from 'lucide-react'
 import { MISSIONS, type Mission } from './missions'
 import { ISLAND_RADIUS, REGIONS } from './regions'
 import { controls } from './controls'
@@ -10,6 +10,7 @@ import { results, startFight, wavesFor } from './combat'
 import { world, useWorld } from './store'
 import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
+import { isLowGraphics, setLowGraphics } from '../lib/graphics'
 
 function usePlayerTick() {
   const [, setTick] = useState(0)
@@ -236,6 +237,21 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
   const fightState = useWorld((s) => s.fight)
   const flying = player.flying
 
+  // Graphics tier, switchable without leaving the world; the canvas listens for the change. The world also
+  // announces when it dropped the tier itself after seeing nothing but black frames.
+  const [lowGfx, setLowGfx] = useState(isLowGraphics)
+  const [gfxNote, setGfxNote] = useState<string | null>(null)
+  useEffect(() => {
+    const on = () => setGfxNote('The picture went blank, so the world switched to lighter graphics')
+    window.addEventListener('ss-gfx-auto', on)
+    return () => window.removeEventListener('ss-gfx-auto', on)
+  }, [])
+  useEffect(() => {
+    if (!gfxNote) return
+    const id = window.setTimeout(() => setGfxNote(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [gfxNote])
+
   // The victory banner shows for a few seconds after a mission is won.
   const won = useWorld((s) => s.cheer)
   const [seenWin, setSeenWin] = useState(won?.n ?? 0)
@@ -379,6 +395,23 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
       <button className="pill exit-play" onClick={onExit}>
         Exit <kbd>⌘K</kbd>
       </button>
+      <button
+        className={`pill gfx-play ${lowGfx ? 'is-low' : ''}`}
+        title={lowGfx ? 'Low graphics is on: click for full graphics' : 'Switch to low graphics (fixes lag or a black picture)'}
+        onClick={() => {
+          const next = !lowGfx
+          setLowGraphics(next)
+          setLowGfx(next)
+          window.dispatchEvent(new Event('ss-gfx'))
+        }}
+      >
+        {lowGfx ? <Zap size={14} /> : <Gauge size={14} />} {lowGfx ? 'Low graphics' : 'Full graphics'}
+      </button>
+      {gfxNote && (
+        <div className="spell-toast" role="status">
+          {gfxNote}
+        </div>
+      )}
 
       {nearMission && !openMission && (
         <button

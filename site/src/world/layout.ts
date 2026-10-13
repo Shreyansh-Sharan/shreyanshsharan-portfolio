@@ -116,13 +116,24 @@ export function neonBlocks(): NeonBlock[] {
   const r = REGIONS.find((g) => g.id === 'neon')!
   const rnd = mulberry32(77)
   const out: NeonBlock[] = []
+  // The explorer spawns a few metres beyond the beacon (see spawnPlayer) with the camera behind them: keep that
+  // whole corridor clear of towers, or the camera starts inside a block and the screen is black.
+  const bx = r.center[0] + r.beacon[0], bz = r.center[1] + r.beacon[1]
+  const len = Math.hypot(r.beacon[0], r.beacon[1]) || 1
+  const ax = r.beacon[0] / len, az = r.beacon[1] / len
+  const corridor: [number, number][] = [
+    [bx, bz],
+    [bx + ax * 5, bz + az * 5],
+    [bx + ax * 13, bz + az * 13],
+  ]
   for (let i = 0; i < 46; i++) {
     const a = rnd() * Math.PI * 2,
       d = 14 + rnd() * 30
     const x = r.center[0] + Math.cos(a) * d,
       z = r.center[1] + Math.sin(a) * d
     const near = (bx: number, bz: number) => Math.hypot(x - bx, z - bz)
-    if (near(r.center[0] - 14, r.center[1] + 10) < 7 || near(r.center[0] - 6, r.center[1] + 16) < 6) continue
+    if (near(r.center[0] - 14, r.center[1] + 10) < 7) continue
+    if (corridor.some(([cx, cz]) => near(cx, cz) < 11)) continue
     out.push({ x, z, w: 4 + rnd() * 5, d: 4 + rnd() * 5, h: 8 + rnd() * 26 })
   }
   neonCache = out

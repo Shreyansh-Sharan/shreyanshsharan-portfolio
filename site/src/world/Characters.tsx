@@ -9,7 +9,7 @@ import { ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
 import { GUIDE_SPOT } from './layout'
-import { resolve } from './colliders'
+import { blocked, resolve } from './colliders'
 import { animals } from './wildlife'
 import { controls, flyAxis, moveAxes, pollPad } from './controls'
 import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type HitShape } from './combat'
@@ -65,7 +65,23 @@ export function spawnPlayer() {
   const bx = r.center[0] + r.beacon[0], bz = r.center[1] + r.beacon[1]
   // Stand a few metres beyond the beacon, on the side away from the landmark.
   const away = new THREE.Vector2(bx - r.center[0], bz - r.center[1]).normalize()
-  const x = bx + away.x * 5, z = bz + away.y * 5
+  let x = bx + away.x * 5, z = bz + away.y * 5
+  // Never start inside a prop: walk a widening ring around the intended spot until it is clear for the
+  // player and for the camera a few metres behind them.
+  const clear = (px: number, pz: number) => !blocked(px, pz, 0.8) && !blocked(px + away.x * 7.5, pz + away.y * 7.5, 1.2, heightAt(px, pz) + 1)
+  if (!clear(x, z)) {
+    search: for (let ring = 2; ring <= 24; ring += 2) {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2
+        const cx = x + Math.cos(a) * ring, cz = z + Math.sin(a) * ring
+        if (clear(cx, cz)) {
+          x = cx
+          z = cz
+          break search
+        }
+      }
+    }
+  }
   player.pos.set(x, heightAt(x, z), z)
   // Camera behind the player, looking towards the landmark.
   player.camYaw = Math.atan2(x - r.center[0], z - r.center[1])

@@ -71,6 +71,11 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
           break
         }
       }
+      // Still inside something (standing against a building: the pulled-in spot can be within its wall)?
+      // Then look over the shoulder from just behind the head rather than from inside the dark.
+      if (blocked(tmpPos.x, tmpPos.z, 0.6, tmpPos.y - 1)) {
+        tmpPos.set(tmpTarget.x + Math.sin(player.camYaw) * 1.4, tmpTarget.y + 0.9, tmpTarget.z + Math.cos(player.camYaw) * 1.4)
+      }
       const floor = heightAt(tmpPos.x, tmpPos.z) + 0.8
       if (tmpPos.y < floor) tmpPos.y = floor
       // Follow faster as flight speeds up so the camera keeps the player in frame (a slow follow fell

@@ -1453,6 +1453,21 @@ p {
   -webkit-backdrop-filter: blur(12px);
 }
 
+.gfx-play {
+  position: absolute;
+  top: 282px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.gfx-play.is-low {
+  color: #fde68a;
+}
+
 .prompt {
   position: absolute;
   left: 50%;
