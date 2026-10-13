@@ -1,46 +1,16 @@
-// Simple procedural kit and match objects: bat, ball, stumps with bails that fly, the bowler's landing marker.
+// Match objects built from the downloaded models (ball, stumps and bails that fly) plus the small procedural kit
+// (pads, gloves, caps) and the bowler's landing marker.
 import * as THREE from 'three'
 import { Geo, stumpsZ } from '../sim/geo'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import type { CricketAssets } from '../assets'
 
-/** Bat: grip point at the origin, blade running down local -Y, face towards +Z. */
-export function makeBat(gripColor = '#1f2937') {
-  const g = new THREE.Group()
-  const willow = new THREE.MeshStandardMaterial({ color: '#e8d3a2', roughness: 0.55 })
-  const grip = new THREE.MeshStandardMaterial({ color: gripColor, roughness: 0.8 })
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.3, 8), grip)
-  handle.position.y = 0.04
-  // Blade: slightly tapered with a rounded back.
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.108, 0.56, 0.04), willow)
-  blade.position.y = -0.39
-  const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.46, 8, 1, false, Math.PI, Math.PI), willow)
-  spine.rotation.y = Math.PI
-  spine.scale.set(1.2, 1, 0.9)
-  spine.position.set(0, -0.37, -0.016)
-  const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.035), willow)
-  shoulder.position.y = -0.11
-  const sticker = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.16), new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.6 }))
-  sticker.position.set(0, -0.3, 0.0205)
-  g.add(handle, blade, spine, shoulder, sticker)
-  g.traverse((o) => ((o as THREE.Mesh).castShadow = true))
-  return g
-}
-
-export function makeBall() {
-  const c = document.createElement('canvas')
-  c.width = 64
-  c.height = 32
-  const x = c.getContext('2d')!
-  // A white ball with a dark, clearly visible seam so its spin and line read against the pitch.
-  x.fillStyle = '#fbfbf7'
-  x.fillRect(0, 0, 64, 32)
-  x.fillStyle = '#1f2937'
-  x.fillRect(0, 14, 64, 4)
-  x.fillStyle = '#b91c1c'
-  for (let i = 0; i < 64; i += 6) x.fillRect(i, 12, 2, 8)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  const m = new THREE.Mesh(new THREE.SphereGeometry(Geo.BallRadius * 1.15, 16, 12), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, emissive: '#ffffff', emissiveIntensity: 0.18 }))
+/** The photoscanned ball, lifted a touch so it never goes black under lights (its line must stay readable). */
+export function makeBall(assets: CricketAssets) {
+  const src = assets.ball.material as THREE.MeshStandardMaterial
+  const mat = new THREE.MeshStandardMaterial({ map: src.map, normalMap: src.normalMap, roughness: 0.5, metalness: 0, emissive: '#ff3b30', emissiveIntensity: 0.16 })
+  if (mat.map) mat.map.anisotropy = 4
+  const m = new THREE.Mesh(assets.ball.geometry, mat)
   m.castShadow = true
   return m
 }
@@ -53,7 +23,7 @@ interface FlyingBail {
   flying: boolean
 }
 
-/** One set of stumps and bails (in view coordinates). */
+/** One set of stumps and bails (in view coordinates), from the stump model: three upright stumps, two bails. */
 export class Wicket {
   group = new THREE.Group()
   stumps: THREE.Mesh[] = []
@@ -62,22 +32,20 @@ export class Wicket {
   broken = false
   end: number
 
-  constructor(end: number) {
+  constructor(end: number, assets: CricketAssets) {
     this.end = end
     const wood = new THREE.MeshStandardMaterial({ color: '#f3ead7', roughness: 0.5 })
     const z = stumpsZ(end)
     for (let i = -1; i <= 1; i++) {
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(Geo.StumpRadius, Geo.StumpRadius * 0.85, Geo.StumpHeight, 10), wood)
-      s.geometry.translate(0, Geo.StumpHeight / 2, 0)
+      const s = new THREE.Mesh(assets.stump, wood)
       s.position.set(i * (Geo.StumpsHalfWidth - Geo.StumpRadius), 0, z)
       s.castShadow = true
       this.group.add(s)
       this.stumps.push(s)
     }
     for (let i = 0; i < 2; i++) {
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.11, 6), wood)
-      b.rotation.z = Math.PI / 2
-      const home = new THREE.Vector3((i - 0.5) * 0.11, Geo.StumpHeight + 0.008, z)
+      const b = new THREE.Mesh(assets.bail, wood)
+      const home = new THREE.Vector3((i - 0.5) * 0.112, Geo.StumpHeight + 0.0075, z)
       b.position.copy(home)
       b.castShadow = true
       this.group.add(b)
@@ -107,7 +75,7 @@ export class Wicket {
     for (const b of this.bails) {
       b.flying = false
       b.mesh.position.copy(b.home)
-      b.mesh.rotation.set(0, 0, Math.PI / 2)
+      b.mesh.rotation.set(0, 0, 0)
     }
     for (const s of this.stumps) s.rotation.set(0, 0, 0)
     this.stumpLean = []
@@ -149,7 +117,7 @@ export function makeMarker() {
   return g
 }
 
-/** Pads, gloves, helmet and caps, authored in the body's bind pose (model space, metres, facing +Z). */
+/** Pads, gloves and caps, authored in the body's bind pose (model space, metres, facing +Z). */
 export const KitGeometry = {
   pad(side: 1 | -1) {
     // A shin pad with knee roll: vertical box with three rolls.
@@ -172,30 +140,6 @@ export const KitGeometry = {
   glove() {
     const g = new THREE.BoxGeometry(0.075, 0.1, 0.085)
     return g
-  },
-  helmet() {
-    const parts: THREE.BufferGeometry[] = []
-    const shell = new THREE.SphereGeometry(0.135, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55)
-    shell.scale(1, 1.02, 1.12)
-    parts.push(shell.toNonIndexed())
-    const peak = new THREE.BoxGeometry(0.2, 0.012, 0.07)
-    peak.translate(0, 0.005, 0.15)
-    parts.push(peak.toNonIndexed())
-    return mergeGeometries(parts)!
-  },
-  grille() {
-    const parts: THREE.BufferGeometry[] = []
-    for (let i = 0; i < 3; i++) {
-      const bar = new THREE.TorusGeometry(0.13, 0.004, 4, 16, Math.PI)
-      bar.rotateZ(Math.PI)
-      bar.scale(1, 0.9, 1.25)
-      bar.translate(0, -0.03 - i * 0.035, 0)
-      parts.push(bar.toNonIndexed())
-    }
-    const v = new THREE.BoxGeometry(0.006, 0.11, 0.006)
-    v.translate(0, -0.07, 0.16)
-    parts.push(v.toNonIndexed())
-    return mergeGeometries(parts)!
   },
   cap() {
     const parts: THREE.BufferGeometry[] = []

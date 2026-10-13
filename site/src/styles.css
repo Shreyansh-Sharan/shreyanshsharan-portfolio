@@ -1888,6 +1888,24 @@ p {
   margin: 8px 0 2px;
 }
 
+.model-credits {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.model-credits a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.25);
+}
+
+.model-credits a:hover {
+  color: var(--fg, #f8fafc);
+}
+
 .seg {
   display: flex;
   gap: 4px;

@@ -1,15 +1,28 @@
-// The procedural ground: oval with mowing stripes, pitch with creases and wear, the 30-yard circle, rope, ad boards,
-// sight screens, tiered stands with roofs, an instanced crowd, floodlight towers, sky and lighting for day, dusk
-// and night. Built once per match; the quality tier decides the crowd size, roofs and shadows.
+// The venue: Shayan's low-poly Ekana stadium (CC BY) stretched to wrap the game's oval, with the game's own ground
+// (mowing stripes, pitch with creases and wear, the 30-yard circle, rope, ad boards, sight screens, big screen),
+// an instanced crowd sampled onto the model's terraces, floodlight glows at its towers, and sky and lighting for
+// day, dusk and night. Built once per match; the quality tier decides the crowd size and shadows.
 import * as THREE from 'three'
 import type { CricketAssets } from '../assets'
 import type { QualitySettings } from '../quality'
 import type { PitchType, TimeOfDay } from '../sim/conditions'
 import { Geo } from '../sim/geo'
-import { Crowd } from './crowd'
+import { Crowd, ringSeats } from './crowd'
 
 const RX = Geo.BoundarySquare
 const RZ = Geo.BoundaryStraight
+
+/** The stadium model is a 95 m circle with its field inside r 26.5; stretch it round the 63 x 68 m boundary. */
+const VENUE_SCALE = new THREE.Vector3(2.95, 1.45, 3.15)
+/** The model's floodlight heads (model units, before scaling). */
+const TOWERS = [
+  [31, 20.6, 0],
+  [-31, 20.6, 0],
+  [15.5, 20.6, 26.9],
+  [-15.5, 20.6, 26.9],
+  [15.5, 20.6, -26.9],
+  [-15.5, 20.6, -26.9],
+]
 
 export interface StadiumOptions {
   pitch: PitchType
@@ -33,7 +46,6 @@ export class Stadium {
   private boards: THREE.Mesh[] = []
   private boardTex: THREE.CanvasTexture | null = null
   private boardScroll = 0
-  private lamps: THREE.Mesh[] = []
   private screenCanvas: HTMLCanvasElement
   private screenTex: THREE.CanvasTexture
   private opts: StadiumOptions
@@ -83,11 +95,12 @@ export class Stadium {
     g.add(this.rope())
     g.add(this.adBoards())
     g.add(this.sightScreens(night))
-    g.add(this.pavilions(night))
-    g.add(this.stands(assets))
-    this.crowd = new Crowd(opts.quality.crowd, opts.colors, night)
+    const venue = this.venue(assets, night, dusk)
+    g.add(venue)
+    const seats = terraceSeats(assets.stadium, opts.quality.crowd, VENUE_SCALE)
+    this.crowd = new Crowd(seats, opts.colors, night)
     g.add(this.crowd.mesh)
-    g.add(this.floodlights(night))
+    g.add(this.floodlightGlow(night))
     this.screenCanvas = document.createElement('canvas')
     this.screenCanvas.width = 512
     this.screenCanvas.height = 256
@@ -145,7 +158,6 @@ export class Stadium {
           float band = mix(0.9, 1.1, stripe) * mix(0.97, 1.03, cross);
           float inner = 1.0 - smoothstep(0.98, 1.0, k);
           diffuseColor.rgb *= mix(0.82, band, inner);
-          diffuseColor.rgb *= mix(1.0, 0.9, smoothstep(0.0, 0.25, 1.0 - k) * 0.0);
           // Worn square around the pitch.
           float sq = (1.0 - smoothstep(9.0, 12.0, abs(vWorldPos.x))) * (1.0 - smoothstep(14.0, 18.0, abs(vWorldPos.z)));
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 1.04, 0.9), sq * 0.6);`,
@@ -278,7 +290,7 @@ export class Stadium {
       x.font = 'bold 34px system-ui, sans-serif'
       x.textAlign = 'center'
       x.textBaseline = 'middle'
-      x.fillText(SPONSORS[i * 2 % SPONSORS.length], i * seg + seg / 2, 33)
+      x.fillText(SPONSORS[(i * 2) % SPONSORS.length], i * seg + seg / 2, 33)
     }
     const tex = new THREE.CanvasTexture(c)
     tex.colorSpace = THREE.SRGBColorSpace
@@ -327,168 +339,40 @@ export class Stadium {
     return g
   }
 
-  /** A pavilion and a scoreboard end behind the sight screens (so the gaps in the stands aren't empty sky). */
-  private pavilions(night: boolean) {
-    const g = new THREE.Group()
-    const c = document.createElement('canvas')
-    c.width = 512
-    c.height = 256
-    const x = c.getContext('2d')!
-    x.fillStyle = night ? '#1b2333' : '#d9d2c3'
-    x.fillRect(0, 0, 512, 256)
-    for (let row = 0; row < 4; row++)
-      for (let col = 0; col < 16; col++) {
-        const lit = night ? Math.random() < 0.7 : false
-        x.fillStyle = lit ? '#ffe7a8' : night ? '#0d121c' : '#5b6b7d'
-        x.fillRect(12 + col * 31, 26 + row * 54, 20, 30)
+  /** The stadium model round the ground, lit for the time of day (its lamps glow after dark). */
+  private venue(assets: CricketAssets, night: boolean, dusk: boolean) {
+    const venue = assets.stadium.clone()
+    venue.scale.copy(VENUE_SCALE)
+    const glow = new THREE.Color(night ? '#2c3650' : dusk ? '#2a1c12' : '#000000')
+    venue.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const src = m.material as THREE.MeshStandardMaterial
+      const mat = src.clone()
+      mat.emissiveIntensity = night ? 2.5 : dusk ? 1.2 : 0
+      mat.roughness = 0.85
+      // The stands catch the floodlights at night (a flat lift on top of the lamp panels' emissive map).
+      mat.onBeforeCompile = (sh) => {
+        sh.uniforms.uGlow = { value: glow }
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uGlow;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * diffuseColor.rgb;')
       }
-    x.fillStyle = night ? '#0b0f18' : '#7a6a55'
-    x.fillRect(0, 236, 512, 20)
-    const tex = new THREE.CanvasTexture(c)
-    tex.colorSpace = THREE.SRGBColorSpace
-    const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: night ? '#ffffff' : '#000000', emissiveIntensity: night ? 0.6 : 0, roughness: 0.8 })
-    const roof = new THREE.MeshStandardMaterial({ color: night ? '#1f2937' : '#7c2d12', roughness: 0.7 })
-    for (const end of [-1, 1]) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(46, 20, 12), [mat, mat, mat, mat, mat, mat])
-      b.position.set(0, 10, end * (RZ + 26))
-      b.rotation.y = end > 0 ? Math.PI : 0
-      g.add(b)
-      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 26, 6, 4, 1), roof)
-      r.rotation.y = Math.PI / 4
-      r.scale.set(1, 1, 0.3)
-      r.position.set(0, 23, end * (RZ + 26))
-      g.add(r)
-    }
-    return g
+      mat.customProgramCacheKey = () => `venue-${night ? 'n' : dusk ? 'd' : 'y'}`
+      m.material = mat
+      m.castShadow = false
+      m.receiveShadow = false
+      m.frustumCulled = false
+    })
+    return venue
   }
 
-  /** Tiered stands all the way round (with gaps behind the sight screens), coloured seats, roofs on higher tiers. */
-  private stands(assets: CricketAssets) {
+  private floodlightGlow(night: boolean) {
     const g = new THREE.Group()
-    const detail = this.opts.quality.detail
-    const segs = 120
-    const rows = 14
-    const inner = 9
-    const depth = 26
-    const rise = 15
-    const pos: number[] = []
-    const col: number[] = []
-    const idx: number[] = []
-    const seatA = new THREE.Color(this.opts.colors[0]).lerp(new THREE.Color('#9ca3af'), 0.55)
-    const seatB = new THREE.Color('#cbd5e1')
-    const step = new THREE.Color('#6b7280')
-    let v = 0
-    for (let s = 0; s < segs; s++) {
-      const a0 = (s / segs) * Math.PI * 2
-      const a1 = ((s + 1) / segs) * Math.PI * 2
-      const mid = (a0 + a1) / 2
-      // Leave room for the sight screens.
-      if (Math.abs(Math.sin(mid)) < 0.17) continue
-      for (let r = 0; r < rows; r++) {
-        const d0 = inner + (r / rows) * depth
-        const d1 = inner + ((r + 1) / rows) * depth
-        const y0 = 1.2 + (r / rows) * rise
-        const y1 = 1.2 + ((r + 1) / rows) * rise
-        const c = (r + s) % 7 === 0 ? seatB : seatA
-        // Riser (vertical) then tread (horizontal).
-        const quad = (p: THREE.Vector3[], color: THREE.Color) => {
-          for (const q of p) {
-            pos.push(q.x, q.y, q.z)
-            col.push(color.r, color.g, color.b)
-          }
-          idx.push(v, v + 1, v + 2, v, v + 2, v + 3)
-          v += 4
-        }
-        const P = (a: number, d: number, y: number) => ellipse(a, d).setY(y)
-        quad([P(a0, d0, y0), P(a1, d0, y0), P(a1, d0, y1), P(a0, d0, y1)], step)
-        quad([P(a0, d0, y1), P(a1, d0, y1), P(a1, d1, y1), P(a0, d1, y1)], c)
-      }
-      // Back wall.
-      const top = 1.2 + rise
-      const quad2 = (p: THREE.Vector3[], color: THREE.Color) => {
-        for (const q of p) {
-          pos.push(q.x, q.y, q.z)
-          col.push(color.r, color.g, color.b)
-        }
-        idx.push(v, v + 1, v + 2, v, v + 2, v + 3)
-        v += 4
-      }
-      const P = (a: number, d: number, y: number) => ellipse(a, d).setY(y)
-      quad2([P(a0, inner + depth, top), P(a1, inner + depth, top), P(a1, inner + depth, top + 4), P(a0, inner + depth, top + 4)], new THREE.Color('#475569'))
-      // Front wall below the first row.
-      quad2([P(a0, inner, 0), P(a1, inner, 0), P(a1, inner, 1.2), P(a0, inner, 1.2)], new THREE.Color(this.opts.colors[1]).lerp(new THREE.Color('#1f2937'), 0.5))
-    }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
-    geo.setIndex(idx)
-    geo.computeVertexNormals()
-    const tex = assets.concrete.clone()
-    tex.needsUpdate = true
-    const night = this.opts.time === 'night'
-    // Under lights the stands catch the glow from the towers.
-    const stand = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, map: tex, emissive: night ? '#3a4560' : '#000000', emissiveIntensity: night ? 0.55 : 0 }))
-    stand.receiveShadow = detail > 0
-    g.add(stand)
-
-    if (detail > 0) {
-      // Roof canopies over the square stands.
-      const roofMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide })
-      for (const side of [-1, 1]) {
-        const shape: number[] = []
-        const ridx: number[] = []
-        const n = 24
-        for (let i = 0; i <= n; i++) {
-          const a = side * (Math.PI / 2) + ((i / n - 0.5) * Math.PI * 0.62)
-          const p0 = ellipse(a, inner + depth + 1).setY(1.2 + rise + 7)
-          const p1 = ellipse(a, inner + 6).setY(1.2 + rise + 4)
-          shape.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z)
-          if (i < n) ridx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3)
-        }
-        const rg = new THREE.BufferGeometry()
-        rg.setAttribute('position', new THREE.Float32BufferAttribute(shape, 3))
-        rg.setIndex(ridx)
-        rg.computeVertexNormals()
-        g.add(new THREE.Mesh(rg, roofMat))
-        // Columns.
-        for (let i = 0; i <= 6; i++) {
-          const a = side * (Math.PI / 2) + ((i / 6 - 0.5) * Math.PI * 0.6)
-          const p = ellipse(a, inner + depth + 0.5)
-          const col2 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 23, 6), roofMat)
-          col2.position.set(p.x, 11.5, p.z)
-          g.add(col2)
-        }
-      }
-    }
-    return g
-  }
-
-  private floodlights(night: boolean) {
-    const g = new THREE.Group()
-    const metal = new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.6, roughness: 0.4 })
-    const lampMat = new THREE.MeshStandardMaterial({ color: night ? '#ffffff' : '#e2e8f0', emissive: night ? '#fffbe6' : '#000000', emissiveIntensity: night ? 3 : 0 })
-    const angles = [0.7, 2.44, 3.84, 5.58]
-    for (const a of angles) {
-      const base = ellipse(a, 42)
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1.1, 52, 8), metal)
-      pole.position.set(base.x, 26, base.z)
-      g.add(pole)
-      const head = new THREE.Group()
-      head.position.set(base.x, 54, base.z)
-      head.lookAt(0, 0, 0)
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 0.6), metal)
-      head.add(frame)
-      const lamps = new THREE.Mesh(new THREE.PlaneGeometry(9.2, 5.2), lampMat)
-      lamps.position.z = 0.35
-      head.add(lamps)
-      this.lamps.push(lamps)
-      if (night) {
-        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff7d6', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }))
-        glow.scale.set(30, 22, 1)
-        glow.position.z = 1.5
-        head.add(glow)
-      }
-      g.add(head)
+    if (!night) return g
+    for (const [x, y, z] of TOWERS) {
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff7d6', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.8 }))
+      glow.scale.set(26, 18, 1)
+      glow.position.set(x * VENUE_SCALE.x, y * VENUE_SCALE.y + 1, z * VENUE_SCALE.z)
+      g.add(glow)
     }
     return g
   }
@@ -501,10 +385,10 @@ export class Stadium {
     const frame = new THREE.Mesh(new THREE.BoxGeometry(23, 12, 1), new THREE.MeshStandardMaterial({ color: '#111827' }))
     frame.position.z = -0.6
     g.add(scr, frame)
-    g.position.set(p.x, 26, p.z)
+    g.position.set(p.x, 28, p.z)
     g.lookAt(0, 18, 0)
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 22, 1.2), new THREE.MeshStandardMaterial({ color: '#334155' }))
-    leg.position.set(0, -16, -1)
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 24, 1.2), new THREE.MeshStandardMaterial({ color: '#334155' }))
+    leg.position.set(0, -17, -1)
     g.add(leg)
     return g
   }
@@ -541,12 +425,86 @@ export class Stadium {
   dispose() {
     this.group.traverse((o) => {
       const m = o as THREE.Mesh
-      if (m.geometry) m.geometry.dispose()
+      // The venue's geometry belongs to the shared asset; everything else is this stadium's own.
+      if (m.geometry && !(m.material as THREE.Material)?.name?.startsWith('stadium')) m.geometry.dispose()
       const mat = m.material as THREE.Material | THREE.Material[] | undefined
       if (Array.isArray(mat)) mat.forEach((x) => x.dispose())
       else mat?.dispose()
     })
   }
+}
+
+/**
+ * Seats for the crowd sampled from the venue model's terraces: the upward-facing triangles of the stand band,
+ * area-weighted, then stretched like the model. Falls back to a plain ring if the model has no such surface.
+ */
+function terraceSeats(model: THREE.Object3D, count: number, scale: THREE.Vector3): Float32Array {
+  const tris: { a: THREE.Vector3; b: THREE.Vector3; c: THREE.Vector3; area: number }[] = []
+  let total = 0
+  const n = new THREE.Vector3()
+  const ab = new THREE.Vector3()
+  const ac = new THREE.Vector3()
+  model.updateMatrixWorld(true)
+  model.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    const pos = m.geometry.getAttribute('position')
+    const idx = m.geometry.index
+    const count3 = idx ? idx.count : pos.count
+    for (let i = 0; i < count3; i += 3) {
+      const ia = idx ? idx.getX(i) : i
+      const ib = idx ? idx.getX(i + 1) : i + 1
+      const ic = idx ? idx.getX(i + 2) : i + 2
+      const a = new THREE.Vector3().fromBufferAttribute(pos, ia).applyMatrix4(m.matrixWorld)
+      const b = new THREE.Vector3().fromBufferAttribute(pos, ib).applyMatrix4(m.matrixWorld)
+      const c = new THREE.Vector3().fromBufferAttribute(pos, ic).applyMatrix4(m.matrixWorld)
+      ab.subVectors(b, a)
+      ac.subVectors(c, a)
+      n.crossVectors(ab, ac)
+      const area = n.length() / 2
+      if (area < 1e-4) continue
+      n.divideScalar(area * 2)
+      const cy = (a.y + b.y + c.y) / 3
+      const cr = Math.hypot((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3)
+      // The terraces: upward faces of the stand band between the arcade roof and the top tier (the roof petals
+      // and towers sit higher).
+      if (n.y < 0.45 || cr < 26.5 || cr > 32.6 || cy < 2 || cy > 11.5) continue
+      tris.push({ a, b, c, area })
+      total += area
+    }
+  })
+  if (tris.length < 20) return ringSeats(count, 7, RX + 15, RZ + 17, 13, 3, 17)
+  const out = new Float32Array(count * 4)
+  let s = 7
+  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296)
+  const cum: number[] = []
+  let acc = 0
+  for (const t of tris) cum.push((acc += t.area))
+  for (let i = 0; i < count; i++) {
+    const r = rnd() * total
+    let lo = 0
+    let hi = cum.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cum[mid] < r) lo = mid + 1
+      else hi = mid
+    }
+    const t = tris[lo]
+    let u = rnd()
+    let v = rnd()
+    if (u + v > 1) {
+      u = 1 - u
+      v = 1 - v
+    }
+    const x = (t.a.x + (t.b.x - t.a.x) * u + (t.c.x - t.a.x) * v) * scale.x
+    const y = (t.a.y + (t.b.y - t.a.y) * u + (t.c.y - t.a.y) * v) * scale.y
+    const z = (t.a.z + (t.b.z - t.a.z) * u + (t.c.z - t.a.z) * v) * scale.z
+    out[i * 4] = x
+    out[i * 4 + 1] = y
+    out[i * 4 + 2] = z
+    out[i * 4 + 3] = Math.atan2(-x, -z)
+  }
+  return out
 }
 
 let glowTex: THREE.Texture | null = null
@@ -564,4 +522,3 @@ function glowTexture() {
   glowTex = new THREE.CanvasTexture(c)
   return glowTex
 }
-
