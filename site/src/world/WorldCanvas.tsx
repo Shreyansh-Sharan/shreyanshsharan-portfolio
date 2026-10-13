@@ -5,7 +5,7 @@ import { AdaptiveDpr, PerformanceMonitor, Preload } from '@react-three/drei'
 import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { buildTerrain } from './terrain'
-import { Landmarks, Scatters } from './Models'
+import { Landmarks, Scatters, streamState } from './Models'
 import { Vegetation } from './Vegetation'
 import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
@@ -55,7 +55,7 @@ function quality() {
 }
 
 function Terrain({ segments }: { segments: number }) {
-  const geo = useMemo(() => buildTerrain(560, segments), [segments])
+  const geo = useMemo(() => buildTerrain(1300, segments), [segments])
   return (
     <mesh geometry={geo} receiveShadow castShadow={false}>
       <meshStandardMaterial vertexColors flatShading roughness={0.93} metalness={0} />
@@ -244,7 +244,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
             },
             chance: (id: number) => captureChance(creatures[id]),
             roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
-            clock: dayClock, photo, store: world, heightAt, controls,
+            clock: dayClock, photo, store: world, heightAt, controls, streamState,
             place: (x: number, z: number) => {
               player.pos.set(x, heightAt(x, z), z)
               player.beacon = { x, z }
@@ -269,7 +269,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <fog attach="fog" args={['#a9c6e0', 220, 1300]} />
       <SkyDome />
       <Lighting shadows={heavy} live={playing} />
-      <Terrain segments={heavy ? 240 : 170} />
+      <Terrain segments={heavy ? 330 : 210} />
       <Water />
       <Suspense fallback={null}>
         <SkyClouds count={heavy ? 8 : 6} />

@@ -18,12 +18,14 @@ export interface Collider {
   sin: number
   /** World height of the prop's top: anything whose feet are above it (flying, jumping) passes over. */
   top: number
+  /** World height of the prop's underside: a wall that starts above head height (a balcony, an arch) is passed under. */
+  bottom: number
 }
 
-export const circleCollider = (x: number, z: number, r: number, top = Infinity): Collider => ({ x, z, r, box: false, hx: 0, hz: 0, cos: 1, sin: 0, top })
+export const circleCollider = (x: number, z: number, r: number, top = Infinity): Collider => ({ x, z, r, box: false, hx: 0, hz: 0, cos: 1, sin: 0, top, bottom: -Infinity })
 
-export function boxCollider(x: number, z: number, hx: number, hz: number, yaw = 0, top = Infinity): Collider {
-  return { x, z, r: Math.hypot(hx, hz), box: true, hx, hz, cos: Math.cos(yaw), sin: Math.sin(yaw), top }
+export function boxCollider(x: number, z: number, hx: number, hz: number, yaw = 0, top = Infinity, bottom = -Infinity): Collider {
+  return { x, z, r: Math.hypot(hx, hz), box: true, hx, hz, cos: Math.cos(yaw), sin: Math.sin(yaw), top, bottom }
 }
 
 /* ---------- Registry ---------- */
@@ -63,8 +65,10 @@ function seed() {
   // Until a landmark's model loads and reports its real footprint, fall back to its flattened pad.
   REGIONS.forEach((r) =>
     r.landmarks.forEach((l, i) => {
+      if (l.ghost) return
       const x = r.center[0] + l.at[0], z = r.center[1] + l.at[1]
-      groups.set(landmarkKey(r.id, i), [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
+      // Walkable sets start open (their walls are measured once the mesh is in); other props block their pad.
+      groups.set(landmarkKey(r.id, i), l.set ? [] : [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
     }),
   )
   const neon = REGIONS.find((r) => r.id === 'neon')!
@@ -76,10 +80,53 @@ function seed() {
 
 export const landmarkKey = (region: string, index: number) => `landmark:${region}:${index}`
 
-/** A landmark model reports its measured footprint (replaces the pad-sized fallback). */
-export function setLandmarkCollider(key: string, c: Collider) {
+/** A landmark model reports its measured footprint (replaces the pad-sized fallback); null makes it walk-through. */
+export function setLandmarkCollider(key: string, list: Collider[] | null) {
   seed()
-  setGroup(key, [c])
+  setGroup(key, list ?? [])
+}
+
+/* ---------- Floors of walkable sets ---------- */
+
+interface SetFloor {
+  x: number
+  z: number
+  y: number
+  yaw: number
+  cell: number
+  /** Cell key "gx,gz" (in the set's frame) → floor height above the set's base. */
+  floor: Map<string, number>
+}
+const floors = new Map<string, SetFloor>()
+
+/** A walkable set reports the courtyards, quays and terraces measured from its mesh. */
+export function setLandmarkFloor(key: string, f: SetFloor | null) {
+  if (f) floors.set(key, f)
+  else floors.delete(key)
+}
+
+/**
+ * The highest set floor under (x, z) that is no higher than `feet` + `tolerance` (so a terrace above your head
+ * is not the ground), or -Infinity.
+ */
+export function floorAt(x: number, z: number, feet = Infinity, tolerance = 1.2): number {
+  let best = -Infinity
+  for (const f of floors.values()) {
+    const dx = x - f.x, dz = z - f.z
+    if (dx * dx + dz * dz > 160 * 160) continue
+    const c = Math.cos(f.yaw), s = Math.sin(f.yaw)
+    const lx = dx * c - dz * s, lz = dx * s + dz * c
+    const h = f.floor.get(`${Math.floor(lx / f.cell)},${Math.floor(lz / f.cell)}`)
+    if (h === undefined) continue
+    const y = f.y + h
+    if (y <= feet + tolerance && y > best) best = y
+  }
+  return best
+}
+
+/** Terrain or a set's floor, whichever is higher under the feet. */
+export function groundAt(x: number, z: number, feet = Infinity) {
+  return Math.max(heightAt(x, z), floorAt(x, z, feet))
 }
 
 /** A scattered model reports its trunk/base radius as a fraction of its height. */
@@ -99,8 +146,8 @@ export function setExtraColliders(key: string, list: Collider[]) {
 /* ---------- Spatial grid ---------- */
 
 const CELL = 8
-const ORIGIN = -300
-const N = 76 // 76 * 8 m covers -300..308, the whole island plus margin
+const ORIGIN = -720
+const N = 180 // 180 * 8 m covers -720..720, the whole island plus margin
 let all: Collider[] = []
 let cellStart = new Int32Array(N * N + 1)
 let cellItems = new Int32Array(0)
@@ -147,7 +194,7 @@ export function resolve(p: { x: number; z: number }, radius: number, feet = -Inf
         const cell = gz * N + gx
         for (let k = cellStart[cell], end = cellStart[cell + 1]; k < end; k++) {
           const c = all[cellItems[k]]
-          if (c.top > feet && pushOut(c, p, radius)) moved = true
+          if (c.top > feet && c.bottom < feet + 1.6 && pushOut(c, p, radius)) moved = true
         }
       }
     if (!moved) break

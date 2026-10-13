@@ -335,8 +335,8 @@ export function TreasureMap() {
     const dpr = window.devicePixelRatio || 1
     c.width = c.height = size * dpr
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const r = REGIONS.find((x) => x.id === 'campus')!
-    const scale = size / 100
+    const r = REGIONS.find((x) => x.id === 'highland')!
+    const scale = size / 160
     const toMap = (x: number, z: number) => [size / 2 + (x - r.center[0]) * scale, size / 2 + (z - r.center[1]) * scale]
     ctx.fillStyle = '#e9d8b0'
     ctx.fillRect(0, 0, size, size)

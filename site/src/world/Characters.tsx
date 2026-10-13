@@ -9,7 +9,7 @@ import { ISLAND_RADIUS, WATER_LEVEL, regionForTile } from './regions'
 import { heightAt } from './terrain'
 import { modelUrl } from './Models'
 import { GUIDE_SPOT } from './layout'
-import { blocked, resolve, roofAt } from './colliders'
+import { blocked, groundAt, resolve, roofAt } from './colliders'
 import { animals } from './wildlife'
 import { aimedCreature, HERO_HP, hitCreatures, MOUNT, nearestWild, pushOutOfCreatures, ride, saddleHeight, stepCreatures, throwSphere, toggleRide } from './creatures'
 import { flightAllowed, parkourBoots, photo, playerLocked, requestSnap, stepMinigames, togglePhoto } from './minigames'
@@ -472,7 +472,7 @@ export function Player() {
       const target = axis * 10 + (axis === 0 ? Math.sin(performance.now() / 420) * 0.35 : 0)
       s.vy += (target - s.vy) * Math.min(1, dt * 4)
       player.pos.y += s.vy * dt
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
+      const ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const ceiling = Math.min(ground + FLY_CEILING, FLY_MAX_Y)
       if (player.pos.y > ceiling) {
         player.pos.y = ceiling
@@ -575,7 +575,7 @@ export function Player() {
     // ---- Gravity, jumping, bouncing off an animal's back, and the stomp landing. ----
     if (!s.flying) {
       // Roofs (the neon blocks, the parkour pads) are floors too when the feet are at their level.
-      const ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL - 0.9, roofAt(player.pos.x, player.pos.z, player.pos.y))
+      const ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL - 0.9, roofAt(player.pos.x, player.pos.z, player.pos.y))
       const boots = parkourBoots()
       if (controls.jump && s.grounded && !modalOpen && !s.move) {
         s.vy = boots ? 10 : 7.5
@@ -671,7 +671,7 @@ export function Player() {
     g.position.y += saddle
     g.rotation.y = player.yaw
     // The contact shadow stays on the ground below, shrinking with altitude.
-    player.ground = Math.max(heightAt(player.pos.x, player.pos.z), WATER_LEVEL)
+    player.ground = Math.max(groundAt(player.pos.x, player.pos.z, player.pos.y), WATER_LEVEL)
     const alt = player.pos.y - player.ground + saddle
     if (shadow.current) {
       shadow.current.position.y = 0.03 - alt

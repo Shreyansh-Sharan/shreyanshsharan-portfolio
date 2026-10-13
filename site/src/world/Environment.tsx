@@ -3,7 +3,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Cloud, Clouds, Environment as Env, Sky } from '@react-three/drei'
 import * as THREE from 'three'
-import { WATER_LEVEL } from './regions'
+import { REGIONS, WATER_LEVEL, type Mood } from './regions'
 import { skyFlash } from './particles'
 import { daylight } from './clock'
 
@@ -11,6 +11,45 @@ import { daylight } from './clock'
 export const lookTarget = new THREE.Vector3()
 
 export const SUN_DIR = new THREE.Vector3(0.62, 0.3, -0.42).normalize()
+
+const DEFAULT_MOOD: Mood = { sun: '#ffe2b8', sky: '#bcd7ff', fog: '#a9c6e0', haze: 1, light: 1 }
+const moodCols = new Map<string, THREE.Color>()
+const col = (hex: string) => {
+  let c = moodCols.get(hex)
+  if (!c) {
+    c = new THREE.Color(hex)
+    moodCols.set(hex, c)
+  }
+  return c
+}
+const blended = { sun: new THREE.Color(), sky: new THREE.Color(), fog: new THREE.Color(), haze: 1, light: 1 }
+
+/** The lighting mood at a point: each district's mood fades in across its edge and blends with its neighbours'. */
+export function moodAt(x: number, z: number) {
+  const m = blended
+  m.sun.copy(col(DEFAULT_MOOD.sun))
+  m.sky.copy(col(DEFAULT_MOOD.sky))
+  m.fog.copy(col(DEFAULT_MOOD.fog))
+  m.haze = 1
+  m.light = 1
+  let total = 0
+  for (const r of REGIONS) {
+    if (!r.mood) continue
+    const d = Math.hypot(x - r.center[0], z - r.center[1])
+    const w = THREE.MathUtils.smoothstep(d, r.radius * 1.35, r.radius * 0.7)
+    if (w <= 0) continue
+    total += w
+    const k = w / total
+    m.sun.lerp(col(r.mood.sun), k)
+    m.sky.lerp(col(r.mood.sky), k)
+    m.fog.lerp(col(r.mood.fog), k)
+    m.haze = THREE.MathUtils.lerp(m.haze, r.mood.haze, k)
+    m.light = THREE.MathUtils.lerp(m.light, r.mood.light, k)
+  }
+  return m
+}
+
+const FOG_NEAR = 220, FOG_FAR = 1300
 
 export function Lighting({ shadows, live = true }: { shadows: boolean; live?: boolean }) {
   const sun = useRef<THREE.DirectionalLight>(null)
@@ -22,14 +61,24 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
     if (!s) return
     // Night falls while exploring: the sun dims to moonlight, the sky light cools, fog and background darken.
     const day = daylight()
-    s.intensity = 0.35 + 2.15 * day
-    s.color.setRGB(THREE.MathUtils.lerp(0.55, 1, day), THREE.MathUtils.lerp(0.65, 0.886, day), THREE.MathUtils.lerp(0.95, 0.72, day))
+    // Each district has its own time-of-day feel (the city's violet dusk, the temple's golden hour) layered on
+    // the island's day/night cycle, blended by where the camera is looking.
+    const mood = moodAt(lookTarget.x, lookTarget.z)
+    s.intensity = (0.35 + 2.15 * day) * mood.light
+    s.color.setRGB(THREE.MathUtils.lerp(0.55, mood.sun.r, day), THREE.MathUtils.lerp(0.65, mood.sun.g, day), THREE.MathUtils.lerp(0.95, mood.sun.b, day))
     const bg = scene.background as THREE.Color | null
-    if (bg && bg.isColor) bg.setRGB(0.62 * day + 0.04, 0.75 * day + 0.05, 0.87 * day + 0.12)
+    if (bg && bg.isColor) bg.setRGB(mood.fog.r * 0.94 * day + 0.04, mood.fog.g * 0.96 * day + 0.05, mood.fog.b * day + 0.12)
     const fog = scene.fog as THREE.Fog | null
-    if (fog) fog.color.setRGB(0.66 * day + 0.04, 0.78 * day + 0.05, 0.88 * day + 0.12)
+    if (fog) {
+      fog.color.setRGB(mood.fog.r * day + 0.04, mood.fog.g * day + 0.05, mood.fog.b * day + 0.12)
+      fog.near = FOG_NEAR / mood.haze
+      fog.far = FOG_FAR / mood.haze
+    }
     // A lightning strike lights up the whole scene for an instant (no extra light, so no shader recompiles).
-    if (sky.current) sky.current.intensity = (0.55 + skyFlash.value * 1.3) * (0.45 + 0.55 * day)
+    if (sky.current) {
+      sky.current.intensity = (0.55 + skyFlash.value * 1.3) * (0.45 + 0.55 * day)
+      sky.current.color.copy(mood.sky)
+    }
     // The 2048 px soft shadow map is the costliest pass: redraw it every frame only while exploring;
     // during the fly-over a few refreshes a second look the same.
     gl.shadowMap.autoUpdate = live
@@ -174,15 +223,15 @@ export function SkyClouds({ count = 9 }: { count?: number }) {
     () =>
       Array.from({ length: count }, (_, i) => {
         const a = (i / count) * Math.PI * 2 + i
-        const r = 120 + (i % 3) * 90
-        return { seed: i + 1, pos: [Math.cos(a) * r, 70 + (i % 4) * 9, Math.sin(a) * r] as [number, number, number] }
+        const r = 260 + (i % 3) * 140
+        return { seed: i + 1, pos: [Math.cos(a) * r, 90 + (i % 4) * 12, Math.sin(a) * r] as [number, number, number] }
       }),
     [count],
   )
   return (
     <Clouds texture={tex} limit={400} material={THREE.MeshLambertMaterial}>
       {clouds.map((c) => (
-        <Cloud key={c.seed} seed={c.seed} position={c.pos} bounds={[34, 6, 18]} segments={16} volume={26} growth={6} speed={0.08} opacity={0.85} color="#ffffff" />
+        <Cloud key={c.seed} seed={c.seed} position={c.pos} bounds={[60, 8, 30]} segments={16} volume={40} growth={8} speed={0.08} opacity={0.85} color="#ffffff" />
       ))}
     </Clouds>
   )

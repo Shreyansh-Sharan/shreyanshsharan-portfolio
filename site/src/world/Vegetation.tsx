@@ -6,7 +6,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { REGIONS, WATER_LEVEL, type Biome } from './regions'
-import { heightAt, isNearPad, mulberry32 } from './terrain'
+import { heightAt, isNearPad, isOnRoad, mulberry32 } from './terrain'
 import { blocked } from './colliders'
 import { DENSITY } from './layout'
 import { MISSIONS } from './missions'
@@ -14,11 +14,11 @@ import { player } from './Characters'
 
 /* ---------- Where things grow ---------- */
 
-const NO_GRASS = new Set<Biome>(['neon', 'speedway', 'dunes', 'canyon'])
+const NO_GRASS = new Set<Biome>(['neon', 'stadium', 'arcade', 'canyon'])
 const TINT: Partial<Record<Biome, [number, number, number]>> = {
-  campus: [1.15, 1.0, 0.55],
+  temple: [1.15, 1.0, 0.55],
   highland: [0.85, 1.0, 0.85],
-  ridge: [0.9, 0.95, 0.9],
+  keep: [0.9, 0.95, 0.9],
   plains: [1.1, 1.05, 0.7],
 }
 
@@ -42,9 +42,10 @@ function grassy(x: number, z: number, h: number): [number, number, number] | nul
   if (h < WATER_LEVEL + 1.1) return null
   const b = biomeAt(x, z)
   if (b && NO_GRASS.has(b.biome)) return null
-  if (b?.biome === 'plaza' && b.d < 18) return null
-  if (b?.biome === 'lab' && h < 3) return null
-  if (b?.biome === 'ridge' && h > 20) return null
+  if (b?.biome === 'harbour' && b.d < 42) return null
+  if (b?.biome === 'cove' && h < 3) return null
+  if (b?.biome === 'keep' && b.d < 72) return null
+  if (isOnRoad(x, z, 1)) return null
   // Not on steep slopes.
   if (Math.abs(heightAt(x + 1, z) - h) + Math.abs(heightAt(x, z + 1) - h) > 0.8) return null
   return (b && TINT[b.biome]) ?? [1, 1, 1]

@@ -81,18 +81,18 @@ export function GAMES(): GameDef[] {
   const p = pier()
   const f = clear(p.x - Math.cos(p.a) * 2, p.z - Math.sin(p.a) * 2)
   const h = clear(...at('highland', -14, -24))
-  const n = clear(...at('neon', 4, 24), 1.2)
-  const t = clear(...at('campus', 12, 2))
-  const ph = clear(...at('ridge', 14, -10))
-  const d = clear(...at('speedway', -14, 14))
+  const n = clear(...at('neon', 92, 60), 1.2)
+  const t = clear(...at('highland', -50, 62))
+  const ph = clear(...at('campus', 16, 46))
+  const d = clear(...at('speedway', 44, 40))
   const r = clear(...at('highland', -20, 16))
   const fr = clear(...at('highland', 24, -14))
   defs = [
     { id: 'fishing', name: 'Harbour Fishing', icon: '🎣', x: f[0], z: f[1], region: 'hub', blurb: 'Cast from the pier, hook what bites, and reel in three fish. Six species swim here; one of them is rare.', controls: 'Space casts when the bar is in the green · Space again to hook a bite · A / D alternately to reel', coins: 20, trophy: false, limit: 0 },
     { id: 'herding', name: 'Sheep Herding', icon: '🐑', x: h[0], z: h[1], region: 'highland', blurb: 'Eight sheep have wandered off. Walk up behind them (your pals help) and drive all eight into the pen before the clock runs out.', controls: 'Walk towards sheep to push them · pals push too · 90 s', coins: 40, trophy: false, limit: 90 },
     { id: 'parkour', name: 'Rooftop Run', icon: '🏃', x: n[0], z: n[1], region: 'neon', blurb: 'A time trial across the Neon District roofs: through every ring, as fast as you can. No flying, but the trial boots give you a double jump.', controls: 'Space jumps, Space again mid-air for a double jump · Shift runs · flight is off', coins: 45, trophy: false, limit: 0 },
-    { id: 'treasure', name: 'Treasure Hunt', icon: '🗺️', x: t[0], z: t[1], region: 'campus', blurb: 'A map scrap marks an X somewhere in the grove. Find the spot and stomp it to dig. Three maps, each vaguer than the last.', controls: 'Read the map · jump and attack in the air to stomp on the X', coins: 30, trophy: false, limit: 0 },
-    { id: 'photo', name: 'Photo Challenge', icon: '📷', x: ph[0], z: ph[1], region: 'ridge', blurb: 'Open the camera anywhere with P: time stops and you can orbit freely. Snap five different species (animals or creatures) in frame.', controls: 'P opens the camera · drag to orbit, W / S to zoom · Space or click snaps', coins: 60, trophy: true, limit: 0 },
+    { id: 'treasure', name: 'Treasure Hunt', icon: '🗺️', x: t[0], z: t[1], region: 'highland', blurb: 'A map scrap marks an X somewhere in the forest. Find the spot and stomp it to dig. Three maps, each vaguer than the last.', controls: 'Read the map · jump and attack in the air to stomp on the X', coins: 30, trophy: false, limit: 0 },
+    { id: 'photo', name: 'Photo Challenge', icon: '📷', x: ph[0], z: ph[1], region: 'campus', blurb: 'Open the camera anywhere with P: time stops and you can orbit freely. Snap five different species (animals or creatures) in frame.', controls: 'P opens the camera · drag to orbit, W / S to zoom · Space or click snaps', coins: 60, trophy: true, limit: 0 },
     { id: 'delivery', name: 'Drone Delivery', icon: '📦', x: d[0], z: d[1], region: 'speedway', blurb: 'Three parcels, three districts. Grab one from the depot, fly it to its pad, come back for the next. The clock runs the whole time.', controls: 'Walk over a parcel to pick it up · double-tap Space to fly · land on the glowing pad', coins: 50, trophy: false, limit: 0 },
     { id: 'range', name: 'Target Range', icon: '🎯', x: r[0], z: r[1], region: 'highland', blurb: 'Ten bottles on the barrels. Zap them all with your spells as fast as you can.', controls: 'F (or right click) zaps the bottle you face', coins: 35, trophy: false, limit: 0 },
     { id: 'rings', name: 'Highland Rings', icon: '💫', x: fr[0], z: fr[1], region: 'highland', blurb: 'Fifteen rings hang over the highlands. Fly through all of them against the clock.', controls: 'Double-tap Space to fly · Space / C for up and down · Shift to boost', coins: 55, trophy: false, limit: 0 },
@@ -337,7 +337,7 @@ export function treasureTier() {
 function setupTreasure(g: Game, def: GameDef) {
   g.tier = treasureTier()
   g.total = 1
-  const r = region('campus')
+  const r = region('highland')
   const seed = mulberry32(500 + attempt * 7 + g.tier)
   let x = def.x, z = def.z
   for (let i = 0; i < 40; i++) {
@@ -360,7 +360,7 @@ function setupDelivery(g: Game, def: GameDef) {
     const [x, z] = clear(...at(id, dx, dz), 2.5)
     return { x, z, name }
   }
-  g.drops = [pad('neon', 10, 18, 'Neon District'), pad('highland', 14, 18, 'Highland Distillery'), pad('hub', 14, 14, 'Basecamp')]
+  g.drops = [pad('canyon', 12, 20, 'Crystal Canyon'), pad('dunes', 0, 30, 'Games Plaza'), pad('neon', 60, 100, 'Neon City')]
   g.n = 0
 }
 
