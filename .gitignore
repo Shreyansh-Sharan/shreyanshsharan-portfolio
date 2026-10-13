@@ -1,2 +1,5 @@
 # Temporary git worktrees used by background coding agents
 .claude/worktrees/
+
+# Standalone game apps produced by scripts/split-game.mjs (each is its own repository)
+games-split/

@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Gauge, Mountain, Volume2, VolumeX, Zap } from 'lucide-react'
+import { ExternalLink, FileText, Gauge, Mountain, Volume2, VolumeX, Zap } from 'lucide-react'
 import { profile, skillTree, tiles, trophies, type Activity, type Tile } from '../data/content'
 import { useActions, type Action } from '../lib/input'
 import { isMuted, play, setMuted } from '../lib/sound'
 import { isLowGraphics, setLowGraphics } from '../lib/graphics'
 import { navigate } from '../lib/router'
+import { externalGameUrl, openGame } from '../data/gameLinks'
 import { TileArt } from './TileArt'
 import { accentVars } from '../lib/style'
 import { HintBar } from './HintBar'
@@ -187,10 +188,14 @@ export function Home({
       case 'hub':
         launch(`#/game/${t.id}`)
         break
-      case 'route':
+      case 'route': {
         play('select')
-        navigate(a.to)
+        // Games that have moved to their own sites open in a new tab; the in-repo route stays as the fallback.
+        const url = externalGameUrl(t.id)
+        if (url) openGame(url)
+        else navigate(a.to)
         break
+      }
       case 'iframe':
         play('select')
         navigate(`#/embed/${t.id}`)
@@ -406,6 +411,7 @@ export function Home({
                 }}
               >
                 {primaryLabel}
+                {externalGameUrl(tile.id) && <ExternalLink size={16} aria-label="Opens in a new tab" />}
               </button>
             )}
             <button

@@ -13,9 +13,28 @@
     <meta property="og:title" content="Shreyansh Sharan · Solution Architect" />
     <meta property="og:description" content="Data & AI platforms, Databricks, Azure, DevOps and GenAI. Play through the career." />
     <meta property="og:type" content="website" />
+    <style>
+      /* Static loading shell: on screen from the first paint until the app takes it over (src/lib/loader3d.ts). */
+      .ld3{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#05060f;color:#f4f6fb;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+      .ld3-box{display:grid;justify-items:center;gap:14px;width:min(360px,80vw)}
+      .ld3-stage{width:min(280px,60vw);aspect-ratio:1;display:grid;place-items:center}
+      .ld3-logo{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;font-weight:800;font-size:34px;letter-spacing:.04em;border:1px solid rgba(255,255,255,.14);background:linear-gradient(150deg,rgba(34,211,238,.28),rgba(240,171,252,.22));box-shadow:0 0 44px rgba(34,211,238,.25)}
+      .ld3-text{display:flex;justify-content:space-between;width:100%;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:rgba(244,246,251,.64)}
+      .ld3-bar{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
+      .ld3-bar i{position:absolute;top:0;bottom:0;left:-40%;width:40%;border-radius:4px;background:linear-gradient(90deg,#22d3ee,#f0abfc);animation:ld3-wait 1.4s ease-in-out infinite}
+      @keyframes ld3-wait{to{left:100%}}
+      @media (prefers-reduced-motion:reduce){.ld3-bar i{animation:none;left:0;width:100%;opacity:.5}}
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="ld3" class="ld3" role="status" aria-live="polite">
+      <div class="ld3-box">
+        <div class="ld3-stage"><div class="ld3-logo">SS</div></div>
+        <div class="ld3-text"><span class="ld3-status">Starting up…</span><span class="ld3-pct"></span></div>
+        <div class="ld3-bar"><i></i></div>
+      </div>
+    </div>
     <noscript>
       <h1>Shreyansh Sharan, Solution Architect</h1>
       <p>Data &amp; AI platforms on Databricks and Azure, enterprise DevOps and Generative AI. 8+ years, 30+ enterprise clients.</p>

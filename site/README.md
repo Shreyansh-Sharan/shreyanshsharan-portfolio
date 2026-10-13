@@ -94,6 +94,25 @@ plays between tabs of one browser.
 - `src/lib/input.ts`: unified keyboard + gamepad input
 - `src/lib/sound.ts`: synthesised UI sounds (no audio files)
 
+## Loading screen
+
+`src/lib/loader3d.ts` is the shared loader: a full-screen overlay with a small three.js scene (a holographic cube
+that unfolds as the bar fills, over a spinning neon disc), a status line and a real percentage. It is plain DOM +
+three.js with no React inside, so the same file ships with each split game. `index.html` carries a static copy of
+the overlay (logo + bar) so nothing is black before the first chunk arrives; `main.tsx` adopts it. Progress comes
+from three's `DefaultLoadingManager` (every GLTF/texture load that is not given its own manager), or from a game's
+own loader counts. `src/components/Loader3D.tsx` holds the React bindings: `<Loader3D status progress />`,
+`<LoadingGate>` (stays until the manager settles) and `<GameRoute>` (chunk download, then the asset burst). The
+overlay stays at least 600 ms, fades out, and shows a static logo + bar under `prefers-reduced-motion`.
+
+## Games as their own sites
+
+Each game can move to its own repository. `node ../scripts/split-game.mjs <racer|cricket|plush|siege|golf|sports|arena|all>`
+writes a standalone Vite + React app under `../games-split/<repo>/` (sources resolved from the game's entry, the CSS
+it uses, its public assets, a pruned `package.json`, Pages workflow, `vercel.json`, README and DEPLOY.md) and makes
+an initial commit. `src/data/gameLinks.ts` maps each game to its external URL; set `GAMES_EXTERNAL = true` once the
+sites are live and Play opens them in a new tab (the in-repo routes stay as the fallback until then).
+
 ## Deploying
 
 `.github/workflows/deploy-site.yml` builds and publishes to GitHub Pages on pushes to `main`. Enable it once under

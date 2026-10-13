@@ -13,6 +13,10 @@ import { Profile } from './components/Profile'
 import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
+import { GameLaunch } from './components/GameLaunch'
+import { GameRoute, Loader3D, LoadingGate } from './components/Loader3D'
+import { endBoot } from './lib/loader3d'
+import { ROUTE_TILE, externalGameUrl } from './data/gameLinks'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
 import { CanvasErrorBoundary } from './world/CanvasErrorBoundary'
@@ -47,6 +51,22 @@ export default function App() {
   const [gameRunning, setGameRunning] = useState(false)
   const playing = useWorld((s) => s.playing)
   const requestPlay = useWorld((s) => s.requestPlay)
+  // Loader phases: the boot overlay (until the world's first frames), its asset burst, and entering explore mode.
+  const [bootStuck, setBootStuck] = useState(false)
+  const [worldSettled, setWorldSettled] = useState(false)
+  const [entering, setEntering] = useState(false)
+
+  // The boot overlay stays up until the first screen is really there: with the world on, its first rendered frames.
+  useEffect(() => {
+    if (!use3D || ready3D || bootStuck) endBoot()
+  }, [use3D, ready3D, bootStuck])
+
+  // If the world never reports ready (lost context, a slow GPU that gives up) the site must still appear.
+  useEffect(() => {
+    if (!use3D || ready3D) return
+    const id = window.setTimeout(() => setBootStuck(true), 20000)
+    return () => window.clearTimeout(id)
+  }, [use3D, ready3D])
 
   useEffect(() => {
     const onArena = (ev: Event) => setGameRunning(Boolean((ev as CustomEvent<boolean>).detail))
@@ -75,6 +95,8 @@ export default function App() {
     (next: boolean) => {
       if (next && (!use3D || !ready3D)) return
       play(next ? 'boot' : 'back')
+      // The world streams its characters and props in as the explorer appears; the loader covers that burst.
+      if (next) setEntering(true)
       world.set({ playing: next, open: null, near: null })
     },
     [use3D, ready3D],
@@ -117,8 +139,12 @@ export default function App() {
 
   const mode: SceneMode = route.name === 'boot' ? 'boot' : route.name === 'home' ? 'home' : 'page'
 
+  // Once a game has moved to its own site, its route opens that site in a new tab instead.
+  const external = ROUTE_TILE[route.name] ? externalGameUrl(ROUTE_TILE[route.name]) : undefined
+
   let screen
-  switch (route.name) {
+  if (external) screen = <GameLaunch key={route.name} tileId={ROUTE_TILE[route.name]} url={external} onAccent={setAccent} />
+  else switch (route.name) {
     case 'boot':
       screen = <Boot onAccent={setAccent} canExplore={use3D} />
       break
@@ -148,50 +174,53 @@ export default function App() {
       break
     case 'cricket':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="Cricket Arena">
           <Cricket key={(route.join ?? '') + (route.auto ? '-auto' : '')} join={route.join} auto={route.auto} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
     case 'racer':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="VOLT RIOT">
           <Racer key={route.auto ?? route.join ?? 'menu'} auto={route.auto} join={route.join} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
     case 'golf':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="BOGEY BRAWL">
           <Golf auto={route.auto} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
     case 'sports':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="SPORTS COMPLEX">
           <Sports auto={route.auto} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
     case 'plush':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="PLUSH PANIC">
           <Plush key={route.join ?? route.auto ?? 'menu'} auto={route.auto} level={route.level} join={route.join} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
     case 'siege':
       screen = (
-        <Suspense fallback={null}>
+        <GameRoute title="NEON SIEGE">
           <Siege key={route.join ?? route.auto ?? 'menu'} auto={route.auto} map={route.map} join={route.join} onAccent={setAccent} />
-        </Suspense>
+        </GameRoute>
       )
       break
   }
 
   return (
     <>
+      {use3D && !ready3D && !bootStuck && <Loader3D status="Loading the island…" />}
+      {use3D && ready3D && !worldSettled && <LoadingGate status="Loading the island…" onDone={() => setWorldSettled(true)} />}
+      {entering && <LoadingGate status="Entering the open world…" onDone={() => setEntering(false)} />}
       {!hide2D && <Background accent={accent} />}
       {use3D && (
         <CanvasErrorBoundary>

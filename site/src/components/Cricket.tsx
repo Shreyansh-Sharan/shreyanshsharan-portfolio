@@ -8,6 +8,7 @@ import { play } from '../lib/sound'
 import { Page } from './Page'
 import { AdSlot } from './AdSlot'
 import { GearShelf } from './GearShelf'
+import { Loader3D, LoadingGate } from './Loader3D'
 import { FORMATS, type MatchFormat, type MatchSetup, type NetsBowling } from '../cricket/sim/match'
 import { allTeams, cloneTeam, findTeam, type Team } from '../cricket/sim/teams'
 import type { PitchType, TimeOfDay } from '../cricket/sim/conditions'
@@ -220,7 +221,9 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
 
   if (stage === 'play' && playing)
     return (
-      <Suspense fallback={<div className="racer-stage ck-stage"><div className="vr-loading">Loading the game…</div></div>}>
+      <Suspense fallback={<Loader3D status="Fetching the game…" progress={null} />}>
+        {/* The stage loads the cricketer and pitch textures on mount; the gate follows that burst. */}
+        <LoadingGate key={playing.key} status="Building the stadium…" />
         <CricketStage
           key={playing.key}
           setup={playing.setup}

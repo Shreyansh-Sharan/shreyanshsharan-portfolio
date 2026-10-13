@@ -12,6 +12,7 @@ import { ACHIEVEMENTS, ROLES, SKILLS, TIER_COLOR, fmtTime, loadProgress, resetPr
 import type { Game, Hud } from './game'
 import { AdSlot } from '../components/AdSlot'
 import { GearShelf } from '../components/GearShelf'
+import { Loader3D } from '../components/Loader3D'
 import { adBreak } from '../lib/ads'
 
 const accent = tiles.find((t) => t.id === 'sports-complex')?.accent ?? (['#991b1b', '#f97316'] as [string, string])
@@ -298,12 +299,7 @@ function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficul
   return (
     <div className="racer-stage sc-stage">
       <div ref={host} className="racer-host" />
-      {!ready && (
-        <div className="vr-loading sc-loading">
-          <span>SPORTS COMPLEX</span>
-          <span className="small">Loading venues… {Math.round(p.loadPct * 100)}%</span>
-        </div>
-      )}
+      {!ready && <Loader3D status="Loading venues…" progress={p.loadPct} />}
       {hud && <SportsHud hud={hud} />}
       {hud && !hud.locked && (hud.mode === 'hub' || hud.mode === 'hall') && (
         <div className="bb-overlay sc-overlay">

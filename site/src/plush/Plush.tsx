@@ -18,6 +18,7 @@ import { Customise, SettingsForm } from './Forms'
 import { PlushHud } from './Hud'
 import { AdSlot } from '../components/AdSlot'
 import { GearShelf } from '../components/GearShelf'
+import { Loader3D } from '../components/Loader3D'
 
 const accent = tiles.find((t) => t.id === 'plush-panic')?.accent ?? (['#7c2d12', '#fbbf24'] as [string, string])
 const KEYART = `${import.meta.env.BASE_URL}plush/keyart.webp`
@@ -299,10 +300,11 @@ function Stage(p: { launch: Launch; assets: PlushAssets | null; pct: number; pro
   return (
     <div className="racer-stage pp-stage">
       <div ref={host} className="racer-host" />
-      {(!ready || status) && (
+      {!ready && <Loader3D status="Loading toys and attic…" progress={p.pct} />}
+      {ready && status && (
         <div className="vr-loading pp-loading">
           <img src={KEYART} alt="" />
-          <span>{!ready ? `Loading toys and attic… ${Math.round(p.pct * 100)}%` : status}</span>
+          <span>{status}</span>
         </div>
       )}
       {hud && gameRef.current && (

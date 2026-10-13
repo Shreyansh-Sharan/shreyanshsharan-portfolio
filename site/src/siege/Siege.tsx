@@ -9,6 +9,7 @@ import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
 import { AdSlot } from '../components/AdSlot'
 import { GearShelf } from '../components/GearShelf'
+import { Loader3D } from '../components/Loader3D'
 import { loadSiegeAssets, type SiegeAssets } from './engine/assets'
 import { HEROES, HERO_IDS, type HeroId } from './engine/heroes'
 import { ARENA_MAPS, MAPS, type MapId } from './engine/maps'
@@ -385,10 +386,11 @@ function Stage(p: { launch: Launch; assets: SiegeAssets | null; pct: number; pro
   return (
     <div className="racer-stage sg-stage">
       <div ref={host} className="racer-host sg-host" />
-      {(!ready || status) && (
+      {!ready && <Loader3D status="Loading heroes and props…" progress={p.pct} />}
+      {ready && status && (
         <div className="vr-loading sg-loading">
           <img src={KEYART} alt="" />
-          <span>{!ready ? `Loading heroes and props… ${Math.round(p.pct * 100)}%` : status}</span>
+          <span>{status}</span>
         </div>
       )}
       {hud && gameRef.current && <SiegeHud hud={hud} game={gameRef.current} profile={p.profile} onProfile={p.onProfile} onQuit={() => onExit()} />}

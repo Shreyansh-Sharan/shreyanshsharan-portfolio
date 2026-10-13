@@ -1,6 +1,7 @@
 // The running race: canvas host, pause menu and the HUD.
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, LogOut, Pause, Play, RotateCcw, Trophy, Wifi } from 'lucide-react'
+import { Loader3D } from '../components/Loader3D'
 import { setInputSuspended } from '../lib/input'
 import { CONFIG } from './config'
 import { glyphUrl } from './fx'
@@ -68,7 +69,7 @@ export function RaceStage(p: {
   return (
     <div className="racer-stage">
       <div ref={host} className="racer-host" />
-      {!ready && <div className="vr-loading">Loading cars and track… {Math.round(p.loadPct * 100)}%</div>}
+      {!ready && <Loader3D status="Loading cars and track…" progress={p.loadPct} />}
       {hud && <RaceHud hud={hud} mode={p.options.mode} round={p.options.round} />}
       <canvas ref={map} className="vr-minimap" width={360} height={360} />
       {paused && (
