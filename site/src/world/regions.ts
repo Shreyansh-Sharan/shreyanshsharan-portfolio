@@ -1,5 +1,7 @@
 // The open world: one island, one district per portfolio chapter. Each district hosts a mission and is built from
-// real (CC BY) architecture that streams in as you approach; see public/world/CREDITS.md for every model used.
+// original architecture made for this island, streamed in as you approach (see public/world/CREDITS.md).
+import { bailey, harbourTown, KEEP_AT, neonGrid, STADIUM_PITCH, village, walkInStadium } from './districts'
+
 export type Biome =
   | 'harbour'
   | 'neon'
@@ -39,43 +41,69 @@ export type ModelName =
   | 'autumn-tree'
   | 'cactus'
   | 'sheep'
-  // Downloaded architecture (decimated and recompressed by scripts/build-world.mjs).
-  | 'khotyn-fortress'
-  | 'fishing-town'
-  | 'old-house'
-  | 'tavern'
-  | 'medieval-village'
+  // Original models made for this island (architecture, trees, vehicles and interior props).
+  | 'castle-arcade'
+  | 'temple'
+  | 'fortress-keep'
   | 'fortress-gate'
   | 'fortress-tower'
   | 'fortress-wall'
   | 'fortress-pillar'
-  | 'fortress-portal'
-  | 'fantastic-castle'
-  | 'city-block'
-  | 'brooklyn-row'
-  | 'cyber-block'
-  | 'scifi-buildings'
+  | 'stadium-bowl'
+  | 'stadium-stand'
+  | 'stand-corner'
+  | 'stadium-tunnel'
+  | 'floodlight'
+  | 'lighthouse'
+  | 'tavern'
+  | 'fisher-house'
+  | 'harbour-townhouse'
+  | 'fish-market'
+  | 'village-cottage'
+  | 'village-stonehouse'
+  | 'village-forge'
+  | 'city-brownstone'
+  | 'city-glass-tower'
+  | 'city-deco-tower'
+  | 'city-corner'
+  | 'cyber-tower'
+  | 'cyber-shop'
+  | 'scifi-tower'
   | 'neon-sign'
   | 'metal-bridge'
   | 'hover-car'
-  | 'lp-train'
-  | 'flying-robot'
-  | 'eden-arena'
-  | 'stadium-seats'
-  | 'temple'
-  | 'toro'
-  | 'shipwreck'
-  | 'lighthouse'
+  | 'metro-train'
+  | 'drone-bot'
   | 'airship'
-  | 'hobbit-house'
+  | 'shipwreck'
   | 'cabin'
+  | 'burrow-house'
+  | 'stone-lantern'
   | 'tree-oak'
   | 'tree-birch'
   | 'tree-round'
   | 'tree-poplar'
   | 'tree-fir'
   | 'tree-fir-wide'
-  | 'tree-card'
+  | 'throne'
+  | 'banquet-table'
+  | 'chandelier'
+  | 'fireplace'
+  | 'armour-stand'
+  | 'weapon-rack'
+  | 'prize-counter'
+  | 'fern'
+  | 'rock-cluster'
+  | 'reeds'
+  | 'log'
+  | 'bush-bloom'
+  | 'windmill'
+  | 'tree-oak-lod'
+  | 'tree-birch-lod'
+  | 'tree-round-lod'
+  | 'tree-poplar-lod'
+  | 'tree-fir-lod'
+  | 'tree-fir-wide-lod'
   | 'car'
   // Low-poly city props from the site owner's licensed asset library.
   | 'taxi'
@@ -101,10 +129,14 @@ export const AVAILABLE_MODELS = new Set<ModelName>([
   'portal', 'signpost', 'neon-tower', 'ai-core', 'distillery', 'pot-still', 'barrels', 'observatory', 'crane',
   'silos', 'tractor', 'warehouse', 'flask', 'clock-tower', 'ruins', 'f1-car', 'trophy', 'podium', 'pine', 'palm', 'cactus',
   'crystals', 'lab', 'autumn-tree', 'sheep',
-  'khotyn-fortress', 'fishing-town', 'old-house', 'tavern', 'medieval-village', 'fortress-gate', 'fortress-tower', 'fortress-wall', 'fortress-pillar', 'fortress-portal', 'fantastic-castle',
-  'city-block', 'brooklyn-row', 'cyber-block', 'scifi-buildings', 'neon-sign', 'metal-bridge', 'hover-car', 'lp-train', 'flying-robot',
-  'eden-arena', 'stadium-seats', 'temple', 'toro', 'shipwreck', 'lighthouse', 'airship', 'hobbit-house', 'cabin',
-  'tree-oak', 'tree-birch', 'tree-round', 'tree-poplar', 'tree-fir', 'tree-fir-wide', 'tree-card', 'car',
+  'castle-arcade', 'temple', 'fortress-keep', 'fortress-gate', 'fortress-tower', 'fortress-wall', 'fortress-pillar',
+  'stadium-bowl', 'stadium-stand', 'stand-corner', 'stadium-tunnel', 'floodlight', 'lighthouse', 'tavern', 'fisher-house', 'harbour-townhouse',
+  'fish-market', 'village-cottage', 'village-stonehouse', 'village-forge', 'city-brownstone', 'city-glass-tower', 'city-deco-tower', 'city-corner',
+  'cyber-tower', 'cyber-shop', 'scifi-tower', 'neon-sign', 'metal-bridge', 'hover-car', 'metro-train', 'drone-bot', 'airship', 'shipwreck', 'cabin',
+  'burrow-house', 'stone-lantern', 'tree-oak', 'tree-birch', 'tree-round', 'tree-poplar', 'tree-fir', 'tree-fir-wide', 'car',
+  'throne', 'banquet-table', 'chandelier', 'fireplace', 'armour-stand', 'weapon-rack', 'prize-counter',
+  'fern', 'rock-cluster', 'reeds', 'log', 'bush-bloom', 'windmill',
+  'tree-oak-lod', 'tree-birch-lod', 'tree-round-lod', 'tree-poplar-lod', 'tree-fir-lod', 'tree-fir-wide-lod',
   'taxi', 'box-truck', 'led-streetlight', 'neon-shop-sign', 'hotel-neon-blade', 'giant-billboard', 'media-facade', 'transit-shelter',
   'corner-shop', 'metro-headhouse', 'retail-infill', 'neon-storefront', 'security-bollard', 'service-dumpster', 'generator-unit', 'barrel-stack', 'supply-crate',
 ])
@@ -134,6 +166,21 @@ export interface Landmark {
   ghost?: boolean
   /** Multiply the model's colours (a chalk-white arena toned down to concrete). */
   tint?: string
+  /**
+   * Level of detail: 'far' is drawn only while the district is out of streaming range (a closed shell standing in
+   * for a walk-in set from afar); 'near' pieces get no placeholder block, the far model covers them.
+   */
+  lod?: 'far' | 'near'
+  /**
+   * Stepped seating you can climb: every upward-facing tread is measured from the mesh in 1 m cells and becomes a
+   * floor (one step up at a time), with nothing solid in the way except what is too high to step onto.
+   */
+  stand?: boolean
+  /**
+   * A walk-through opening (half width, height in metres) through the middle of the model along z: the mesh is cut
+   * open there when it is built, only the sides are solid, and `true` lines the opening with walls and a lit ceiling.
+   */
+  passage?: [number, number, boolean?]
 }
 
 export interface Scatter {
@@ -179,32 +226,6 @@ export interface Region {
   tagline: string
 }
 
-/**
- * A walled bailey from the desert-fortress modules: 12 m wall pieces around a w x d rectangle (centred on cx, cz
- * in region space), towers on the corners and the gate frame in the middle of the south side.
- */
-function bailey(cx: number, cz: number, w: number, d: number): Landmark[] {
-  const out: Landmark[] = []
-  const wall = (x: number, z: number, rot: number) => out.push({ model: 'fortress-wall', at: [x, z], height: 11, rot, pad: 7, set: true, foot: [12, 2.5] })
-  const nx = Math.round(w / 12), nz = Math.round(d / 12)
-  for (let i = 0; i < nx; i++) {
-    const x = cx - w / 2 + (i + 0.5) * (w / nx)
-    wall(x, cz - d / 2, 0)
-    // The south side leaves the middle open for the gate.
-    if (Math.abs(x - cx) > 14) wall(x, cz + d / 2, 180)
-  }
-  for (let i = 0; i < nz; i++) {
-    const z = cz - d / 2 + (i + 0.5) * (d / nz)
-    wall(cx - w / 2, z, 90)
-    wall(cx + w / 2, z, -90)
-  }
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) out.push({ model: 'fortress-tower', at: [cx + (sx * w) / 2, cz + (sz * d) / 2], height: 20, pad: 5, set: true, foot: [6, 6] })
-  out.push({ model: 'fortress-gate', at: [cx, cz + d / 2], height: 14, rot: 180, pad: 12, set: true, foot: [21, 17], lift: -5.5 })
-  out.push({ model: 'fortress-pillar', at: [cx - 15, cz + d / 2], height: 13, pad: 3, set: true, foot: [4, 4] })
-  out.push({ model: 'fortress-pillar', at: [cx + 15, cz + d / 2], height: 13, pad: 3, set: true, foot: [4, 4] })
-  return out
-}
-
 export const REGIONS: Region[] = [
   {
     id: 'hub',
@@ -217,10 +238,10 @@ export const REGIONS: Region[] = [
     radius: 90,
     accent: '#94a3b8',
     landmarks: [
-      { model: 'fishing-town', at: [-26, -8], height: 22, rot: 15, pad: 36, set: true, foot: [60, 40], lift: -14 },
-      { model: 'old-house', at: [34, 10], height: 8, rot: -110, pad: 6, foot: [10, 8] },
-      { model: 'tavern', at: [26, -24], height: 7.5, rot: 30, pad: 7, foot: [10, 12] },
-      { model: 'old-house', at: [-58, 22], height: 7.5, rot: 70, pad: 6, foot: [10, 8] },
+      ...harbourTown(),
+      { model: 'fisher-house', at: [34, 10], height: 8, rot: -110, pad: 6, foot: [8, 8] },
+      { model: 'fish-market', at: [26, -26], height: 6, rot: 30, pad: 7, foot: [7, 11] },
+      { model: 'fisher-house', at: [-62, 26], height: 7.5, rot: 70, pad: 6, foot: [8, 8] },
       { model: 'portal', at: [0, -40], height: 9, pad: 7 },
       { model: 'lighthouse', at: [74, 44], height: 24, rot: 0, pad: 6, foot: [7, 7] },
       { model: 'signpost', at: [14, 2], height: 3.2, rot: -30, pad: 3 },
@@ -250,7 +271,7 @@ export const REGIONS: Region[] = [
     radius: 70,
     accent: '#fb923c',
     landmarks: [
-      { model: 'fantastic-castle', at: [0, -30], height: 26, rot: 180, pad: 20, set: true, foot: [34, 24] },
+      { model: 'castle-arcade', at: [0, -32], height: 24, rot: 0, pad: 20, foot: [24, 14] },
       { model: 'neon-storefront', at: [-30, 10], height: 7, rot: 90, pad: 5, foot: [8, 6] },
       { model: 'media-facade', at: [30, 10], height: 9, rot: -90, pad: 5, foot: [8, 6] },
       { model: 'giant-billboard', at: [-24, -34], height: 14, rot: 150, pad: 4 },
@@ -280,14 +301,17 @@ export const REGIONS: Region[] = [
     radius: 120,
     accent: '#a78bfa',
     landmarks: [
-      { model: 'city-block', at: [0, -20], height: 44, rot: 0, pad: 90, set: true, foot: [172, 169] },
-      { model: 'brooklyn-row', at: [-78, 70], height: 14, rot: 90, pad: 10, set: true, foot: [60, 18] },
-      { model: 'cyber-block', at: [62, 84], height: 15, rot: 0, pad: 24, set: true, foot: [44, 42] },
-      { model: 'scifi-buildings', at: [-30, 92], height: 20, rot: 180, pad: 16, set: true, foot: [62, 26] },
-      { model: 'neon-tower', at: [100, -60], height: 40, pad: 9 },
+      ...neonGrid(),
+      { model: 'city-brownstone', at: [-80, 62], height: 16, rot: 90, pad: 9, foot: [9, 14] },
+      { model: 'city-brownstone', at: [-80, 78], height: 15, rot: 90, pad: 9, foot: [9, 14] },
+      { model: 'cyber-shop', at: [56, 78], height: 9, rot: 180, pad: 8, foot: [12, 10] },
+      { model: 'cyber-tower', at: [72, 80], height: 34, rot: -90, pad: 6, foot: [10, 10] },
+      { model: 'scifi-tower', at: [-36, 88], height: 38, rot: 0, pad: 7, foot: [11, 11] },
+      { model: 'cyber-shop', at: [-22, 92], height: 8.5, rot: 0, pad: 7, foot: [11, 9] },
+      { model: 'neon-tower', at: [100, -60], height: 40, pad: 9, foot: [22, 22] },
       { model: 'ai-core', at: [10, 78], height: 7, pad: 5, anim: 'float' },
-      { model: 'neon-sign', at: [-8, 70], height: 7, rot: 0, pad: 2 },
-      { model: 'neon-sign', at: [22, 70], height: 7, rot: 180, pad: 2 },
+      { model: 'neon-sign', at: [-8, 66], height: 7, rot: 0, pad: 2 },
+      { model: 'neon-sign', at: [22, 66], height: 7, rot: 180, pad: 2 },
       { model: 'hotel-neon-blade', at: [-56, 62], height: 12, rot: 90, pad: 4 },
       { model: 'neon-shop-sign', at: [40, 90], height: 5, rot: -90, pad: 2 },
       { model: 'corner-shop', at: [-62, 100], height: 9, rot: 0, pad: 7, foot: [12, 10] },
@@ -295,14 +319,14 @@ export const REGIONS: Region[] = [
       { model: 'metro-headhouse', at: [0, 104], height: 5, rot: 0, pad: 5 },
       { model: 'taxi', at: [-20, 104], height: 1.5, rot: 80, pad: 2 },
       { model: 'box-truck', at: [36, 104], height: 3, rot: -100, pad: 3 },
-      { model: 'hover-car', at: [-44, 80], height: 1.6, rot: 20, lift: 0.6 },
+      { model: 'hover-car', at: [-44, 80], height: 1.6, rot: 20, pad: 3 },
       { model: 'led-streetlight', at: [-30, 110], height: 7, pad: 1 },
       { model: 'led-streetlight', at: [30, 110], height: 7, pad: 1 },
       { model: 'security-bollard', at: [-8, 112], height: 1, pad: 1 },
       { model: 'service-dumpster', at: [50, 100], height: 1.6, rot: 30, pad: 2 },
-      { model: 'flying-robot', at: [0, 60], height: 1.2, lift: 6, ghost: true, anim: 'float' },
-      { model: 'lp-train', at: [-100, 20], height: 3.6, rot: 0, pad: 4 },
-      { model: 'metal-bridge', at: [-100, 44], height: 3.5, rot: 0, pad: 4 },
+      { model: 'drone-bot', at: [0, 60], height: 1.2, lift: 6, ghost: true, anim: 'float' },
+      { model: 'metro-train', at: [-100, 20], height: 3.8, rot: 0, pad: 4 },
+      { model: 'metal-bridge', at: [-100, 44], height: 4, rot: 0, pad: 4 },
     ],
     scatter: [],
     beacon: [-6, 76],
@@ -322,8 +346,8 @@ export const REGIONS: Region[] = [
     radius: 120,
     accent: '#f97316',
     landmarks: [
-      { model: 'eden-arena', at: [0, -96], height: 22, rot: 0, pad: 84, set: true, foot: [122, 163], tint: '#8e9199' },
-      { model: 'stadium-seats', at: [-86, 10], height: 16, rot: 90, pad: 8, set: true, foot: [51, 12] },
+      ...walkInStadium(STADIUM_PITCH[0], STADIUM_PITCH[1]),
+      { model: 'stadium-stand', at: [-86, 10], height: 10, rot: 90, pad: 8, stand: true, foot: [10, 28] },
       { model: 'podium', at: [30, 60], height: 4, rot: 90, pad: 5 },
       { model: 'metro-headhouse', at: [-26, 62], height: 5, rot: 180, pad: 5 },
       { model: 'transit-shelter', at: [26, 70], height: 3.4, rot: 180, pad: 4 },
@@ -353,9 +377,9 @@ export const REGIONS: Region[] = [
     accent: '#fb7185',
     landmarks: [
       ...bailey(0, -10, 96, 72),
-      { model: 'khotyn-fortress', at: [0, -24], height: 11, rot: 0, pad: 30, set: true, foot: [45, 33], lift: 1.0 },
-      { model: 'medieval-village', at: [-64, 46], height: 8, rot: 120, pad: 26, set: true, foot: [52, 21] },
-      { model: 'fortress-portal', at: [66, 48], height: 17, rot: 200, pad: 5, set: true, foot: [6, 4] },
+      { model: 'fortress-keep', at: KEEP_AT, height: 24, rot: 0, pad: 24, foot: [32, 24] },
+      ...village(-66, 48),
+      { model: 'fortress-gate', at: [66, 48], height: 14, rot: 200, pad: 7, passage: [2.8, 7.5], foot: [18, 6] },
       { model: 'observatory', at: [-70, -56], height: 11, rot: 160, pad: 10 },
       { model: 'crane', at: [82, 10], height: 22, rot: 30, pad: 5 },
       { model: 'cabin', at: [-96, -40], height: 6, rot: 80, pad: 5, foot: [8, 8] },
@@ -410,10 +434,10 @@ export const REGIONS: Region[] = [
       { model: 'distillery', at: [0, 0], height: 13, rot: 200, pad: 11 },
       { model: 'pot-still', at: [11, 8], height: 6, pad: 4 },
       { model: 'pot-still', at: [15, 2], height: 5, rot: 40, pad: 4 },
-      { model: 'barrels', at: [-11, 7], height: 4, rot: 20, pad: 4 },
-      { model: 'hobbit-house', at: [-70, 40], height: 7, rot: 200, pad: 10, foot: [12, 11] },
+      { model: 'barrels', at: [-11, 7], height: 4, rot: 20, pad: 4, foot: [5, 5] },
+      { model: 'burrow-house', at: [-70, 40], height: 6, rot: 200, pad: 10, foot: [12, 11] },
       { model: 'cabin', at: [60, -70], height: 6, rot: -30, pad: 5, foot: [8, 8] },
-      { model: 'old-house', at: [-40, -60], height: 7.5, rot: 140, pad: 6, foot: [10, 8] },
+      { model: 'village-cottage', at: [-40, -60], height: 7, rot: 140, pad: 6, foot: [7, 8] },
       { model: 'barrel-stack', at: [-16, 14], height: 1.6, rot: 10, pad: 2 },
     ],
     scatter: [
@@ -445,6 +469,7 @@ export const REGIONS: Region[] = [
       { model: 'warehouse', at: [-22, -8], height: 8, rot: 15, pad: 12 },
       { model: 'box-truck', at: [-30, 10], height: 3, rot: 120, pad: 3 },
       { model: 'supply-crate', at: [-12, 12], height: 1.2, rot: 20, pad: 1 },
+      { model: 'windmill', at: [30, -34], height: 16, rot: 200, pad: 6, foot: [7, 7] },
     ],
     scatter: [
       { model: 'bush', count: 50, height: [0.6, 1.2], radius: 78 },
@@ -468,14 +493,14 @@ export const REGIONS: Region[] = [
     radius: 90,
     accent: '#a5b4fc',
     landmarks: [
-      { model: 'temple', at: [0, -24], height: 24, rot: 180, pad: 30, set: true, foot: [28, 34] },
+      { model: 'temple', at: [0, -24], height: 22, rot: 0, pad: 30, set: true, foot: [25, 21] },
       { model: 'clock-tower', at: [50, 20], height: 20, rot: 20, pad: 7 },
-      { model: 'toro', at: [-8, 10], height: 3, pad: 1.5 },
-      { model: 'toro', at: [8, 10], height: 3, pad: 1.5 },
-      { model: 'toro', at: [-8, 24], height: 3, pad: 1.5 },
-      { model: 'toro', at: [8, 24], height: 3, pad: 1.5 },
-      { model: 'toro', at: [-8, 38], height: 3, pad: 1.5 },
-      { model: 'toro', at: [8, 38], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [-8, 10], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [8, 10], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [-8, 24], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [8, 24], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [-8, 38], height: 3, pad: 1.5 },
+      { model: 'stone-lantern', at: [8, 38], height: 3, pad: 1.5 },
     ],
     scatter: [
       { model: 'autumn-tree', count: 44, height: [5, 8], radius: 88 },
@@ -504,7 +529,7 @@ export const REGIONS: Region[] = [
       { model: 'lighthouse', at: [-70, -30], height: 22, rot: 0, pad: 6, foot: [7, 7] },
       { model: 'lab', at: [20, -30], height: 12, rot: 150, pad: 11 },
       { model: 'flask', at: [34, -20], height: 6, pad: 4, anim: 'bob' },
-      { model: 'old-house', at: [40, 20], height: 7.5, rot: -60, pad: 6, foot: [10, 8] },
+      { model: 'fisher-house', at: [40, 20], height: 7.5, rot: -60, pad: 6, foot: [8, 8] },
     ],
     scatter: [
       { model: 'palm', count: 40, height: [5, 9], radius: 88 },

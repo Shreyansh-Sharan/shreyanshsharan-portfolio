@@ -216,27 +216,34 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
     <div className="exhibit-card credits-panel" role="dialog" aria-label="3D model credits">
       <h2>3D models</h2>
       <p className="exhibit-sub">
-        The island's architecture is built from these Creative Commons models. Each is licensed{' '}
-        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
-          CC BY 4.0
-        </a>{' '}
-        by its author; several were decimated and recompressed to fit a web page. The low-poly city props come from the site owner's licensed 3D asset
-        library.
+        The island's buildings, trees, vehicles and the furniture in its halls are original models made for this project. The low-poly city props
+        (taxis, streetlights, shelters, shopfronts) come from the site owner's licensed 3D asset library.
       </p>
-      <ul className="credits-list">
-        {MODEL_CREDITS.map((c) => (
-          <li key={c.model_url}>
-            <a href={c.model_url} target="_blank" rel="noreferrer">
-              {c.name}
+      {MODEL_CREDITS.length > 0 && (
+        <>
+          <p className="exhibit-sub">
+            These Creative Commons models are licensed{' '}
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+              CC BY 4.0
             </a>{' '}
-            by{' '}
-            <a href={c.author_url} target="_blank" rel="noreferrer">
-              {c.author}
-            </a>
-            {c.use && <span className="muted small"> · {c.use}</span>}
-          </li>
-        ))}
-      </ul>
+            by their authors:
+          </p>
+          <ul className="credits-list">
+            {MODEL_CREDITS.map((c) => (
+              <li key={c.model_url}>
+                <a href={c.model_url} target="_blank" rel="noreferrer">
+                  {c.name}
+                </a>{' '}
+                by{' '}
+                <a href={c.author_url} target="_blank" rel="noreferrer">
+                  {c.author}
+                </a>
+                {c.use && <span className="muted small"> · {c.use}</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <button className="pill" onClick={onClose}>
         Close <kbd>Esc</kbd>
       </button>

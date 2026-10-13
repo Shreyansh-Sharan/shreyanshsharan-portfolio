@@ -5,13 +5,15 @@ import { AdaptiveDpr, PerformanceMonitor, Preload } from '@react-three/drei'
 import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { buildTerrain } from './terrain'
-import { Landmarks, Scatters, streamState } from './Models'
+import { groundMaterial } from './groundMaterial'
+import { groundReport, Landmarks, Scatters, streamState } from './Models'
+import { enterRoom, leaveRoom, ROOMS, type RoomId } from './interiors'
 import { Vegetation } from './Vegetation'
 import { GroundFog, Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
 import { Guide, Player, flyPose, player, spawnPlayer } from './Characters'
 import { animals } from './wildlife'
-import { colliderList } from './colliders'
+import { colliderList, groundAt, roofAt } from './colliders'
 import { castSpell, spellById, type SpellId } from './spells'
 import { Animals } from './Animals'
 import { SpellFx } from './SpellFx'
@@ -26,6 +28,8 @@ import { heightAt } from './terrain'
 import { controls } from './controls'
 import { Exhibits } from './Exhibits'
 import { Vehicles } from './Vehicle'
+import { Interiors } from './Interiors'
+import { Countryside } from './Countryside'
 import { car, enterCar, exitCar, sail, ship, board, disembark, stepCar, stepShip } from './rides'
 import { exhibits } from './exhibits'
 import { nearestInteraction } from './interact'
@@ -53,6 +57,8 @@ function weakGpu() {
 function quality() {
   // The user's explicit "low graphics" choice always wins — a guaranteed fallback for weak GPUs.
   if (isLowGraphics()) return 'low'
+  // Test hook: `?hq` forces the full tier (headless checks run on a software GPU that would otherwise pick low).
+  if (new URLSearchParams(window.location.search).has('hq')) return 'high'
   const small = window.innerWidth < 820 || matchMedia('(pointer: coarse)').matches
   const cores = navigator.hardwareConcurrency ?? 4
   const deviceMem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
@@ -62,9 +68,7 @@ function quality() {
 function Terrain({ segments }: { segments: number }) {
   const geo = useMemo(() => buildTerrain(1300, segments), [segments])
   return (
-    <mesh geometry={geo} receiveShadow castShadow={false}>
-      <meshStandardMaterial vertexColors flatShading roughness={0.93} metalness={0} />
-    </mesh>
+    <mesh geometry={geo} material={groundMaterial()} receiveShadow castShadow={false} />
   )
 }
 
@@ -241,7 +245,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
           const w = window as unknown as { __r3f: unknown; __world: unknown }
           w.__r3f = state
           w.__world = {
-            player, flyPose, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results,
+            player, flyPose, animals, colliders: colliderList, groundAt, roofAt, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results,
             // Creatures and pals: step the fixed-rate simulation, spawn, hurt, capture and ride from a script.
             creatures, spawns, spawnCreature: (sp: SpeciesId, x: number, z: number, alpha = false) => spawnCreature(sp, x, z, alpha),
             damage: (id: number, amount: number) => damageCreature(creatures[id], amount, 0, 1, 2, 2),
@@ -254,7 +258,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
             },
             chance: (id: number) => captureChance(creatures[id]),
             roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
-            clock: dayClock, photo, store: world, heightAt, controls, streamState,
+            clock: dayClock, photo, store: world, heightAt, controls, streamState, ground: () => groundReport(), rooms: ROOMS, enterRoom: (id: RoomId) => enterRoom(id, player), leaveRoom: (id: RoomId) => leaveRoom(id, player),
             car, enterCar, exitCar: () => exitCar(player), stepCar, stepShip, frames: frameCount, ship, sail, board, disembark: () => disembark(player), exhibits, interact: () => nearestInteraction(player.pos.x, player.pos.z, player),
             place: (x: number, z: number) => {
               player.pos.set(x, heightAt(x, z), z)
@@ -288,8 +292,9 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       </Suspense>
       <Suspense fallback={null}>
         <Landmarks />
-        <Scatters />
-        <Vegetation grass={playing} />
+        <Scatters light={!high} />
+        <Vegetation grass={playing && high} />
+        <Countryside light={!high} playing={playing} />
         <Ambient />
         <Guide />
         {playing && <Player />}
@@ -303,6 +308,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         {playing && <PlayerFx />}
         <Preload all />
       </Suspense>
+      {/* Rooms watch the player from outside the scene's suspense, so a district still streaming never stalls a door. */}
+      <Interiors />
       <CameraRig playing={playing} mode={mode} />
       <Ready onReady={onReady} />
       <AdaptiveDpr pixelated={false} />

@@ -41,10 +41,13 @@ function setGroup(key: string, list: Collider[]) {
 /** Footprint radius per metre of height for each scattered model, measured from its geometry once loaded. */
 const scatterFactor: Partial<Record<ScatterName, number>> = { rock: 0.55, bush: 0.5 }
 const DEFAULT_TREE_FACTOR = 0.08
+const SOFT = new Set<ScatterName>(['bush', 'fern', 'reeds', 'bush-bloom', 'mushroom', 'pebble'])
 
 function buildScatter() {
   const list: Collider[] = []
   for (const [name, matrices] of scatterLayout()) {
+    // Only trees, logs and rocks are solid: you wade through ferns, reeds, shrubs, toadstools and pebbles.
+    if (SOFT.has(name)) continue
     const f = scatterFactor[name] ?? DEFAULT_TREE_FACTOR
     const low = name === 'rock' || name === 'bush'
     for (const m of matrices) {
@@ -52,6 +55,8 @@ function buildScatter() {
       // Horizontal scale is the length of the matrix's x column (rocks are stretched sideways).
       const sxz = Math.hypot(e[0], e[1], e[2])
       const sy = Math.hypot(e[4], e[5], e[6])
+      // Small stones are stepped over.
+      if (name === 'rock' && sy < 1.1) continue
       list.push(circleCollider(e[12], e[14], Math.max(0.3, f * sxz), e[13] + sy * (low ? 0.85 : 1)))
     }
   }
@@ -68,7 +73,7 @@ function seed() {
       if (l.ghost) return
       const x = r.center[0] + l.at[0], z = r.center[1] + l.at[1]
       // Walkable sets start open (their walls are measured once the mesh is in); other props block their pad.
-      groups.set(landmarkKey(r.id, i), l.set ? [] : [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
+      groups.set(landmarkKey(r.id, i), l.set || l.stand || l.passage ? [] : [circleCollider(x, z, (l.pad ?? 4) * 0.8, heightAt(x, z) + l.height + (l.anim === 'float' ? 1.2 : 0))])
     }),
   )
   const neon = REGIONS.find((r) => r.id === 'neon')!

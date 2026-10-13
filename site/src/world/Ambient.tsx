@@ -318,6 +318,10 @@ export function Ambient() {
       <Birds center={region('lab').center} count={6} height={26} radius={22} />
       <Birds center={region('ridge').center} count={8} height={70} radius={60} />
       <Birds center={region('campus').center} count={5} height={44} radius={30} />
+      <Birds center={region('plains').center} count={10} height={30} radius={46} />
+      <Birds center={region('hub').center} count={6} height={28} radius={52} />
+      <Birds center={[150, 120]} count={8} height={40} radius={70} />
+      <Birds center={[200, -240]} count={7} height={48} radius={50} />
       <Suspense fallback={null}>
         <RaceCar />
       </Suspense>

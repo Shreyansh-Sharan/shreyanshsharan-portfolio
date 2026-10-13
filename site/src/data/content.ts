@@ -571,6 +571,7 @@ export const tiles: Tile[] = [
     genre: 'Shooter',
     blurb:
       'A lightweight browser shooter on six original maps, including three classic-style arenas (Sandstorm, Villa and Bazaar). Five weapons from sidearm to scoped sniper, right-click aiming, AI bots or friends by invite code, plus dash, double jump, overshield and pulse scan.',
+    cover: 'arena/keyart.webp',
     icon: Crosshair,
     accent: ['#9a3412', '#fdba74'],
     action: { kind: 'route', to: '#/arena', label: 'Play' },
@@ -608,6 +609,7 @@ export const tiles: Tile[] = [
     genre: 'Racing',
     blurb:
       'A neon street racer with weapons. Twelve colour-coded power-ups, a three-slot bay, ten segments of health, drift handling, seven AI rivals, four circuits from a storm-drain river to a seaside pier, a Combat Points series and a Dust Bowl deathmatch arena. Win fans, earn Lights.',
+    cover: 'racer/keyart.webp',
     icon: CarFront,
     accent: ['#831843', '#f0abfc'],
     action: { kind: 'route', to: '#/racer', label: 'Race' },
@@ -626,6 +628,7 @@ export const tiles: Tile[] = [
     genre: 'Sports · Party',
     blurb:
       'Everyone tees off at once on four holes, from a lakeside par 4 to a desert canyon, a frozen fjord and a volcano island at night. First ball in the cup scores the most, but golf carts, rockets, orbital lasers, tornadoes and banana peels mean nobody gets a quiet putt.',
+    cover: 'golf/keyart.webp',
     icon: Flag,
     accent: ['#14532d', '#bef264'],
     action: { kind: 'route', to: '#/golf', label: 'Tee off' },
@@ -775,6 +778,7 @@ export const tiles: Tile[] = [
     period: '3 venues',
     genre: '3D World',
     blurb: 'A small 3D sports complex to explore: an F1 track for experience, a stadium for achievements and a rally hall for skills.',
+    cover: 'sports/keyart.webp',
     icon: Flag,
     accent: ['#991b1b', '#f97316'],
     action: { kind: 'route', to: '#/sports', label: 'Enter' },
