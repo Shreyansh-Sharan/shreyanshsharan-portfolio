@@ -39,6 +39,8 @@ export const player = {
   stomp: { n: 0 },
   /** Height of the ground under the player (for the contact shadow while airborne). */
   ground: 0,
+  /** The clip playing on the body (test hook). */
+  anim: '',
 }
 
 /**
@@ -246,6 +248,13 @@ export function Player() {
     teleportN: 0,
     castN: lastCast()?.n ?? 0,
     casting: 0,
+    /** Seconds since the feet last touched the ground (a short fall does not start the jump clip). */
+    airT: 0,
+    /** Ground speed eased towards the input (m/s), what the input asks for, and the last heading asked for. */
+    moveSpeed: 0,
+    moveTarget: 0,
+    dirX: 0,
+    dirZ: 1,
     flying: false,
     flyVel: new THREE.Vector3(),
     bank: 0,
@@ -402,11 +411,24 @@ export function Player() {
         } else s.vy = Math.max(s.vy, 0)
       }
       speed = Math.hypot(s.flyVel.x, s.flyVel.z)
+      s.moveSpeed = s.moveTarget = Math.min(speed, RUN)
       if (speed > 1) player.yaw = turnTowards(player.yaw, Math.atan2(s.flyVel.x, s.flyVel.z), dt * 6)
     } else {
       // ---- On foot. ----
       const spec = s.move ? MOVES[s.move] : null
-      speed = (run ? RUN : WALK) * mag * (spec ? spec.move : 1)
+      // Ease between standing, walking and running instead of snapping: the short ramp reads as weight, and
+      // a half-pressed stick never flips the animation at a threshold. The heading is remembered so the
+      // slow-down after releasing the keys carries on in the direction of travel.
+      s.moveTarget = (run ? RUN : WALK) * mag * (spec ? spec.move : 1)
+      const ramp = s.moveTarget > s.moveSpeed ? 45 : 60
+      s.moveSpeed = s.moveTarget > s.moveSpeed ? Math.min(s.moveTarget, s.moveSpeed + ramp * dt) : Math.max(s.moveTarget, s.moveSpeed - ramp * dt)
+      speed = s.moveSpeed
+      if (mag > 0.01) {
+        s.dirX = dx
+        s.dirZ = dz
+      }
+      dx = s.dirX
+      dz = s.dirZ
       if (s.move === 'dash' && s.moveT < 0.38) {
         // The flying fist kick lunges forward.
         speed = 13
@@ -421,7 +443,7 @@ export function Player() {
           player.pos.x = nx
           player.pos.z = nz
         }
-        if (!s.move) player.yaw = turnTowards(player.yaw, Math.atan2(dx, dz), dt * 12)
+        if (!s.move && mag > 0.01) player.yaw = turnTowards(player.yaw, Math.atan2(dx, dz), dt * 12)
       }
     }
     // Shoved by an enemy bump.
@@ -484,8 +506,16 @@ export function Player() {
         s.stomp = false
         player.bounce = 0
       }
+      const wasGrounded = s.grounded
       s.vy -= 22 * dt
       player.pos.y += s.vy * dt
+      // Running down a slope or across the terrain's facets is not leaving the ground: while not actually
+      // jumping, stay on a floor that is only a step below the feet (otherwise every downhill frame
+      // flickered the run into the jump clip and back).
+      if (player.pos.y > ground && wasGrounded && s.vy <= 0 && player.pos.y - ground < 0.7) {
+        player.pos.y = ground
+        s.vy = 0
+      }
       if (player.pos.y <= ground) {
         player.pos.y = ground
         s.vy = 0
@@ -512,6 +542,7 @@ export function Player() {
         }
       } else s.grounded = false
     }
+    s.airT = s.grounded ? 0 : s.airT + dt
     player.vy = s.vy
     player.speed = speed
     player.flying = s.flying
@@ -609,19 +640,27 @@ export function Player() {
         fadeTo('fly')
         if (actions.fly) actions.fly.timeScale = 1
       } else fadeTo('hover')
-    } else if (!s.grounded) {
+    } else if (!s.grounded && (s.vy > 0.5 || s.airT > 0.12)) {
       fadeTo('jump', JUMP_FROM)
       // Physics owns the height: keep the clip's crouch but drop its own upward hip travel.
       if (actions.jump) actions.jump.timeScale = 1.1
     } else if (s.cheering > 0 || s.casting > 0) {
       // Keep playing it.
-    } else if (speed > 2.5) {
-      fadeTo('run')
-      if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / 7, 0.7, 1.35)
-    } else if (speed > 0.1) {
-      fadeTo('walk')
-      if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / 1.4, 0.6, 1.6)
-    } else fadeTo('idle')
+    } else {
+      // Pick the clip from what the input asks for (so a key press goes straight to its clip without a pass
+      // through the one in between) with a dead band around each threshold, and pace it to the eased speed.
+      const want = s.flying ? speed : s.moveTarget
+      const cur = s.current
+      const ease = Math.min(1, dt * 10)
+      if (want > (cur === 'run' ? 2.2 : 3.2)) {
+        fadeTo('run')
+        if (actions.run) actions.run.timeScale += (THREE.MathUtils.clamp(speed / 7, 0.7, 1.35) - actions.run.timeScale) * ease
+      } else if (want > (cur === 'walk' ? 0.08 : 0.3)) {
+        fadeTo('walk')
+        if (actions.walk) actions.walk.timeScale += (THREE.MathUtils.clamp(speed / 1.4, 0.6, 1.6) - actions.walk.timeScale) * ease
+      } else fadeTo('idle')
+    }
+    player.anim = s.current
 
     // The mission fight (enemies, waves) runs off the player's clock.
     stepCombat(dt, raw, player)
