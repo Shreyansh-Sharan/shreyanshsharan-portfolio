@@ -1,7 +1,8 @@
-// Model manifest and loader. Every GLB in `public/lawn/models/` is listed here with the size it should be in the
-// world; the loader scales it, drops its feet to y=0, centres it and converts materials for the cartoon lighting.
-// Pack files (several props in one GLB) are split by node name. Anything that fails to load falls back to a
-// procedural stand-in, so the game never stalls on an asset. Sources and licences: public/lawn/CREDITS.md.
+// Model manifest and loader. Every GLB in `public/lawn/models/` is an original model made for this project; this
+// lists each with the size it should be in the world, and the loader scales it, drops its feet to y=0, centres it and
+// converts materials for the cartoon lighting. Packs (several props in one GLB) are split by node name, and the house
+// kit parts keep their authored metre coordinates. Anything that fails to load falls back to a procedural stand-in,
+// so the game never stalls on an asset. Tiling textures for the houses and the street live in `public/lawn/textures/`.
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
@@ -32,72 +33,82 @@ export interface ModelSpec {
   keepY?: boolean
   /** Shadow casting (big static props skip it on low tiers). */
   shadow?: boolean
+  /** House-kit part authored in metres: keep its coordinates (no scaling or centring). */
+  raw?: boolean
+  /** Dust upward-facing surfaces with snow (shader tweak). */
+  snowy?: boolean
 }
 
 export const MANIFEST: Record<string, ModelSpec> = {
-  // Characters (Quaternius CC0): bodies share one skeleton; clips live on the male file.
-  'char-m': { file: 'char-m.glb', height: 1.85, animated: true },
-  'char-f': { file: 'char-f.glb', height: 1.72, animated: true },
-  hair: { file: 'hair.glb' },
-  dog: { file: 'dog.glb', height: 0.75, animated: true },
-  robot: { file: 'hexapod.glb', width: 1.6, animated: true, yaw: Math.PI / 2 },
+  // Heroes: one skinned model each, all on the same skeleton and sharing the same clip set (baked into each file).
+  'hero-nana': { file: 'hero-nana.glb', height: 1.62, animated: true },
+  'hero-dad': { file: 'hero-dad.glb', height: 1.85, animated: true },
+  'hero-kid': { file: 'hero-kid.glb', height: 1.15, animated: true },
+  'hero-hoa': { file: 'hero-hoa.glb', height: 1.74, animated: true },
+  'hero-gramps': { file: 'hero-walt.glb', height: 1.7, animated: true },
+  dog: { file: 'dog.glb', height: 0.72, animated: true },
+  robot: { file: 'robot.glb', width: 1.6, animated: true },
   seagull: { file: 'seagull.glb', width: 0.9, animated: true },
-  // Held weapons and gadgets.
-  rollingpin: { file: 'rollingpin.glb', length: 0.45 },
-  golfclub: { file: 'golfclub.glb', length: 1.0 },
-  slingshot: { file: 'slingshot.glb', length: 0.34, sub: 'catapult' },
+  // Held weapons and gadgets (two packs split by node name).
+  golfclub: { file: 'held-a.glb', sub: 'golfclub', length: 1.0 },
+  rollingpin: { file: 'held-a.glb', sub: 'rollingpin', length: 0.45 },
+  bat: { file: 'held-a.glb', sub: 'bat', length: 0.95 },
+  pan: { file: 'held-a.glb', sub: 'pan', length: 0.42 },
+  sledge: { file: 'held-a.glb', sub: 'sledge', length: 0.85 },
+  rake: { file: 'held-b.glb', sub: 'rake', length: 1.3 },
+  shovel: { file: 'held-b.glb', sub: 'shovel', length: 1.25 },
+  slingshot: { file: 'held-b.glb', sub: 'slingshot', length: 0.34 },
+  blower: { file: 'held-b.glb', sub: 'blower', length: 0.85 },
   umbrella: { file: 'umbrella.glb', width: 1.1 },
-  blower: { file: 'blower.glb', width: 0.85 },
-  tray: { file: 'tray.glb', width: 0.42 },
-  bat: { file: 'melee-pack.glb', sub: 'Bat_Melee', length: 0.95 },
-  sledge: { file: 'melee-pack.glb', sub: 'Sledge_Melee', length: 0.85 },
-  pan: { file: 'melee-pack.glb', sub: 'Frying_Pan', length: 0.42 },
-  pipe: { file: 'melee-pack.glb', sub: 'Pipe_Melee', length: 0.6 },
-  shovel: { file: 'tools.glb', sub: 'Shovel', length: 1.25 },
-  rake: { file: 'tools.glb', sub: 'Fork', length: 1.3 },
-  toolrack: { file: 'tools.glb', sub: 'rack', height: 1.5 },
-  // Valuables and furniture (Sketchfab CC BY).
-  tv: { file: 'tv.glb', width: 1.3, yaw: 0 },
-  fridge: { file: 'fridge.glb', height: 1.9, animated: true },
-  trophy: { file: 'trophy.glb', height: 0.9, tint: '#ffd766' },
-  aquarium: { file: 'aquarium.glb', width: 1.3 },
+  tray: { file: 'tray.glb', width: 0.5 },
+  // Valuables and furniture.
+  tv: { file: 'tv.glb', width: 1.2 },
+  fridge: { file: 'fridge.glb', height: 1.9 },
+  trophy: { file: 'trophy.glb', height: 0.9 },
+  aquarium: { file: 'aquarium.glb', width: 1.4 },
   clock: { file: 'clock.glb', height: 2.0 },
   piano: { file: 'piano.glb', width: 1.5 },
-  mower: { file: 'mower.glb', width: 1.3, yaw: Math.PI / 2 },
-  'mower-ride': { file: 'mower-anim.glb', width: 1.4, animated: true },
+  mower: { file: 'mower.glb', width: 1.4 },
+  'mower-ride': { file: 'mower.glb', width: 1.6 },
   bookcase: { file: 'bookcase.glb', height: 2.0 },
-  sofa: { file: 'sofa.glb', width: 2.1 },
+  sofa: { file: 'sofa.glb', width: 2.2 },
+  bed: { file: 'bed.glb', width: 2.25 },
   toilet: { file: 'toilet.glb', height: 0.8 },
-  sink: { file: 'sink.glb', height: 0.9 },
+  sink: { file: 'sink.glb', height: 1.75 },
   // Street and garden.
   gnome: { file: 'gnome.glb', height: 0.55 },
-  mailbox: { file: 'mailbox.glb', height: 1.2 },
-  bbq: { file: 'bbq.glb', height: 1.2 },
+  mailbox: { file: 'mailbox.glb', height: 1.25 },
+  bbq: { file: 'bbq.glb', height: 1.15 },
   golfcart: { file: 'golfcart.glb', width: 2.4 },
-  windmill: { file: 'windmill.glb', height: 9 },
-  pole: { file: 'pole.glb', height: 8.5 },
-  trampoline: { file: 'trampoline.glb', width: 3.2, animated: true },
+  windmill: { file: 'windmill.glb', height: 6 },
+  trampoline: { file: 'trampoline.glb', width: 3.2 },
   icecream: { file: 'icecream.glb', width: 6.5, yaw: Math.PI / 2 },
   pine: { file: 'pine.glb', height: 7 },
-  'pine-snowy': { file: 'pine.glb', height: 8 },
+  'pine-snowy': { file: 'pine.glb', height: 8, snowy: true },
   ladder: { file: 'ladder.glb', height: 3.6 },
   pickup: { file: 'pickup.glb', width: 5.0 },
+  sedan: { file: 'sedan.glb', width: 4.4 },
   'house-small': { file: 'house-small.glb', width: 11 },
-  motelsign: { file: 'motelsign.glb', height: 7, glow: '#ff6ad5', glowIntensity: 0.6 },
+  motelsign: { file: 'motelsign.glb', height: 7, glow: '#ff6ad5', glowIntensity: 0.35 },
   shed: { file: 'shed.glb', width: 2.6 },
   bush: { file: 'bush.glb', width: 1.2 },
-  beartrap: { file: 'beartrap.glb', width: 0.7, animated: true },
+  beartrap: { file: 'beartrap.glb', width: 0.7 },
   rccar: { file: 'rccar.glb', width: 0.9 },
-  towtruck: { file: 'towtruck.glb', width: 5.6, yaw: 0 },
-  bench: { file: 'street-props.glb', sub: 'banco_x_3_smooth', width: 2.2 },
-  bin: { file: 'street-props.glb', sub: 'papelera_smooth_Palette', height: 0.8 },
-  bikerack: { file: 'street-props.glb', sub: 'aparcabicis_Palette', width: 2.6 },
+  towtruck: { file: 'towtruck.glb', width: 5.6, yaw: Math.PI / 2 },
+  // House kit (metre coordinates; the view fits them to the wall panels).
+  'kit-window': { file: 'kit-wall-window.glb', raw: true },
+  'kit-door': { file: 'kit-wall-door.glb', raw: true },
+  'kit-garage': { file: 'kit-garage.glb', raw: true },
+  'kit-roof': { file: 'kit-roof.glb', raw: true },
+  'kit-balcony': { file: 'kit-balcony.glb', raw: true },
+  'kit-stairs': { file: 'kit-stairs.glb', raw: true },
+  'kit-porch': { file: 'kit-porch.glb', raw: true },
 }
 
 export interface LawnAssets {
   models: Map<string, THREE.Object3D>
   clips: Map<string, THREE.AnimationClip[]>
-  /** The shared character clips (from char-m). */
+  /** The shared hero clips (every hero file carries the same set). */
   charClips: THREE.AnimationClip[]
 }
 
@@ -117,10 +128,15 @@ export function loadLawnAssets(onProgress?: (done: number, total: number) => voi
       loader
         .loadAsync(base + file)
         .then((g) => {
+          let used = false
+          const anyAnimated = Object.values(MANIFEST).some((m) => m.file === file && m.animated)
+          const pristine = anyAnimated ? cloneSkeleton(g.scene) : g.scene.clone(true)
           for (const [name, spec] of Object.entries(MANIFEST)) {
             if (spec.file !== file) continue
             try {
-              const root = spec.sub ? extract(g.scene, spec.sub) : g.scene
+              // Two entries can share a file (the snowy pine, the ride-on mower): later ones get their own copy.
+              const root = spec.sub ? extract(g.scene, spec.sub) : used ? (spec.animated ? cloneSkeleton(pristine) : pristine.clone(true)) : g.scene
+              if (!spec.sub) used = true
               if (!root) continue
               models.set(name, normalise(root, spec, g.animations))
               if (g.animations.length) clips.set(name, g.animations)
@@ -134,7 +150,7 @@ export function loadLawnAssets(onProgress?: (done: number, total: number) => voi
         })
         .finally(() => onProgress?.(++done, total)),
     ),
-  ).then(() => ({ models, clips, charClips: clips.get('char-m') ?? [] }))
+  ).then(() => ({ models, clips, charClips: clips.get('hero-dad') ?? [] }))
   return pending
 }
 
@@ -180,6 +196,15 @@ function skinnedBounds(root: THREE.Object3D) {
 function normalise(root: THREE.Object3D, spec: ModelSpec, clips: THREE.AnimationClip[] = []) {
   const wrap = new THREE.Group()
   wrap.add(root)
+  if (spec.raw) {
+    prepare(root, spec)
+    const b = new THREE.Box3().setFromObject(root)
+    const sz = b.getSize(new THREE.Vector3())
+    wrap.userData.height = sz.y
+    wrap.userData.width = sz.x
+    wrap.userData.depth = sz.z
+    return wrap
+  }
   if (spec.tiltX) root.rotation.x = spec.tiltX
   if (spec.yaw) root.rotation.y = spec.yaw
   if (spec.animated && clips.length) {
@@ -253,6 +278,14 @@ function prepare(root: THREE.Object3D, spec: ModelSpec) {
       }
       if (o2.map) o2.map.colorSpace = THREE.SRGBColorSpace
       o2.side = THREE.FrontSide
+      if (spec.snowy) {
+        o2 = o2.clone()
+        o2.onBeforeCompile = (sh) => {
+          sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vUpN;').replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvUpN = normalize(mat3(modelMatrix) * objectNormal).y;')
+          sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vUpN;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 1.0), smoothstep(0.15, 0.55, vUpN));')
+        }
+        o2.customProgramCacheKey = () => 'snowy'
+      }
       return o2
     })
     m.material = out.length === 1 ? out[0] : out

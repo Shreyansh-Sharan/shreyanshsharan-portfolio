@@ -130,28 +130,30 @@ export function buildHouse(team: number, ox: number, oz: number, dir: number, op
   function emitOpening(o: Opening, x: number, z: number, w: number, d: number, y: number, h: number, yaw: number, floor: number) {
     if (o.kind === 'gap') {
       // A doorway without a door: header above it.
-      add({ kind: 'wall', model: 'header', x, z, w, d, h: h - 2.1, y: y + 2.1, hp: 0, breakable: false, floor, yaw })
+      add({ kind: 'wall', model: 'header:gap', x, z, w, d, h: h - 2.1, y: y + 2.1, hp: 0, breakable: false, floor, yaw })
       return
     }
     if (o.kind === 'window') {
       add({ kind: 'wall', model: 'sill', x, z, w, d, h: 0.9, y, hp: 0, breakable: false, floor, yaw })
       add({ kind: 'window', model: 'window', x, z, w, d, h: 1.3, y: y + 0.9, hp: WINDOW_HP, floor, yaw })
-      add({ kind: 'wall', model: 'header', x, z, w, d, h: h - 2.2, y: y + 2.2, hp: 0, breakable: false, floor, yaw })
+      add({ kind: 'wall', model: 'header:window', x, z, w, d, h: h - 2.2, y: y + 2.2, hp: 0, breakable: false, floor, yaw })
       return
     }
     if (o.kind === 'garage') {
       const g = add({ kind: 'garage', model: 'garagedoor', x, z, w, d, h: 2.5, y, hp: GARAGE_HP, floor, yaw })
       doors.push(g)
-      add({ kind: 'wall', model: 'header', x, z, w, d, h: h - 2.5, y: y + 2.5, hp: 0, breakable: false, floor, yaw })
+      add({ kind: 'wall', model: 'header:garage', x, z, w, d, h: h - 2.5, y: y + 2.5, hp: 0, breakable: false, floor, yaw })
       return
     }
     // A door: open to everyone until barricaded (then it is solid with hit points), with a dog flap on the back door.
     const door = add({ kind: 'door', model: 'door', x, z, w, d, h: 2.1, y, hp: DOOR_HP, solid: false, floor, yaw, flap: o.flap })
     door.level = 0
     doors.push(door)
-    add({ kind: 'wall', model: 'header', x, z, w, d, h: h - 2.1, y: y + 2.1, hp: 0, breakable: false, floor, yaw })
+    const front = y < 1 && z > 0 && Math.abs(x - 0.75) < 0.1
+    // The header's model tells the view which kit frame to draw (the front door also gets the portico).
+    add({ kind: 'wall', model: front ? 'header:frontdoor' : 'header:door', x, z, w, d, h: h - 2.1, y: y + 2.1, hp: 0, breakable: false, floor, yaw })
     if (y > 1) balconyDoor = door
-    else if (z > 0 && Math.abs(x - 0.75) < 0.1) frontDoor = door
+    else if (front) frontDoor = door
   }
 
   /* ---------- ground floor ---------- */
