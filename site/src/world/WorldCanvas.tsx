@@ -9,7 +9,7 @@ import { Landmarks, Scatters } from './Models'
 import { Vegetation } from './Vegetation'
 import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
-import { Guide, Player, player, spawnPlayer } from './Characters'
+import { Guide, Player, flyPose, player, spawnPlayer } from './Characters'
 import { animals } from './wildlife'
 import { colliderList } from './colliders'
 import { castSpell, spellById, type SpellId } from './spells'
@@ -215,7 +215,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         if (new URLSearchParams(window.location.search).has('snap')) {
           const w = window as unknown as { __r3f: unknown; __world: unknown }
           w.__r3f = state
-          w.__world = { player, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results }
+          w.__world = { player, flyPose, animals, colliders: colliderList, cast: (id: SpellId) => castSpell(spellById(id), player.pos, player.yaw), enemies, fight: () => fight, results }
         }
         // Recover from a lost WebGL context instead of leaving a permanent black canvas.
         const canvas = state.gl.domElement

@@ -120,7 +120,7 @@ const AVATAR_CLIPS = {
   run: /RunFast/,
   jump: /Regular_Jump/,
   spell: /Charged_Spell_Cast/,
-  fly: /\|Fall1\|/,
+  fly: /\|Swim_Idle\|/,
   hover: /\|Swim_Idle\|/,
   punch: /Kung_Fu_Punch/,
   kick: /Roundhouse_Kick/,
@@ -138,6 +138,30 @@ const PINNED = new Set<Anim>(['punch', 'kick', 'dash', 'spin', 'fly', 'hover', '
 const JUMP_FROM = 0.42
 /** The spell clip is long (2.7 s); play it briskly so a cast reads as a flick of the wrists. */
 const SPELL_SPEED = 1.6
+
+/**
+ * The rig has no flying clip (the old fall clip read as plummeting), so flight is a pose laid over the hover
+ * clip after the mixer runs: both arms stretched out ahead, legs together with the toes pointed, head lifted
+ * to look where it is going (the whole body pitches nose-down at speed, see the tilt group). Local Euler angles per bone; `?snap` exposes the
+ * table as `__world.flyPose` for tuning.
+ */
+export const flyPose: Record<string, [number, number, number]> = {
+  LeftArm: [1.15, 0.0, 0.3],
+  RightArm: [1.15, 0.0, -0.3],
+  LeftForeArm: [0.0, 0.0, 0.0],
+  RightForeArm: [0.0, 0.0, 0.0],
+  LeftUpLeg: [0.0, 0.0, 0.0],
+  RightUpLeg: [0.0, 0.0, 0.0],
+  LeftLeg: [0.0, 0.0, 0.0],
+  RightLeg: [0.0, 0.0, 0.0],
+  LeftFoot: [0.5, 0.0, 0.0],
+  RightFoot: [0.5, 0.0, 0.0],
+  Spine02: [-0.15, 0.0, 0.0],
+  neck: [-0.6, 0.0, 0.0],
+  Head: [-0.5, 0.0, 0.0],
+}
+const poseQuat = new THREE.Quaternion()
+const poseEuler = new THREE.Euler()
 
 /** Movement tiers (m/s): walk < run < fly (about 2.5x a run). */
 const WALK = 4.6
@@ -217,6 +241,13 @@ export function Player() {
     })
     return root
   }, [gltf])
+  const bones = useMemo(() => {
+    const map = new Map<string, THREE.Object3D>()
+    model.traverse((o) => {
+      if ((o as THREE.Bone).isBone) map.set(o.name, o)
+    })
+    return map
+  }, [model])
   const hips = useMemo(() => {
     let h: THREE.Object3D | null = null
     model.traverse((o) => {
@@ -250,6 +281,8 @@ export function Player() {
     casting: 0,
     /** Seconds since the feet last touched the ground (a short fall does not start the jump clip). */
     airT: 0,
+    /** How much of the flight pose is laid over the clip (0..1). */
+    flyW: 0,
     /** Ground speed eased towards the input (m/s), what the input asks for, and the last heading asked for. */
     moveSpeed: 0,
     moveTarget: 0,
@@ -685,14 +718,29 @@ export function Player() {
 
   // After the mixer (useAnimations updates in its own frame callback): physics owns where the body is, so
   // cap the jump clip's hip lift and pin the hips of moves that travel on their own.
-  useFrame(() => {
-    if (!hips) return
-    const cur = state.current.current as Anim
-    if (cur === 'jump') hips.bone.position.y = Math.min(hips.bone.position.y, hips.rest.y)
-    if (PINNED.has(cur)) {
-      hips.bone.position.x = hips.rest.x
-      hips.bone.position.z = hips.rest.z
-      if (cur === 'fly' || cur === 'hover') hips.bone.position.y = hips.rest.y
+  useFrame((_, rawDt) => {
+    const s = state.current
+    const cur = s.current as Anim
+    if (hips) {
+      if (cur === 'jump') hips.bone.position.y = Math.min(hips.bone.position.y, hips.rest.y)
+      if (PINNED.has(cur)) {
+        hips.bone.position.x = hips.rest.x
+        hips.bone.position.z = hips.rest.z
+        if (cur === 'fly' || cur === 'hover') hips.bone.position.y = hips.rest.y
+      }
+    }
+    // Blend the flight pose in over the clip while flying at speed, and out again when slowing or landing.
+    const dt = Math.min(rawDt, 0.05)
+    const to = cur === 'fly' ? 1 : 0
+    s.flyW += (to - s.flyW) * Math.min(1, dt * (to ? 5 : 7))
+    if (s.flyW > 0.002) {
+      for (const name in flyPose) {
+        const bone = bones.get(name)
+        if (!bone) continue
+        const e = flyPose[name]
+        poseQuat.setFromEuler(poseEuler.set(e[0], e[1], e[2]))
+        bone.quaternion.slerp(poseQuat, s.flyW)
+      }
     }
   }, 1)
 
