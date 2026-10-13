@@ -165,6 +165,15 @@ export const MODEL_CREDITS: ModelCredit[] = [
     "use": "the open stand at the Stadium"
   },
   {
+    "name": "Eden Arena",
+    "author": "Karpulya",
+    "author_url": "https://sketchfab.com/Karpulya",
+    "model_url": "https://sketchfab.com/3d-models/eden-arena-8f1caa3250424e8e8769a405f1194468",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "use": "the Stadium"
+  },
+  {
     "name": "Hobbit House - Low poly",
     "author": "TST1818",
     "author_url": "https://sketchfab.com/TST1818",
@@ -189,7 +198,7 @@ export const MODEL_CREDITS: ModelCredit[] = [
     "model_url": "https://sketchfab.com/3d-models/shipwreck-island-22865c86e6c441b1b17c65962d29c6fc",
     "license": "CC BY 4.0",
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
-    "use": "Shipwreck Cove"
+    "use": "the wreck in the cove and the lighthouses on the harbour point and the cove"
   },
   {
     "name": "Cyberpunk City - #1",
@@ -253,14 +262,5 @@ export const MODEL_CREDITS: ModelCredit[] = [
     "license": "CC BY 4.0",
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
     "use": "the drone over Neon City"
-  },
-  {
-    "name": "I Con Arena",
-    "author": "DANNY VO",
-    "author_url": "https://sketchfab.com/enyanwumadaniel",
-    "model_url": "https://sketchfab.com/3d-models/i-con-arena-660aab603bac4020b18d48afffb7a7ac",
-    "license": "CC BY 4.0",
-    "license_url": "https://creativecommons.org/licenses/by/4.0/",
-    "use": "the Stadium"
   }
 ]

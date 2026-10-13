@@ -37,7 +37,7 @@ function CarModel() {
     }
   })
   return (
-    <group ref={ref}>
+    <group ref={ref} name="car">
       <group ref={tilt}>
         <primitive object={obj} />
         <pointLight position={[0, 0.7, 2.2]} color="#fff4d6" intensity={car.driving ? 8 : 0} distance={14} />
@@ -63,11 +63,11 @@ function AirshipModel() {
     g.rotation.z = Math.sin(ship.bob * 0.5) * 0.015
   })
   return (
-    <group ref={ref}>
+    <group ref={ref} name="airship">
       <primitive object={obj} />
       {/* The deck you stand on while sailing: a plank over the gondola. */}
       <mesh position={[0, DECK - 0.1, 0]} receiveShadow>
-        <boxGeometry args={[4, 0.2, 10]} />
+        <boxGeometry args={[5, 0.2, 14]} />
         <meshStandardMaterial color="#5b4636" roughness={0.9} />
       </mesh>
       <pointLight position={[0, DECK + 1, 0]} color="#ffd9a0" intensity={6} distance={12} />

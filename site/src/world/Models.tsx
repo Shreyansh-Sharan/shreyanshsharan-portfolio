@@ -122,14 +122,14 @@ const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(),
  * knee and head height make a cell solid (a wall, a pillar, a parked cart); near-horizontal faces up to 6 m record
  * a floor (a courtyard, a quay, a terrace) you can stand on.
  */
-function measureSet(obj: THREE.Object3D) {
+function measureSet(obj: THREE.Object3D, groundY = 0) {
   obj.updateWorldMatrix(true, true)
   inv.copy(obj.matrixWorld).invert()
   const solid = new Map<string, [number, number]>()
   const floor = new Map<string, number>()
   const key = (x: number, z: number) => `${Math.floor(x / SET_CELL)},${Math.floor(z / SET_CELL)}`
   const markWall = (x: number, y: number, z: number) => {
-    if (y < 0.35 || y > 18) return
+    if (y < groundY + 0.35 || y > 18) return
     const k = key(x, z)
     const s = solid.get(k)
     if (!s) solid.set(k, [y, y])
@@ -139,7 +139,7 @@ function measureSet(obj: THREE.Object3D) {
     }
   }
   const markFloor = (x: number, y: number, z: number) => {
-    if (y < 0.25 || y > 16) return
+    if (y < groundY + 0.25 || y > 16) return
     const k = key(x, z)
     floor.set(k, Math.max(floor.get(k) ?? 0, y))
   }
@@ -195,7 +195,7 @@ const IMPOSTOR_MATS = new Map<string, THREE.MeshLambertMaterial>()
 function impostorMaterial(accent: string) {
   let m = IMPOSTOR_MATS.get(accent)
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: new THREE.Color(accent).multiplyScalar(0.45).lerp(new THREE.Color('#6b6f7a'), 0.6) })
+    m = new THREE.MeshLambertMaterial({ color: new THREE.Color(accent).multiplyScalar(0.4).lerp(new THREE.Color('#7d8089'), 0.75) })
     IMPOSTOR_MATS.set(accent, m)
   }
   return m
@@ -243,7 +243,7 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
     const c = Math.cos(yaw), s = Math.sin(yaw)
     const toWorld = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c]
     if (l.set) {
-      const { solid, floor, tops } = measureSet(obj)
+      const { solid, floor, tops } = measureSet(obj, -(l.lift ?? 0))
       const list: Collider[] = []
       for (const [k, [lo, hi]] of solid) {
         const [gx, gz] = k.split(',').map(Number)
@@ -270,7 +270,7 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
           ? circleCollider(wx, wz, f.rmax * 0.92, top)
           : boxCollider(wx, wz, f.hx * 0.94, f.hz * 0.94, yaw, top)
     setLandmarkCollider(landmarkKey(region.id, index), [collider])
-  }, [footprint, obj, x, y, z, l.rot, l.anim, l.height, l.set, l.ghost, region.id, index])
+  }, [footprint, obj, x, y, z, l.rot, l.anim, l.height, l.set, l.ghost, l.lift, region.id, index])
 
   useFrame(({ clock }) => {
     const g = ref.current

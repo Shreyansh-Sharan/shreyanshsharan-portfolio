@@ -64,11 +64,11 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
     // Each district has its own time-of-day feel (the city's violet dusk, the temple's golden hour) layered on
     // the island's day/night cycle, blended by where the camera is looking.
     const mood = moodAt(lookTarget.x, lookTarget.z)
-    s.intensity = (0.35 + 2.15 * day) * mood.light
+    s.intensity = (0.14 + 2.36 * day) * mood.light
     s.color.setRGB(THREE.MathUtils.lerp(0.55, mood.sun.r, day), THREE.MathUtils.lerp(0.65, mood.sun.g, day), THREE.MathUtils.lerp(0.95, mood.sun.b, day))
     const bg = scene.background as THREE.Color | null
     if (bg && bg.isColor) bg.setRGB(mood.fog.r * 0.94 * day + 0.04, mood.fog.g * 0.96 * day + 0.05, mood.fog.b * day + 0.12)
-    scene.environmentIntensity = 0.65 * (0.18 + 0.82 * day)
+    scene.environmentIntensity = 0.65 * (0.08 + 0.92 * day)
     const fog = scene.fog as THREE.Fog | null
     if (fog) {
       fog.color.setRGB(mood.fog.r * day + 0.04, mood.fog.g * day + 0.05, mood.fog.b * day + 0.12)
@@ -77,7 +77,7 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
     }
     // A lightning strike lights up the whole scene for an instant (no extra light, so no shader recompiles).
     if (sky.current) {
-      sky.current.intensity = (0.55 + skyFlash.value * 1.3) * (0.45 + 0.55 * day)
+      sky.current.intensity = (0.55 + skyFlash.value * 1.3) * (0.22 + 0.78 * day)
       sky.current.color.copy(mood.sky)
     }
     // The 2048 px soft shadow map is the costliest pass: redraw it every frame only while exploring;

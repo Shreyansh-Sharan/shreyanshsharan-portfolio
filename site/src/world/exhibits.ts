@@ -75,14 +75,14 @@ export function exhibits(): Exhibit[] {
     const [x, y, z] = at(hub, -10, 22)
     out.push({
       id: 'plaque:profile', kind: 'plaque', x, y, z, yaw: facing(x, z, hub.center[0] + hub.beacon[0], hub.center[1] + hub.beacon[1]), title: profile.name, subtitle: profile.headline,
-      body: profile.summary, lines: [profile.headline, '', profile.summary, '', `Hobbies: ${profile.hobbies.join(', ')}`], accent: prof?.accent[1] ?? '#94a3b8', tile: 'profile',
+      body: profile.summary, lines: [profile.summary, '', `Hobbies: ${profile.hobbies.join(', ')}`], accent: prof?.accent[1] ?? '#94a3b8', tile: 'profile',
     })
   }
   const career = tiles.filter((t) => t.tab === 'career' && t.id !== 'profile').sort((a, b) => a.period.localeCompare(b.period))
   career.forEach((t, i) => {
-    const [x, y, z] = at(hub, 40 - i * 7, 32)
+    const [x, y, z] = at(hub, 52, -22 + i * 7)
     out.push({
-      id: `timeline:${t.id}`, kind: 'board', x, y, z, yaw: Math.PI, title: `${t.period}`, subtitle: t.title, body: t.org, lines: [t.org, '', t.blurb], accent: t.accent[1], tile: t.id,
+      id: `timeline:${t.id}`, kind: 'board', x, y, z, yaw: -Math.PI / 2, title: `${t.period}`, subtitle: t.title, body: t.org, lines: [t.org, '', t.blurb], accent: t.accent[1], tile: t.id,
     })
   })
 
@@ -100,11 +100,11 @@ export function exhibits(): Exhibit[] {
   const keep = regionById('ridge')
   trophies.forEach((t, i) => {
     const row = Math.floor(i / 9), col = i % 9
-    const [x, y, z] = at(keep, (col - 4) * 4.6, 12 + row * 5)
+    const [x, y, z] = at(keep, (col - 4) * 4.6, -2 + row * 6)
     out.push({ id: `trophy:${i}`, kind: 'trophy', x, y, z, yaw: Math.PI, title: t.name, subtitle: `${t.kind} · ${t.issuer}`, body: t.issuer, lines: [`${t.kind} · ${t.issuer}`, `Tier: ${t.tier}`], accent: TIER_COLOR[t.tier], tier: t.tier, tile: 'trophies' })
   })
   {
-    const [x, y, z] = at(keep, 0, 24)
+    const [x, y, z] = at(keep, 0, -9)
     out.push({
       id: 'diorama', kind: 'diorama', x, y, z, yaw: Math.PI, title: 'Khotyn Fortress', subtitle: 'Photogrammetry scan · scale model',
       body: 'A 3D scan of the real fortress, decimated from two million faces to fit the island.', lines: ['A 3D scan of the real fortress on the Dniester, reduced from 1.95 million faces to 89 thousand and coloured per vertex so it could travel to this courtyard.', 'Model: Khotyn Fortress by LZCreation (Sketchfab, CC BY 4.0).'],
@@ -138,7 +138,7 @@ export function arcadeDoor() {
 /** The sports complex gate: the arena's front entrance at the stadium. */
 export function stadiumGate() {
   const r = regionById('speedway')
-  return { x: r.center[0], z: r.center[1] + 32, r: 6 }
+  return { x: r.center[0], z: r.center[1] - 8, r: 6 }
 }
 
 export const tileFor = (id: string): Tile | undefined => tiles.find((t) => t.id === id)

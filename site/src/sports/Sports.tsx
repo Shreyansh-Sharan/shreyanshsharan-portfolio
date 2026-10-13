@@ -66,6 +66,7 @@ export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (
           setProgress(loadProgress())
           setStage('menu')
         }}
+        onExit={onExit}
       />
     )
 
@@ -261,7 +262,7 @@ export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (
   )
 }
 
-function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficulty: number; onQuit: () => void }) {
+function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficulty: number; onQuit: () => void; onExit?: () => void }) {
   const host = useRef<HTMLDivElement>(null)
   const [hud, setHud] = useState<Hud | null>(null)
   const ready = !!p.assets
@@ -315,6 +316,11 @@ function SportsStage(p: { assets: SportsAssets | null; loadPct: number; difficul
           <button className="btn" onClick={() => adBreak('sports-exit', { done: p.onQuit })}>
             <LogOut size={16} /> Back to menu
           </button>
+          {p.onExit && (
+            <button className="btn btn-secondary sc-gate-out" onClick={p.onExit}>
+              Walk back out through the gate to the island
+            </button>
+          )}
         </div>
       )}
     </div>

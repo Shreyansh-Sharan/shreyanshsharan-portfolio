@@ -26,7 +26,7 @@ import { heightAt } from './terrain'
 import { controls } from './controls'
 import { Exhibits } from './Exhibits'
 import { Vehicles } from './Vehicle'
-import { car, enterCar, exitCar, sail, ship, board, disembark } from './rides'
+import { car, enterCar, exitCar, sail, ship, board, disembark, stepCar, stepShip } from './rides'
 import { exhibits } from './exhibits'
 import { nearestInteraction } from './interact'
 import { PlayerFx } from './PlayerFx'
@@ -140,9 +140,14 @@ function BlackFrameGuard({ active, renders, onBlack }: { active: boolean; render
   return null
 }
 
+/** For tests: frames rendered and the sum of their deltas. */
+const frameCount = { n: 0, dt: 0 }
+
 function Ready({ onReady }: { onReady?: () => void }) {
   const frames = useRef(0)
-  useFrame(() => {
+  useFrame((_, dt) => {
+    frameCount.n++
+    frameCount.dt += dt
     // Wait a couple of frames so the first visible frame is fully composed.
     if (++frames.current === 3) {
       onReady?.()
@@ -250,7 +255,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
             chance: (id: number) => captureChance(creatures[id]),
             roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
             clock: dayClock, photo, store: world, heightAt, controls, streamState,
-            car, enterCar, exitCar: () => exitCar(player), ship, sail, board, disembark: () => disembark(player), exhibits, interact: () => nearestInteraction(player.pos.x, player.pos.z, player),
+            car, enterCar, exitCar: () => exitCar(player), stepCar, stepShip, frames: frameCount, ship, sail, board, disembark: () => disembark(player), exhibits, interact: () => nearestInteraction(player.pos.x, player.pos.z, player),
             place: (x: number, z: number) => {
               player.pos.set(x, heightAt(x, z), z)
               player.beacon = { x, z }

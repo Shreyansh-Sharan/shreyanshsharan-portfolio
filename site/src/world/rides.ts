@@ -143,7 +143,7 @@ export function stopAt(i: number) {
 }
 
 /** Deck height above the ship's anchor point (where the player stands). */
-export const DECK = 4.6
+export const DECK = 15.3
 
 export function board() {
   ship.aboard = true

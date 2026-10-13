@@ -243,6 +243,9 @@ export default function App() {
           <GameRoute title="SPORTS COMPLEX">
             <Sports auto onAccent={setAccent} onExit={() => world.set({ scene: 'world' })} />
           </GameRoute>
+          <button className="pill sports-gate-out" onClick={() => world.set({ scene: 'world' })}>
+            Back out through the gate to the island
+          </button>
         </div>
       )}
       <main className={`app ${playing ? 'is-hidden' : ''}`} aria-hidden={playing}>

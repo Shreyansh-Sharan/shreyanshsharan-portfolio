@@ -7714,3 +7714,25 @@ p {
 .hub-hero .hero-key {
   max-height: 40vh;
 }
+
+.hub-hero .hero-key {
+  height: min(40vh, 320px);
+  aspect-ratio: auto;
+}
+
+.hub-hero .hero-key .art {
+  position: absolute;
+  inset: 0;
+}
+
+.hub-overlay .hero-key .art {
+  opacity: 1;
+}
+
+.sports-gate-out {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 20;
+  pointer-events: auto;
+}
