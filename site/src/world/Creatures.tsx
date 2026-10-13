@@ -264,9 +264,11 @@ function meshes() {
   const mound = makeMesh(bake([{ g: DOME, c: '#e8d6a8', p: [0, 0, 0], s: [0.75, 0.3, 0.75] }]), false)
   const bar = new THREE.PlaneGeometry(1, 1)
   const barBack = makeMesh(bar, false, new THREE.MeshBasicMaterial({ color: '#10131c', transparent: true, opacity: 0.75, depthWrite: false }))
-  const barFill = makeMesh(bar, false, new THREE.MeshBasicMaterial({ vertexColors: false, depthWrite: false, toneMapped: false }))
+  // Both bar planes go through the transparent pass so the fill is composited after the plate, not under it.
+  const barFill = makeMesh(bar, false, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }))
   const bolt = makeMesh(BOX, false, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 2.2, 3), toneMapped: false }))
-  barBack.renderOrder = barFill.renderOrder = 5
+  barBack.renderOrder = 5
+  barFill.renderOrder = 6
   cache = { species, mound, barBack, barFill, bolt }
   return cache
 }

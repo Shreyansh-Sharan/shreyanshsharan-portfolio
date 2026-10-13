@@ -1306,9 +1306,7 @@ function stepAttack(c: Creature, h: number, p: Hero) {
     case 'dive': {
       // Swoop along an arc through the victim's head height, climbing back out the other side.
       const dur = 1.3
-      if (t === h) {
-        c.lunge.set(p.pos.x, p.pos.y + 1.2, p.pos.z)
-      }
+      if (t <= h + 1e-6) c.lunge.set(p.pos.x, p.pos.y + 1.2, p.pos.z)
       const k = Math.min(1, t / dur)
       const sx = c.pos.x, sz = c.pos.z
       const tx = c.lunge.x, tz = c.lunge.z
