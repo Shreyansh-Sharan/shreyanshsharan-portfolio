@@ -51,6 +51,10 @@ interface Snap {
   fr: [number, boolean]
   kmh: number
   tim: [string, number, string]
+  /** The field (sent when it changes) and its version; whether the ball swung late. */
+  fs?: [string, number, number][]
+  fv: number
+  ls: boolean
 }
 
 const POSES: Pose[] = ['hidden', 'idle', 'walk', 'run', 'stance', 'shot', 'slide', 'batslide', 'runup', 'deliver', 'follow', 'keeper', 'keepertake', 'ready', 'dive', 'catch', 'pickup', 'throw', 'celebrate', 'appeal', 'dejected', 'umpire', 'signal', 'leave', 'hit', 'getup']
@@ -63,6 +67,7 @@ export function attachNet(game: Game, net: CricketNet): () => void {
   const unsub: (() => void)[] = []
   if (net.role === 'host') {
     let version = -1
+    let fieldVersion = -1
     let pending: GameEvent[] = []
     const prevOnEvent = game.onEvent
     game.onEvent = (e) => {
@@ -89,6 +94,12 @@ export function attachNet(game: Game, net: CricketNet): () => void {
         fr: [d.state.current?.strikerEnd ?? 1, d.state.current ? !d.battingTeam.players[d.state.current.striker].leftBat : true],
         kmh: Math.round(d.lastKmh),
         tim: [d.lastTiming, r2(d.lastTimingError), d.lastShotNote],
+        fv: d.fieldVersion,
+        ls: d.lateSwing,
+      }
+      if (d.fieldVersion !== fieldVersion) {
+        fieldVersion = d.fieldVersion
+        s.fs = d.field.map((f) => [f.name, r2(f.angle), r2(f.dist)])
       }
       const msg: CricketMsg = { t: 'c-snap', s, e: pending }
       if (d.version !== version) {
@@ -196,5 +207,8 @@ function applySnap(game: Game, s: Snap, st: unknown) {
   d.lastTiming = s.tim[0] as typeof d.lastTiming
   d.lastTimingError = s.tim[1]
   d.lastShotNote = s.tim[2]
+  d.lateSwing = !!s.ls
+  if (s.fs) d.field = s.fs.map(([name, angle, dist]) => ({ name, angle, dist }))
+  if (typeof s.fv === 'number') d.fieldVersion = s.fv
   if (d.state.current) d.frame = BatFrame.for(s.fr[0], s.fr[1])
 }

@@ -61,6 +61,14 @@ export interface ProcPose {
   /** Wrist flex in degrees about the body's left axis (a bowler's snap, a flick). */
   wristL?: number
   wristR?: number
+  /** Wrist roll in degrees about the forearm (a spinner's rip of the fingers or wrist). */
+  rollR?: number
+  /**
+   * The bowling arm as a windmill about the actual shoulder (after the spine has turned): angle in degrees from
+   * straight up, positive forward (90 = horizontal in front, 180 = down, 270 = behind, 360 = up again), the
+   * shoulder-to-hand distance (0.53 = straight) and a sideways offset (+ across the body).
+   */
+  armR?: { angle: number; radius: number; out: number }
   /** Where to look (character space). */
   look?: THREE.Vector3
   /** Bat placement: grip point, blade direction (grip to toe), face normal. */
@@ -152,6 +160,11 @@ const _oldP = new THREE.Vector3()
 const _oldQ = new THREE.Quaternion()
 const _fadeQ = new THREE.Quaternion()
 const _blendQ = new THREE.Quaternion()
+const _shoulder = new THREE.Vector3()
+const _armT = new THREE.Vector3()
+const _rollQ = new THREE.Quaternion()
+const _rollAxis = new THREE.Vector3()
+const ARM_POLE_R = new THREE.Vector3(-1, 0, -0.15)
 const NEG_X = new THREE.Vector3(-1, 0, 0)
 const DEG = Math.PI / 180
 const IDENTITY_Q = new THREE.Quaternion()
@@ -637,12 +650,19 @@ export class Cricketer {
     // Arms.
     for (let s = 0; s < 2; s++) {
       const L = s === 0
-      const hand = L ? pose.handL : pose.handR
+      let hand = L ? pose.handL : pose.handR
       const up = L ? B.LeftArm : B.RightArm
       const lo = L ? B.LeftForeArm : B.RightForeArm
       const hb = L ? B.LeftHand : B.RightHand
+      const circle = L ? undefined : pose.armR
+      if (circle) {
+        // The windmill: around the shoulder where the turned chest has put it.
+        const sh = this.charPos(up, _shoulder)
+        const a = circle.angle * DEG
+        hand = _armT.set(sh.x + circle.out, sh.y + Math.cos(a) * circle.radius, sh.z + Math.sin(a) * circle.radius)
+      }
       if (hand) {
-        const elbow = (L ? pose.elbowL : pose.elbowR) ?? _elbow.set(L ? 0.4 : -0.4, -1, -0.35)
+        const elbow = (L ? pose.elbowL : pose.elbowR) ?? (circle ? ARM_POLE_R : _elbow.set(L ? 0.4 : -0.4, -1, -0.35))
         this.ik(up, lo, hand, elbow, this.len.upper, this.len.fore)
         // Hand continues the forearm, flexed at the wrist if asked.
         const fore = this.charQuat(lo, _foreQ)
@@ -650,6 +670,8 @@ export class Cricketer {
         const wrist = L ? pose.wristL : pose.wristR
         if (wrist) dir.applyQuaternion(_wristQ.setFromAxisAngle(X, wrist * DEG))
         this.aimBone(hb, dir)
+        const roll = L ? 0 : pose.rollR
+        if (roll) this.rotateBone(hb, _rollQ.setFromAxisAngle(_rollAxis.copy(dir).normalize(), roll * DEG))
       } else {
         // Relaxed arm by the side.
         this.aimBone(up, _hdir.set(L ? 0.18 : -0.18, -1, 0.05))

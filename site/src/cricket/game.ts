@@ -4,13 +4,13 @@ import * as THREE from 'three'
 import type { CricketAssets } from './assets'
 import { CricketAudio } from './audio'
 import { QUALITY, type QualitySettings, type QualityTier } from './quality'
-import { ACTORS, Director, FIRST_FIELDER, NONSTRIKER, STRIKER, UMP_BOWLER, UMP_SQUARE, type Actor, type Command, type GameEvent, type Phase, type Pose } from './sim/director'
+import { ACTORS, Director, FIRST_FIELDER, NONSTRIKER, STRIKER, UMP_BOWLER, UMP_SQUARE, type Actor, type Command, type GameEvent, type Phase, type Pose, type ReplayKind } from './sim/director'
 import { DELIVERIES, deliveriesFor, isSpinStyle, type DeliveryType } from './sim/delivery'
 import { PRESET_ORDER, type FieldPreset } from './sim/fields'
 import { Geo, inward, stumpsZ } from './sim/geo'
 import { ballSymbol, oversText, runRate, scoreText, type MatchSetup } from './sim/match'
 import { PERFECT, shotSpec, type Footwork, type ShotType, type Timing } from './sim/shots'
-import { bat01, hashString, styleName, surname, type Player, type Team } from './sim/teams'
+import { bat01, hashString, styleName, styleTag, surname, type Player, type Team } from './sim/teams'
 import { V3 } from './sim/vec'
 import { toView, yawToView } from './view/coords'
 import { fadeFor, newPoseMem, procPose, type PoseCtx, type PoseMem } from './view/poses'
@@ -76,10 +76,11 @@ export interface HudState {
   review: { active: boolean; kind: string; time: number; duration: number; pitching: string; impact: string; wickets: string; outcome: string; finalOut: boolean; edge: boolean; reviewing: string } | null
   reviewPrompt: { seconds: number; side: number; canAd: boolean; reviewsLeft: number } | null
   toss: { stage: 'call' | 'choose' | 'wait'; winner: string; result: string; youWon: boolean } | null
-  chooseBowler: { options: { player: number; name: string; style: string; figures: string; overs: string }[] } | null
+  chooseBowler: { options: { player: number; name: string; style: string; tag: string; type: string; pace: number; skill: number; figures: string; overs: string }[] } | null
   inningsBreak: { summary: string; next: string } | null
   matchEnd: { result: string; winner: number } | null
-  replay: boolean
+  /** The replay on screen: the shot's caption, slow motion, whose it is, and the tracking readout on a freeze. */
+  replay: { label: string; slow: boolean; owner: string; index: number; count: number; kind: string; track: { pitching: string; impact: string; wickets: string; time: number } | null } | null
   banner: string
   bannerSub: string
   bannerTime: number
@@ -90,7 +91,7 @@ export interface HudState {
   quality: QualityTier
   reviewsLeft: number
   /** The delivery just bowled (shown as a card for a few seconds after release). */
-  card: { bowler: string; kmh: number; type: string; spin: boolean; words: string; age: number } | null
+  card: { bowler: string; kmh: number; kmhTenths: number; type: string; spin: boolean; words: string; late: boolean; age: number } | null
   /** Timing of the last six shots (newest last). */
   timings: Timing[]
   nets: boolean
@@ -102,6 +103,17 @@ export interface HudState {
   shotKind: ShotColour
   /** Seconds until the bat should meet the ball (negative once it has passed), -1 when no ball is in flight. */
   toContact: number
+  hero: boolean
+  milestone: { title: string; name: string; line: string; kind: string; age: number } | null
+  runCall: { text: string; who: number; age: number } | null
+  bowlerCard: { name: string; tag: string; pace: number; skill: number; stamina: number; figures: string; type: string } | null
+  pip: { x: number; y: number; w: number; h: number; label: string } | null
+  restrictions: { powerplay: boolean; maxOutside: number; outside: number } | null
+  canReplay: boolean
+  replayPref: ReplayPref
+  canEditField: boolean
+  fieldVersion: number
+  rrr: string
 }
 
 interface FrameRec {
@@ -149,8 +161,127 @@ const _sphere = new THREE.Sphere(new THREE.Vector3(), 3)
 const POSES: Pose[] = ['hidden', 'idle', 'walk', 'run', 'stance', 'shot', 'slide', 'batslide', 'runup', 'deliver', 'follow', 'keeper', 'keepertake', 'ready', 'dive', 'catch', 'pickup', 'throw', 'celebrate', 'appeal', 'dejected', 'umpire', 'signal', 'leave', 'hit', 'getup']
 
 const v3 = (a: number[] | V3) => toView(a as V3)
+const FEET: Footwork[] = ['auto', 'front', 'back', 'charge']
+/** The release meter's arc: needle angles (degrees clockwise from straight up) at empty and full. A "C" on the left. */
+export const METER_ARC = { from: 205, to: 335 }
 
-type CamMode = 'broadcast' | 'batter' | 'follow' | 'orbit' | 'replay' | 'hawk' | 'high'
+export type ReplayPref = 'all' | 'key' | 'off'
+const REPLAY_KEY = 'cricket-replays'
+function savedReplays(): ReplayPref {
+  try {
+    const v = localStorage.getItem(REPLAY_KEY)
+    return v === 'key' || v === 'off' ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+/** A soft round dot for point sprites. */
+function dotTexture() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 32
+  const x = c.getContext('2d')!
+  const g = x.createRadialGradient(16, 16, 2, 16, 16, 16)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.55, 'rgba(255,255,255,0.85)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 32, 32)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+const _rb = new THREE.Vector3()
+const _rl = new THREE.Vector3()
+/** Points in the replay's ball trail. */
+const TRAIL_MAX = 420
+
+/** Frame indices of the key moments in a recording (-1 = did not happen). */
+interface Marks {
+  release: number
+  bounce: number
+  hit: number
+  pad: number
+  stumps: number
+  stumpsEnd: number
+  stumpsAt: THREE.Vector3
+  stumpsSpeed: number
+  catch: number
+  catcher: number
+  strikerEnd: number
+  /** Which side of the view (x sign) the striker's off side is on. */
+  offX: number
+  how: string
+  kind: string
+}
+const newMarks = (): Marks => ({ release: -1, bounce: -1, hit: -1, pad: -1, stumps: -1, stumpsEnd: 0, stumpsAt: new THREE.Vector3(), stumpsSpeed: 20, catch: -1, catcher: -1, strikerEnd: 1, offX: 1, how: '', kind: '' })
+function resetMarks(m: Marks) {
+  m.release = m.bounce = m.hit = m.pad = m.stumps = m.catch = m.catcher = -1
+  m.stumpsEnd = 0
+  m.stumpsSpeed = 20
+  m.how = m.kind = ''
+}
+
+type ShotCam = 'broadcast' | 'side' | 'stump' | 'behind' | 'catch' | 'crease' | 'follow' | 'track' | 'wide'
+interface ReplayShot {
+  cam: ShotCam
+  from: number
+  to: number
+  speed: number
+  label: string
+  /** Seconds to stay on the last frame. */
+  hold?: number
+}
+interface ReplayPlan {
+  kind: ReplayKind
+  shots: ReplayShot[]
+  owner: 'director' | 'tv' | 'instant'
+  frames: FrameRec[]
+  count: number
+  marks: Marks
+}
+
+/** The edit for a replay: 2-4 shots from broadcast angles, slow motion around the moment that mattered. */
+function planShots(kind: ReplayKind, m: Marks, n: number, owner: ReplayPlan['owner']): ReplayShot[] {
+  const last = n - 1
+  const rel = m.release >= 0 ? m.release : 0
+  const S = (cam: ShotCam, from: number, to: number, speed: number, label: string, hold = 0): ReplayShot => {
+    const f = Math.max(0, Math.min(last, Math.round(from)))
+    return { cam, from: f, to: Math.max(f, Math.min(last, Math.round(to))), speed, label, hold }
+  }
+  if (owner === 'tv') return m.stumps >= 0 ? [S('crease', m.stumps - 55, m.stumps + 20, 0.22, 'THIRD UMPIRE · SIDE-ON', 0.8)] : []
+  const hit = m.hit >= 0 ? m.hit : -1
+  switch (kind) {
+    case 'runout':
+      if (m.stumps < 0) return []
+      return [S('wide', m.stumps - 150, m.stumps + 20, 1, 'REPLAY'), S('crease', m.stumps - 45, m.stumps + 25, 0.3, 'SIDE-ON · SLOW MOTION', 0.4)]
+    case 'six':
+      if (hit < 0) return []
+      return [S('broadcast', rel - 20, hit + 40, 1, 'REPLAY'), S('behind', hit - 30, hit + 45, 0.35, 'BEHIND THE BAT · SLOW MOTION'), S('follow', hit, hit + 190, 1, 'THE CARRY')]
+    case 'four':
+      if (hit < 0) return []
+      return [S('broadcast', rel - 15, hit + 35, 1, 'REPLAY'), S('behind', hit - 25, hit + 40, 0.4, 'BEHIND THE BAT · SLOW MOTION')]
+    case 'wicket': {
+      if (m.how === 'caught' && m.catch >= 0)
+        return [S('broadcast', rel - 20, (hit >= 0 ? hit : m.catch) + 40, 1, 'REPLAY'), S('side', (hit >= 0 ? hit : m.catch) - 35, (hit >= 0 ? hit : m.catch) + 30, 0.35, 'SIDE-ON · SLOW MOTION'), S('catch', m.catch - 70, m.catch + 40, 0.45, 'THE CATCH')]
+      if (m.how === 'lbw' && m.pad >= 0)
+        return [S('broadcast', rel - 20, m.pad + 40, 1, 'REPLAY'), S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 4.4)]
+      if (m.how === 'bowled' && m.stumps >= 0)
+        return [S('broadcast', rel - 20, m.stumps + 40, 1, 'REPLAY'), S('stump', rel + 8, m.stumps + 25, 0.3, 'STUMP CAM · SLOW MOTION'), S('side', m.stumps - 45, m.stumps + 40, 0.35, 'SIDE-ON · SLOW MOTION'), S('track', m.stumps, m.stumps, 1, 'BALL TRACKING', 2.8)]
+      if (m.how === 'stumped' && m.stumps >= 0) return [S('broadcast', rel - 20, m.stumps + 30, 1, 'REPLAY'), S('crease', m.stumps - 40, m.stumps + 25, 0.3, 'SIDE-ON · SLOW MOTION')]
+      const key = m.stumps >= 0 ? m.stumps : hit >= 0 ? hit : last - 40
+      return [S('broadcast', rel - 20, key + 40, 1, 'REPLAY'), S('side', key - 40, key + 30, 0.35, 'SIDE-ON · SLOW MOTION')]
+    }
+    default: {
+      if (m.catch >= 0) return [S('side', (hit >= 0 ? hit : m.catch) - 30, (hit >= 0 ? hit : m.catch) + 30, 0.35, 'SIDE-ON · SLOW MOTION'), S('catch', m.catch - 60, m.catch + 40, 0.45, 'PUT DOWN')]
+      if (m.pad >= 0) return [S('side', m.pad - 40, m.pad + 30, 0.3, 'SIDE-ON · SLOW MOTION'), S('track', m.pad, m.pad, 1, 'BALL TRACKING', 4.4)]
+      const key = hit >= 0 ? hit : rel + 40
+      return [S('broadcast', rel - 20, key + 40, 1, 'REPLAY'), S('stump', rel + 8, key + 20, 0.32, 'STUMP CAM · SLOW MOTION')]
+    }
+  }
+}
+
+type CamMode = 'broadcast' | 'batter' | 'follow' | 'orbit' | 'replay' | 'hawk' | 'high' | 'hero'
 type UserCam = 'batter' | 'broadcast' | 'high'
 const BAT_CAMS: UserCam[] = ['batter', 'broadcast', 'high']
 const FIELD_CAMS: UserCam[] = ['broadcast', 'high']
@@ -214,11 +345,15 @@ export class Game {
   private hudT = 0
   private recording: FrameRec[] = []
   private recCount = 0
-  private replayFrames: FrameRec[] = this.recording
-  private replayCount = 0
-  private replayT = 0
-  private replayKind: 'wicket' | 'six' | 'runout' = 'wicket'
   private replaying = false
+  private replayTrail: THREE.Points
+  private replayTrailPos = new Float32Array(TRAIL_MAX * 3)
+  private flightTrail: THREE.Points
+  private flightTrailPos = new Float32Array(TRAIL_MAX * 3)
+  private flightTrailN = 0
+  /** Automatic replays: everything, only wickets and sixes, or none. */
+  replayPref: ReplayPref = 'all'
+  private heroLight: THREE.SpotLight | null = null
   private sinceRelease = -1
   private lastBallId = 0
   private feed: { text: string; t: number }[] = []
@@ -282,6 +417,31 @@ export class Game {
     this.scene.add(this.guides.group)
     this.hawk = new Hawkeye()
     this.scene.add(this.hawk.group)
+    // The replay's dotted ball trail.
+    const trailGeo = new THREE.BufferGeometry()
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(this.replayTrailPos, 3))
+    trailGeo.setDrawRange(0, 0)
+    this.replayTrail = new THREE.Points(trailGeo, new THREE.PointsMaterial({ color: '#ffd34d', size: 7, sizeAttenuation: false, map: dotTexture(), transparent: true, depthWrite: false, alphaTest: 0.05 }))
+    this.replayTrail.frustumCulled = false
+    this.replayTrail.visible = false
+    this.replayTrail.renderOrder = 6
+    this.scene.add(this.replayTrail)
+    // The delivery's path through the air while it is bowled, so swing, drift and dip read on screen.
+    const flightGeo = new THREE.BufferGeometry()
+    flightGeo.setAttribute('position', new THREE.BufferAttribute(this.flightTrailPos, 3))
+    flightGeo.setDrawRange(0, 0)
+    this.flightTrail = new THREE.Points(flightGeo, new THREE.PointsMaterial({ color: '#a5f3fc', size: 5, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }))
+    this.flightTrail.frustumCulled = false
+    this.flightTrail.visible = false
+    this.flightTrail.renderOrder = 6
+    this.scene.add(this.flightTrail)
+    // A key light for the celebration close-ups (always in the scene so it never forces a shader rebuild; dark
+    // until a hero shot). Not on the low tier.
+    if (this.quality.tier !== 'low') {
+      this.heroLight = new THREE.SpotLight('#fff1d6', 0, 22, 0.42, 0.6, 1.2)
+      this.scene.add(this.heroLight, this.heroLight.target)
+    }
+    this.replayPref = savedReplays()
 
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
@@ -291,6 +451,8 @@ export class Game {
     window.addEventListener('keyup', this.onKeyUp)
     window.addEventListener('blur', this.onBlur)
     this.renderer.domElement.addEventListener('pointerdown', this.onPointer)
+    this.renderer.domElement.addEventListener('pointermove', this.onPointerMove)
+    window.addEventListener('pointerup', this.onPointerUp)
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -313,6 +475,8 @@ export class Game {
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointer)
+    this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove)
+    window.removeEventListener('pointerup', this.onPointerUp)
     this.audio.close()
     this.profile.dispose()
     this.postToken++
@@ -427,14 +591,14 @@ export class Game {
     if (!frozen) {
       this.time += dt
       this.handleHeldInput(dt)
-      if (!this.opts.mirror) d.update(dt)
+      if (!this.opts.mirror && !this.replayHeld) d.update(dt)
       if (this.meterNeedle && d.localBowls && d.meterRunning) this.moveMeter(d.meterValue, Math.abs(d.meterValue - d.meterGreen) <= d.meterHalfWidth)
       t = P.add('director', t)
       for (const c of this.pendingCommands.splice(0)) this.submit(c)
       for (const e of d.drainEvents()) this.handleEvent(e)
       t = P.add('events', t)
       this.trackRelease(dt)
-      if (this.replaying) this.replayT += dt
+      if (this.replaying) this.advanceReplay(dt)
       else this.record()
       t = P.add('record', t)
       this.stadium.update(dt)
@@ -454,6 +618,13 @@ export class Game {
     this.updateBall()
     this.updateGuides()
     this.hawk.update(d, frozen ? 0 : dt)
+    this.updatePip()
+    this.radarT -= dt
+    if (this.radarT <= 0 || dt === 0) {
+      this.radarT = 1 / 30
+      this.updateRadar()
+    }
+    this.updateHeroLight(frozen ? 0 : dt)
     t = P.add('camera+ball+guides', t)
     this.hudT -= dt
     if (this.hudT <= 0 || dt === 0) {
@@ -467,6 +638,7 @@ export class Game {
       this.renderer.shadowMap.needsUpdate = this.quality.tier === 'high' || !!this.opts.snap || dt === 0 || (this.frameNo & 1) === 0 || !this.stadium.sun.shadow.map
       if (this.post) this.post.render(dt)
       else this.renderer.render(this.scene, this.camera)
+      this.renderPip()
       t = P.add('render', t)
     }
     P.add('frame', tFrame)
@@ -484,7 +656,7 @@ export class Game {
     } else if (this.sinceRelease >= 0) this.sinceRelease += dt
     if (d.phase === 'predelivery' || d.phase === 'runup') {
       this.sinceRelease = -1
-      for (const w of this.wickets) if (w.broken && d.phase === 'predelivery') w.reset()
+      if (!this.replaying) for (const w of this.wickets) if (w.broken && d.phase === 'predelivery') w.reset()
     }
   }
 
@@ -609,7 +781,7 @@ export class Game {
       case 'slide':
         return { clip: 'slide', scale: 1 }
       case 'follow':
-        return { clip: 'jog', scale: 1 }
+        return sp > 0.6 ? { clip: 'jog', scale: Math.max(0.7, sp / 3.5) } : { clip: 'idle', scale: 1 }
       default:
         return { clip: sp > 0.6 ? (sp > 4 ? 'sprint' : 'jog') : 'idle', scale: sp > 0.6 ? Math.max(0.7, sp / 4) : 1 }
     }
@@ -701,8 +873,40 @@ export class Game {
 
   /* ---------------- ball, marker ---------------- */
 
+  /** Fills the delivery's dotted path from the sim's record of it (every other step, release to now). */
+  private updateFlightTrail() {
+    const d = this.director
+    const show = !this.replaying && d.ballReleased && (d.phase === 'flight' || d.phase === 'live' || d.phase === 'dead') && d.deliveryTrail.length > 2
+    if (!show) {
+      this.flightTrail.visible = false
+      this.flightTrailN = 0
+      return
+    }
+    const list = d.deliveryTrail
+    const pos = this.flightTrailPos
+    let n = this.flightTrailN
+    // Points only get added: continue from where we were.
+    for (let i = n; i < list.length && n < TRAIL_MAX; i++) {
+      const p = list[i]
+      pos[n * 3] = -p.x
+      pos[n * 3 + 1] = p.y
+      pos[n * 3 + 2] = p.z
+      n++
+    }
+    if (n !== this.flightTrailN) {
+      this.flightTrailN = n
+      const g = this.flightTrail.geometry
+      ;(g.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+      g.setDrawRange(0, n)
+    }
+    this.flightTrail.visible = n > 2
+    // Fade once the ball is past the batter.
+    ;(this.flightTrail.material as THREE.PointsMaterial).opacity = d.phase === 'flight' ? 0.8 : Math.max(0, 0.8 - d.phaseTime * 0.6)
+  }
+
   private updateBall() {
     const d = this.director
+    this.updateFlightTrail()
     let vis = d.ballVisible && d.phase !== 'review'
     let pos: THREE.Vector3
     if (this.replaying) {
@@ -710,6 +914,20 @@ export class Game {
       vis = !!f && f.ball[3] > 0.5
       pos = f ? _bpos.set(-f.ball[0], f.ball[1], f.ball[2]) : _bpos.set(0, 0, 0)
     } else pos = toView(d.ball.pos, _bpos)
+    // Before release the ball is in the bowler's hand.
+    const bi = d.bowlerActor ? d.bowlerActor.index : -1
+    const inHand = !vis && !this.replaying && bi >= 0 && !d.ballReleased && (d.phase === 'runup' || d.phase === 'predelivery') && !!this.people[bi]?.root.visible
+    if (inHand) {
+      this.people[bi]!.handWorld('r', _bpos)
+      this.ball.visible = true
+      this.ball.position.copy(_bpos)
+      this.ball.scale.setScalar(1.15)
+      this.ballShadow.visible = false
+      this.trail.visible = false
+      this.guides.setGlow(null, 0)
+      this.guides.setGhosts([], 1)
+      return
+    }
     this.ball.visible = vis
     this.ballShadow.visible = vis && pos.y < 30
     if (!vis) {
@@ -851,12 +1069,13 @@ export class Game {
     let mode: CamMode = 'orbit'
     const userCam = this.userCam
     if (this.replaying) mode = 'replay'
+    else if (this.heroActive()) mode = 'hero'
     else if (d.phase === 'review' && d.review.kind === 'lbw') mode = 'hawk'
     else if (d.phase === 'review' && d.review.kind === 'runout') mode = 'hawk'
     else if (inn && (d.phase === 'predelivery' || d.phase === 'runup' || d.phase === 'flight')) mode = userCam
     else if (inn && (d.phase === 'live' || d.phase === 'dead')) mode = d.liveTime < (userCam === 'batter' ? 0.35 : 0.12) && d.phase === 'live' && !d.heldBy ? userCam : 'follow'
     if (mode !== this.camMode) {
-      if (mode === 'follow') this.followSince = 0
+      this.followSince = 0
       this.camMode = mode
     }
     this.followSince += dt
@@ -907,9 +1126,12 @@ export class Game {
         break
       }
       case 'replay':
-        this.replayCamera(pos, look)
-        fov = this.replayIndex().pass === 1 && this.replayKind === 'wicket' ? 11 : 30
+        fov = this.replayCamera(pos, look)
         snap = true
+        break
+      case 'hero':
+        fov = this.heroCamera(pos, look)
+        snap = this.followSince < 0.05
         break
       case 'hawk': {
         const t = d.review.time
@@ -976,17 +1198,37 @@ export class Game {
   }
 
   /* ---------------- replays ---------------- */
+  // Every ball is recorded (actors and ball, 60 Hz, reusing the frame objects). The last ball's recording is kept
+  // until the next release for the instant replay. A replay is a short edit of 2-4 "shots" from broadcast angles:
+  // behind the bowler in real time, side-on and stump cam in slow motion, the catch close up, the carry of a six, and
+  // a ball-tracking freeze for bowled and LBW.
 
-  /** Frame indices of the key moments in the current recording (release, contact, stumps, catch). */
-  private marks: { release?: number; hit?: number; stumps?: number; catch?: number; catcher?: number; stumpsEnd?: number; stumpsAt?: THREE.Vector3; stumpsSpeed?: number } = {}
-  private replayWin = { start: 0, end: 0, key: 0, slowFrom: 0, slowTo: 0 }
+  private marks: Marks = newMarks()
+  private prevRec: FrameRec[] = []
+  private prevCount = 0
+  private prevMarks: Marks = newMarks()
+  private plan: ReplayPlan | null = null
+  private shotIdx = 0
+  private shotT = 0
+  private replayIdx = 0
   private replayBroke = -1
+  private replayHeld = false
 
   private record() {
     const d = this.director
     if (d.phase === 'predelivery') {
+      if (this.recCount > 20) {
+        // Keep the last ball for the instant replay (swap the buffers: no copying, no allocation).
+        const r = this.prevRec
+        this.prevRec = this.recording
+        this.recording = r
+        this.prevCount = this.recCount
+        const m = this.prevMarks
+        this.prevMarks = this.marks
+        this.marks = m
+      }
       this.recCount = 0
-      this.marks = {}
+      resetMarks(this.marks)
       return
     }
     if (d.phase !== 'runup' && d.phase !== 'flight' && d.phase !== 'live' && d.phase !== 'dead') return
@@ -1000,7 +1242,8 @@ export class Game {
     this.recCount++
     const arr = rec.actors
     const poses = rec.poses
-    d.actors.forEach((a, i) => {
+    for (let i = 0; i < ACTORS; i++) {
+      const a = d.actors[i]
       const o = i * ACTOR_FIELDS
       arr[o] = a.pos.x
       arr[o + 1] = a.pos.z
@@ -1009,13 +1252,13 @@ export class Game {
       arr[o + 4] = a.poseTime
       arr[o + 5] = a.aim
       arr[o + 6] = a.loft ? 1 : 0
-      arr[o + 7] = ['auto', 'front', 'back', 'charge'].indexOf(a.feet)
+      arr[o + 7] = FEET.indexOf(a.feet)
       arr[o + 8] = a.hasBall ? 1 : 0
       arr[o + 9] = a.visible ? 1 : 0
       arr[o + 10] = a.left ? 1 : 0
       arr[o + 11] = a.speed
       poses[i] = a.variant
-    })
+    }
     rec.ball[0] = d.ball.pos.x
     rec.ball[1] = d.ball.pos.y
     rec.ball[2] = d.ball.pos.z
@@ -1026,65 +1269,177 @@ export class Game {
     if (this.replaying) return
     const n = this.recCount
     const m = this.marks
-    if (e.type === 'release') m.release = n
-    else if ((e.type === 'bathit' || e.type === 'edge' || e.type === 'pad') && m.hit === undefined) m.hit = n
-    else if (e.type === 'stumps' && m.stumps === undefined) {
+    if (e.type === 'release') {
+      m.release = n
+      m.strikerEnd = this.director.state.current?.strikerEnd ?? 1
+      m.offX = Math.sign(toView(this.director.frame.off, _rl).x || 1)
+    } else if (e.type === 'bounce' && m.bounce < 0 && m.hit < 0) m.bounce = n
+    else if ((e.type === 'bathit' || e.type === 'edge' || e.type === 'pad') && m.hit < 0) {
+      m.hit = n
+      if (e.type === 'pad') m.pad = n
+    } else if (e.type === 'stumps' && m.stumps < 0) {
       m.stumps = n
       m.stumpsEnd = e.i ?? 0
-      m.stumpsAt = e.p ? v3(e.p) : new THREE.Vector3(0, 0.5, stumpsZ(e.i ?? 0))
+      if (e.p) m.stumpsAt.set(-e.p[0], e.p[1], e.p[2])
+      else m.stumpsAt.set(0, 0.5, stumpsZ(e.i ?? 0))
       m.stumpsSpeed = e.f ?? 20
-    } else if (e.type === 'catch' && m.catch === undefined) {
+    } else if (e.type === 'catch' && m.catch < 0) {
       m.catch = n
-      m.catcher = e.i
+      m.catcher = e.i ?? -1
+    } else if (e.type === 'drop' && m.catch < 0) {
+      m.catch = n
+      m.catcher = e.i ?? -1
+    } else if (e.type === 'wicket') m.how = e.text ?? ''
+    else if (e.type === 'six') m.kind = 'six'
+    else if (e.type === 'four') m.kind = 'four'
+  }
+
+  /** The director asks for a replay after a wicket, a boundary or a close call. */
+  private startReplay(kind: ReplayKind) {
+    if (this.opts.online || this.recCount < 20 || this.replayPref === 'off') return false
+    if (this.replayPref === 'key' && (kind === 'four' || kind === 'close')) return false
+    return this.beginPlan(kind, this.recording, this.recCount, this.marks, 'director')
+  }
+
+  /** The instant replay button: the ball just bowled (or the last one, before the next run-up). */
+  get canInstantReplay() {
+    const d = this.director
+    if (this.opts.online || this.replaying || this.paused || this.hold) return false
+    if (d.phase === 'predelivery') return this.prevCount > 20 && this.prevMarks.release >= 0
+    return d.phase === 'dead' && this.recCount > 20 && this.marks.release >= 0
+  }
+
+  instantReplay() {
+    if (!this.canInstantReplay) return
+    const d = this.director
+    const pre = d.phase === 'predelivery'
+    const frames = pre ? this.prevRec : this.recording
+    const count = pre ? this.prevCount : this.recCount
+    const m = pre ? this.prevMarks : this.marks
+    const kind: ReplayKind = m.how ? (m.how === 'runout' ? 'runout' : 'wicket') : m.kind === 'six' ? 'six' : m.kind === 'four' ? 'four' : 'close'
+    if (this.beginPlan(kind, frames, count, m, 'instant')) {
+      this.replayHeld = true
+      this.audio.whoosh()
+      this.pushHud()
     }
   }
 
-  private startReplay(kind: 'wicket' | 'six' | 'runout') {
-    if (this.opts.online || this.recCount < 20) return false
-    const n = this.recCount
-    const m = this.marks
-    const key = Math.min(n - 1, kind === 'runout' ? (m.stumps ?? n - 1) : (m.stumps ?? m.catch ?? m.hit ?? n - 1))
-    const start = kind === 'runout' ? Math.max(0, key - 150) : Math.max(0, (m.release ?? 0) - 25)
-    const end = kind === 'six' ? n : Math.min(n, key + 90)
-    this.replayWin = { start, end, key, slowFrom: Math.max(start, (kind === 'six' ? (m.hit ?? key) : key) - 45), slowTo: Math.min(n, (kind === 'six' ? (m.hit ?? key) : key) + 55) }
-    // Nothing is recorded while the replay plays, so it reads the recording in place.
-    this.replayFrames = this.recording
-    this.replayCount = n
-    this.replayKind = kind
-    this.replayT = 0
+  /** The third umpire's look at a run out: the crease side-on, frame by frame. */
+  private startTvReplay() {
+    if (this.opts.online || this.recCount < 20 || this.marks.stumps < 0) return
+    this.beginPlan('runout', this.recording, this.recCount, this.marks, 'tv')
+  }
+
+  private beginPlan(kind: ReplayKind, frames: FrameRec[], count: number, m: Marks, owner: ReplayPlan['owner']) {
+    const shots = planShots(kind, m, count, owner)
+    if (!shots.length) return false
+    this.plan = { kind, shots, owner, frames, count, marks: m }
+    this.shotIdx = 0
+    this.shotT = 0
+    this.replayIdx = shots[0].from
     this.replaying = true
     this.replayBroke = -1
     for (const w of this.wickets) w.reset()
+    this.hawk.clear()
+    this.onShotStart()
     return true
   }
 
-  /** Real-time first pass, then slow motion (0.4x) around the key moment. */
-  private get replayPass1() {
-    return (this.replayWin.end - this.replayWin.start) / 60
+  private endReplay() {
+    const plan = this.plan
+    this.replaying = false
+    this.plan = null
+    this.hawk.clear()
+    this.replayTrail.visible = false
+    for (const w of this.wickets) w.reset()
+    // Put back what the live match shows (broken stumps of the wicket just taken).
+    const m = this.marks
+    if (this.director.phase !== 'predelivery' && m.stumps >= 0) this.wickets[m.stumpsEnd].break(m.stumpsAt, 4, -inward(m.stumpsEnd))
+    if (!plan) return
+    if (plan.owner === 'director') this.director.replayDone = true
+    if (plan.owner === 'instant') this.replayHeld = false
+    for (const v of this.views) v.hasPrev = false
+    this.pushHud()
   }
 
-  get replayDuration() {
-    return this.replayPass1 + (this.replayWin.slowTo - this.replayWin.slowFrom) / 60 / 0.4 + 0.3
+  get isReplaying() {
+    return this.replaying
   }
 
-  private replayIndex() {
-    const w = this.replayWin
-    const t = this.replayT
-    if (t < this.replayPass1) return { idx: Math.floor(w.start + t * 60), pass: 1 }
-    return { idx: Math.floor(w.slowFrom + (t - this.replayPass1) * 60 * 0.4), pass: 2 }
+  setReplayPref(p: ReplayPref) {
+    this.replayPref = p
+    try {
+      localStorage.setItem(REPLAY_KEY, p)
+    } catch {
+      // Not remembered.
+    }
+    this.pushHud()
+  }
+
+  skipReplay() {
+    if (!this.replaying || this.plan?.owner === 'tv') return
+    this.endReplay()
+  }
+
+  private get shot(): ReplayShot | null {
+    return this.plan ? (this.plan.shots[this.shotIdx] ?? null) : null
+  }
+
+  /** Advances the edit: frame index within the shot, holds, the next shot, the end. */
+  private advanceReplay(dt: number) {
+    const plan = this.plan
+    const sh = this.shot
+    if (!plan || !sh) return
+    this.shotT += dt
+    const run = ((sh.to - sh.from) / 60) / sh.speed
+    this.replayIdx = Math.min(sh.to, sh.from + this.shotT * 60 * sh.speed)
+    if (this.shotT >= run + (sh.hold ?? 0)) {
+      this.shotIdx++
+      this.shotT = 0
+      if (this.shotIdx >= plan.shots.length) {
+        // The third umpire's view holds on the last frame until the decision is in.
+        if (plan.owner === 'tv') {
+          this.shotIdx = plan.shots.length - 1
+          this.shotT = run + (sh.hold ?? 0)
+          return
+        }
+        this.endReplay()
+        return
+      }
+      this.replayIdx = plan.shots[this.shotIdx].from
+      this.onShotStart()
+    }
+  }
+
+  /** A new shot of the edit: stumps put back if it starts before they went, the tracking graphic for a freeze. */
+  private onShotStart() {
+    const plan = this.plan
+    const sh = this.shot
+    if (!plan || !sh) return
+    const m = plan.marks
+    this.replayBroke = -1
+    if (m.stumps >= 0) this.wickets[m.stumpsEnd].reset()
+    for (const v of this.views) v.hasPrev = false
+    this.hawk.clear()
+    if (sh.cam === 'track') this.buildTrack(plan)
+    this.audio.whoosh()
   }
 
   private replayFrame(): FrameRec | null {
-    if (!this.replayCount) return null
-    const { idx } = this.replayIndex()
-    return this.replayFrames[Math.min(this.replayCount - 1, Math.max(0, idx))]
+    const plan = this.plan
+    if (!plan || !plan.count) return null
+    return plan.frames[Math.min(plan.count - 1, Math.max(0, Math.floor(this.replayIdx)))]
   }
 
   private applyReplayFrame(dt: number) {
     const f = this.replayFrame()
-    if (!f) return
+    const plan = this.plan
+    const sh = this.shot
+    if (!f || !plan || !sh) return
     const d = this.director
-    const { idx, pass } = this.replayIndex()
+    const idx = Math.floor(this.replayIdx)
+    const frozen = sh.cam === 'track' || this.replayIdx >= sh.to
+    const adt = frozen ? 0 : dt * sh.speed
     const ballView = f.ball[3] > 0.5 ? _ballView.set(-f.ball[0], f.ball[1], f.ball[2]) : null
     for (let i = 0; i < ACTORS; i++) {
       const c = this.people[i]
@@ -1100,85 +1455,157 @@ export class Game {
       fake.poseTime = f.actors[o + 4]
       fake.aim = f.actors[o + 5]
       fake.loft = f.actors[o + 6] > 0.5
-      fake.feet = (['auto', 'front', 'back', 'charge'] as Footwork[])[f.actors[o + 7]] ?? 'auto'
+      fake.feet = FEET[f.actors[o + 7]] ?? 'auto'
       fake.hasBall = f.actors[o + 8] > 0.5
       fake.variant = f.poses[i]
       fake.vel.x = f.actors[o + 11]
       c.root.visible = f.actors[o + 9] > 0.5 && fake.pose !== 'hidden'
       if (!c.root.visible) continue
-      this.placePerson(c, _pp.set(-f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, pass === 2 ? dt * 0.4 : dt, this.camera.position, this.views[i])
+      this.placePerson(c, _pp.set(-f.actors[o], 0, f.actors[o + 1]), f.actors[o + 2], f.actors[o + 10] > 0.5, fake, ballView, adt, this.camera.position, this.views[i])
     }
-    // The stumps go down again at the right moment of each pass.
-    const m = this.marks
-    if (m.stumps !== undefined && m.stumpsAt && idx >= m.stumps && this.replayBroke !== pass) {
-      this.replayBroke = pass
-      this.wickets[m.stumpsEnd ?? 0].reset()
-      this.wickets[m.stumpsEnd ?? 0].break(m.stumpsAt, m.stumpsSpeed ?? 20, -inward(m.stumpsEnd ?? 0))
+    // The stumps go down again at the right moment of each shot.
+    const m = plan.marks
+    if (m.stumps >= 0 && idx >= m.stumps && this.replayBroke !== this.shotIdx) {
+      this.replayBroke = this.shotIdx
+      this.wickets[m.stumpsEnd].reset()
+      this.wickets[m.stumpsEnd].break(m.stumpsAt, m.stumpsSpeed * (sh.speed < 1 ? 0.6 : 1), -inward(m.stumpsEnd))
       this.audio.stumps()
-    } else if (m.stumps !== undefined && idx < m.stumps && this.replayBroke === pass - 1 && pass === 2 && this.wickets[m.stumpsEnd ?? 0].broken) this.wickets[m.stumpsEnd ?? 0].reset()
-    if (this.replayT > this.replayDuration) {
-      this.replaying = false
-      this.director.replayDone = true
     }
+    this.updateReplayTrail(plan, idx)
+    if (sh.cam === 'track') this.hawk.tick(this.shotT)
   }
 
-  private replayCamera(pos: THREE.Vector3, look: THREE.Vector3) {
+  /** The dotted trail of the ball from the release to the frame shown. */
+  private updateReplayTrail(plan: ReplayPlan, idx: number) {
+    const m = plan.marks
+    const from = m.release >= 0 ? m.release : 0
+    const pos = this.replayTrailPos
+    let n = 0
+    for (let i = from; i <= idx && n < TRAIL_MAX; i += 1) {
+      const f = plan.frames[i]
+      if (!f || f.ball[3] < 0.5) continue
+      pos[n * 3] = -f.ball[0]
+      pos[n * 3 + 1] = f.ball[1]
+      pos[n * 3 + 2] = f.ball[2]
+      n++
+    }
+    const g = this.replayTrail.geometry
+    ;(g.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+    g.setDrawRange(0, n)
+    this.replayTrail.visible = n > 2
+  }
+
+  /** The ball-tracking freeze: the path to the pitching point and on to the stumps, coloured by the verdict. */
+  private buildTrack(plan: ReplayPlan) {
+    const m = plan.marks
     const d = this.director
-    const inn = d.state.current
-    const se = inn ? inn.strikerEnd : 1
+    const pts: THREE.Vector3[] = []
+    const end = m.pad >= 0 ? m.pad : m.stumps >= 0 ? m.stumps : m.hit >= 0 ? m.hit : plan.count - 1
+    for (let i = Math.max(0, m.release); i <= end; i += 2) {
+      const f = plan.frames[i]
+      if (f && f.ball[3] > 0.5) pts.push(new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]))
+    }
+    if (pts.length < 3) return
+    const impactIndex = pts.length - 1
+    const t = m.pad >= 0 ? d.lbwTrack : null
+    if (t && m.pad >= 0) for (const p of d.lbwProjection) pts.push(toView(p))
+    const pitched = m.bounce >= 0 ? plan.frames[m.bounce] : null
+    this.hawk.showPath(pts, impactIndex, {
+      pitched: pitched ? new THREE.Vector3(-pitched.ball[0], 0, pitched.ball[2]) : null,
+      strikerZ: stumpsZ(m.strikerEnd),
+      pitching: t ? t.pitching : 'inline',
+      impact: t ? t.impactZone : null,
+      wickets: t ? t.wickets : m.stumps >= 0 ? 'hitting' : 'missing',
+    })
+  }
+
+  /** Where the replay camera is for this shot (view coordinates). */
+  private replayCamera(pos: THREE.Vector3, look: THREE.Vector3): number {
+    const plan = this.plan
+    const sh = this.shot
     const f = this.replayFrame()
-    const ball = f ? new THREE.Vector3(-f.ball[0], f.ball[1], f.ball[2]) : new THREE.Vector3()
+    if (!plan || !sh || !f) return 30
+    const m = plan.marks
+    const se = m.strikerEnd
     const sz = stumpsZ(se)
     const toBowler = inward(se)
-    const { pass } = this.replayIndex()
-    const m = this.marks
-    if (this.replayKind === 'runout' && m.stumpsEnd !== undefined) {
-      // Side-on to the crease where the stumps were broken, close in for the slow motion.
-      const z = stumpsZ(m.stumpsEnd) + inward(m.stumpsEnd) * Geo.CreaseDepth
-      pos.set(pass === 1 ? -14 : -6, pass === 1 ? 3 : 1.2, z)
-      look.set(0, 0.6, z)
-      return
-    }
-    if (this.replayKind === 'six') {
-      if (pass === 1) {
-        pos.set(-24, 5 + Math.max(0, ball.y) * 0.4, sz + toBowler * 6)
-        look.copy(ball.y > 0.05 ? ball : new THREE.Vector3(0, 1, sz))
-      } else {
-        // Behind the batter, watching it fly.
-        pos.set(0.3, 2.4, sz - toBowler * 7)
-        look.copy(ball.y > 0.05 ? ball : new THREE.Vector3(0, 1.2, sz + toBowler * 10))
+    const ball = _rb.set(-f.ball[0], f.ball[1], f.ball[2])
+    const k = Math.min(1, this.shotT / Math.max(0.5, (sh.to - sh.from) / 60 / sh.speed))
+    switch (sh.cam) {
+      case 'broadcast':
+        // Behind the bowler's arm, telephoto on the striker (the main TV camera).
+        pos.set(0.9, 5.5, stumpsZ(1 - se) + toBowler * 22)
+        look.set(0.2, 0.9, sz + toBowler * 1.5)
+        return 12
+      case 'stump':
+        // Low at the striker's stumps, looking up the pitch at the bowler: the ball comes straight at you.
+        pos.set(0, 0.42, sz + toBowler * 0.1)
+        look.set(0, 1.05, sz + toBowler * 12)
+        return 36
+      case 'side': {
+        // Square of the wicket on the off side (in front of the batter), low, easing in a touch.
+        const dist = 9 - 2 * k
+        pos.set(m.offX * dist, 1.25, sz + toBowler * 1.4)
+        look.set(0, 0.75, sz + toBowler * 0.9)
+        return 30
       }
-      return
+      case 'behind': {
+        pos.set(0.4, 1.9, sz - toBowler * (6.5 - k))
+        if (ball.y > 0.05) look.copy(ball)
+        else look.set(0, 1.2, sz + toBowler * 10)
+        return 38
+      }
+      case 'follow': {
+        // High behind the striker, the ball sailing away towards the stands.
+        pos.set(0, 9 + Math.max(0, ball.y) * 0.25, sz - toBowler * 14)
+        look.copy(ball.y > 0.05 ? ball : _rl.set(0, 2, 0))
+        return 40
+      }
+      case 'catch': {
+        const ci = Math.min(plan.count - 1, Math.max(0, m.catch))
+        const cf = plan.frames[ci]
+        const o = Math.max(0, m.catcher) * ACTOR_FIELDS
+        const cp = _rl.set(-cf.actors[o], 1.2, cf.actors[o + 1])
+        const away = _away.set(cp.x, 0, cp.z).normalize()
+        pos.copy(cp).addScaledVector(away, 5.5 - 1.5 * k).setY(1.6)
+        look.copy(cp)
+        return 34
+      }
+      case 'crease': {
+        const z = stumpsZ(m.stumpsEnd) + inward(m.stumpsEnd) * Geo.CreaseDepth
+        pos.set(-5.5 + k, 1.0, z)
+        look.set(0, 0.45, z)
+        return 26
+      }
+      case 'wide': {
+        pos.set(-26, 12, (sz + stumpsZ(1 - se)) / 2 + toBowler * 4)
+        look.copy(ball.y > 0 ? ball : _rl.set(0, 0.5, 0)).setY(0.6)
+        return 34
+      }
+      case 'track':
+        // Behind the bowler's stumps, raised, looking down the pitch at the striker's end.
+        pos.set(0, 3.4, stumpsZ(1 - se) + toBowler * 4.5)
+        look.set(0, 0.45, sz + toBowler * 0.8)
+        return 17
+      default:
+        return 30
     }
-    if (pass === 1) {
-      // The main camera, tighter on the batter.
-      pos.set(0.9, 5.5, stumpsZ(1 - se) - toBowler * 22)
-      look.set(0.2, 0.9, sz - toBowler * 1.5)
-      return
-    }
-    if (m.catch !== undefined && m.catcher !== undefined && m.stumps === undefined) {
-      // The catch, close up.
-      const o = m.catcher * ACTOR_FIELDS
-      const cf = this.replayFrames[Math.min(this.replayCount - 1, m.catch)]
-      const cp = new THREE.Vector3(-cf.actors[o], 1.2, cf.actors[o + 1])
-      const away = cp.clone().setY(0).normalize()
-      pos.copy(cp).addScaledVector(away, 5).setY(1.8)
-      look.copy(cp)
-      return
-    }
-    // Side-on to the striker's crease (square leg's view), low.
-    pos.set(-8.5, 1.3, sz + toBowler * 0.9)
-    look.set(0, 0.6, sz + toBowler * 0.6)
   }
 
-  get isReplaying() {
-    return this.replaying
-  }
-
-  skipReplay() {
-    if (!this.replaying) return
-    this.replaying = false
-    this.director.replayDone = true
+  /** What the HUD shows over a replay. */
+  private replayHud(): HudState['replay'] {
+    const plan = this.plan
+    const sh = this.shot
+    if (!this.replaying || !plan || !sh) return null
+    const d = this.director
+    const t = sh.cam === 'track' && plan.marks.pad >= 0 ? d.lbwTrack : null
+    const track =
+      sh.cam === 'track'
+        ? t
+          ? { pitching: zoneText(t.pitching), impact: zoneText(t.impactZone), wickets: zoneText(t.wickets), time: Math.round(this.shotT * 10) / 10 }
+          : { pitching: plan.marks.bounce >= 0 ? 'PITCHED' : 'FULL TOSS', impact: '', wickets: plan.marks.stumps >= 0 ? 'HITTING' : 'MISSING', time: Math.round(this.shotT * 10) / 10 }
+        : null
+    return { label: sh.label, slow: sh.speed < 0.9, owner: plan.owner, index: this.shotIdx, count: plan.shots.length, kind: plan.kind, track }
   }
 
   /* ---------------- events ---------------- */
@@ -1223,16 +1650,64 @@ export class Game {
       }
       case 'four':
         this.audio.roar(0.6)
+        this.audio.sting('four')
         this.stadium.crowd.cheer(0.7, 3)
         break
       case 'six':
         this.audio.roar(1)
+        this.audio.sting('six')
         this.stadium.crowd.cheer(1, 4)
         if (Math.random() < 0.4) this.stadium.crowd.wave()
+        if (!d.nets) this.hero = { actor: STRIKER, kind: 'six' }
         break
-      case 'wicket':
+      case 'wicket': {
         this.audio.roar(0.9)
+        this.audio.sting('wicket')
         this.stadium.crowd.cheer(0.9, 3.5)
+        const how = e.text ?? ''
+        const b = d.bowlerActor
+        if (!d.nets && b) {
+          // The bowler's moment; a run out is the fielder's.
+          let actor = b.index
+          if (how === 'runout') {
+            const f = d.liveOutcome.fielder
+            const fa = f >= 0 ? d.fielderFor(f) : null
+            if (fa) actor = fa.index
+          }
+          this.hero = { actor, kind: 'wicket' }
+        }
+        break
+      }
+      case 'milestone': {
+        this.audio.sting('milestone')
+        this.audio.applause(4)
+        this.stadium.crowd.cheer(0.6, 4)
+        const bowler = e.text === 'bowler'
+        const team = d.state.setup.teams[bowler ? 1 - d.state.current.battingTeam : d.state.current.battingTeam]
+        const p = team.players[e.j ?? 0]
+        const inn = d.state.current
+        if (bowler) {
+          const c = inn.bowling.find((x) => x.player === e.j)
+          this.milestone = { title: e.i === 5 ? 'FIVE-WICKET HAUL' : 'THREE WICKETS', name: p ? p.name : '', line: c ? `${c.wickets}-${c.runs} (${oversText(c.balls)})` : '', kind: 'bowl', t: this.time }
+        } else {
+          const c = inn.batting.find((x) => x.player === e.j)
+          this.milestone = { title: e.i === 100 ? 'HUNDRED' : 'FIFTY', name: p ? p.name : '', line: c ? `${c.runs} off ${c.balls} balls · ${c.fours}x4 ${c.sixes}x6` : '', kind: 'bat', t: this.time }
+          const who = d.actors.findIndex((a, i) => i <= NONSTRIKER && a.player === e.j)
+          if (who >= 0) this.hero = { actor: who, kind: 'milestone' }
+        }
+        break
+      }
+      case 'maiden':
+        this.audio.sting('maiden')
+        this.milestone = { title: 'MAIDEN OVER', name: d.fieldingTeam.players[e.i ?? 0]?.name ?? '', line: 'Six balls, no runs', kind: 'bowl', t: this.time }
+        break
+      case 'hattrick':
+        this.audio.sting(e.i === 3 ? 'milestone' : 'maiden')
+        this.milestone = { title: e.i === 3 ? 'HAT-TRICK!' : 'ON A HAT-TRICK', name: d.fieldingTeam.players[e.j ?? 0]?.name ?? '', line: e.i === 3 ? 'Three wickets in three balls' : 'Two in two: next ball for the hat-trick', kind: 'bowl', t: this.time }
+        break
+      case 'call':
+        this.audio.call(e.text ?? '')
+        this.runCall = { text: (e.text ?? '').toUpperCase(), who: e.i ?? 0, t: this.time }
         break
       case 'appeal':
         this.audio.appeal()
@@ -1252,16 +1727,14 @@ export class Game {
         if (bp) {
           const spin = isSpinStyle(bp.bowl)
           const words = d.pitched ? lengthWords(d.pitchedLength(), d.frame.offsetOff(d.pitched)).text : 'Full toss'
-          this.card = { bowler: surname(bp), kmh: Math.round(e.f ?? d.lastKmh), type: DELIVERIES[(e.text as DeliveryType) ?? d.selectedDelivery]?.name ?? e.text ?? '', spin, words, age: 0 }
+          const spec = DELIVERIES[(e.text as DeliveryType) ?? d.selectedDelivery]
+          const kmh = e.f ?? d.lastKmh
+          this.card = { bowler: surname(bp), kmh: Math.round(kmh), kmhTenths: Math.round(kmh * 10) / 10, type: spec?.name ?? e.text ?? '', spin, words, late: d.lateSwing && !!spec && spec.swing !== 0, age: 0 }
         }
         break
       }
       case 'runcomplete':
         this.audio.click()
-        break
-      case 'milestone':
-        this.audio.applause(4)
-        this.stadium.crowd.cheer(0.6, 4)
         break
       case 'say':
         if (e.text) {
@@ -1282,9 +1755,16 @@ export class Game {
         this.stadium.crowd.cheer(1, 6)
         this.onEnd?.(d)
         break
+      case 'reviewstart':
+        if (e.j === 2) this.startTvReplay()
+        this.audio.drs()
+        break
       case 'phase':
-        if (e.text === 'review') this.hawk.begin(d)
+        if (e.text !== 'review' && this.plan?.owner === 'tv') this.endReplay()
+        if (e.text === 'review' && d.review.kind === 'lbw') this.hawk.begin(d)
         if (e.text === 'predelivery') {
+          this.hero = null
+          this.runCall = null
           this.hawk.clear()
           this.shotKind = 'none'
           this.card = null
@@ -1316,8 +1796,36 @@ export class Game {
 
   private onBlur = () => this.keys.clear()
 
-  private onPointer = () => {
+  private pointerDown = false
+  private onPointer = (e: PointerEvent) => {
     this.audio.start()
+    this.pointerDown = true
+    this.markerFromPointer(e)
+  }
+  private onPointerMove = (e: PointerEvent) => {
+    if (this.pointerDown) this.markerFromPointer(e)
+  }
+  private onPointerUp = () => {
+    this.pointerDown = false
+  }
+  private _ray = new THREE.Raycaster()
+  private _ndc = new THREE.Vector2()
+  private _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+  /** Bowling: tap or drag on the pitch to put the landing marker there. */
+  private markerFromPointer(e: PointerEvent) {
+    const d = this.director
+    if (this.opts.autopilot || this.paused || this.hold || !d.localBowls || !(d.phase === 'predelivery' || (d.phase === 'runup' && !d.ballReleased))) return
+    const r = this.renderer.domElement.getBoundingClientRect()
+    this._ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
+    this._ray.setFromCamera(this._ndc, this.camera)
+    const hit = this._ray.ray.intersectPlane(this._plane, _rl)
+    if (!hit) return
+    const sim = new V3(-hit.x, 0, hit.z)
+    const f = d.frame
+    const off = f.offsetOff(sim)
+    const len = f.offsetFwd(sim)
+    if (Math.abs(off) > 2.2 || len < -1 || len > 15) return
+    this.submit({ t: 'target', side: this.opts.localSide, off, len })
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -1341,11 +1849,22 @@ export class Game {
     if (k === 'Shift') this.keys.delete('Shift')
   }
 
+  /** The touch direction pad (screen space, -1..1 each) and footwork buttons. */
+  private touchDir = { x: 0, y: 0 }
+  private touchFeet: Footwork = 'auto'
+  setTouchDir(x: number, y: number) {
+    this.touchDir.x = x
+    this.touchDir.y = y
+  }
+  setTouchFeet(f: Footwork) {
+    this.touchFeet = f
+  }
+
   /** Held direction (screen space): x right, y up. */
   private heldDir() {
     const K = this.keys
-    let x = 0
-    let y = 0
+    let x = this.touchDir.x
+    let y = this.touchDir.y
     if (K.has('ArrowLeft') || K.has('a')) x -= 1
     if (K.has('ArrowRight') || K.has('d')) x += 1
     if (K.has('ArrowUp') || K.has('w')) y += 1
@@ -1381,6 +1900,7 @@ export class Game {
   }
 
   private footwork(): Footwork {
+    if (this.touchFeet !== 'auto') return this.touchFeet
     if (this.keys.has('Shift')) return 'front'
     if (this.keys.has(' ')) return 'back'
     return 'auto'
@@ -1399,8 +1919,12 @@ export class Game {
       this.toggleCamera()
       return
     }
-    if (this.replaying && (k === ' ' || k === 'Enter')) {
+    if (this.replaying && (k === ' ' || k === 'Enter' || k === 'Escape')) {
       this.skipReplay()
+      return
+    }
+    if (k === 'i' && this.canInstantReplay) {
+      this.instantReplay()
       return
     }
     if (d.phase === 'break' && (k === ' ' || k === 'Enter')) {
@@ -1428,15 +1952,16 @@ export class Game {
     if (this.opts.autopilot) return
     // Batting.
     if (d.localBats) {
-      if ((d.phase === 'flight' || d.phase === 'runup') && ['j', 'k', 'l', 'z', 'x', 'c'].includes(k)) {
+      if ((d.phase === 'flight' || d.phase === 'runup') && ['j', 'k', 'l', 'z', 'x', 'c', 'h'].includes(k)) {
         const defend = k === 'j' || k === 'z'
+        const leave = k === 'h'
         const loft = k === 'l' || k === 'c'
-        const aim = this.aimFromKeys() ?? (defend ? 0 : this.naturalAim())
-        const shot: ShotType = defend ? 'defend' : 'auto'
+        const aim = this.aimFromKeys() ?? (defend || leave ? 0 : this.naturalAim())
+        const shot: ShotType = leave ? 'leave' : defend ? 'defend' : 'auto'
         const feet = this.footwork()
         // Online guests time the shot against their own copy of the delivery (what they can see).
         const timing = this.opts.mirror ? d.timingErrorNow(shot, feet) : undefined
-        if (!d.shotPending) this.shotKind = defend ? 'defend' : loft ? 'loft' : 'ground'
+        if (!d.shotPending) this.shotKind = leave ? 'none' : defend ? 'defend' : loft ? 'loft' : 'ground'
         c({ t: 'shot', side, shot, loft, feet, aim, timing })
         return
       }
@@ -1444,6 +1969,7 @@ export class Game {
       if (d.phase === 'live') {
         if (k === 'r' || k === 'Enter') c({ t: 'run', side })
         if (k === 'f' || k === 'Backspace') c({ t: 'back', side })
+        if (k === 'g') c({ t: 'wait', side })
       }
       return
     }
@@ -1505,8 +2031,10 @@ export class Game {
   }
 
   /** Clicks on the HUD's touch buttons. */
-  press(action: 'defend' | 'ground' | 'loft' | 'run' | 'back' | 'bowl' | 'review' | 'continue' | 'camera' | 'preset') {
-    const map: Record<string, string> = { defend: 'j', ground: 'k', loft: 'l', run: 'r', back: 'f', bowl: ' ', review: 'y', continue: 'Enter', camera: 'c', preset: 'f' }
+  press(action: 'defend' | 'ground' | 'loft' | 'leave' | 'run' | 'back' | 'wait' | 'bowl' | 'review' | 'continue' | 'camera' | 'preset' | 'replay' | 'skip') {
+    if (action === 'replay') return this.instantReplay()
+    if (action === 'skip') return this.skipReplay()
+    const map: Record<string, string> = { defend: 'j', ground: 'k', loft: 'l', leave: 'h', run: 'r', back: 'f', wait: 'g', bowl: ' ', review: 'y', continue: 'Enter', camera: 'c', preset: 'f' }
     if (action === 'preset') this.cyclePreset()
     else this.keyAction(map[action], false)
   }
@@ -1519,9 +2047,213 @@ export class Game {
     this.meterNeedle = needle
   }
 
+  private meterWasGreen = false
   private moveMeter(value: number, inGreen: boolean) {
-    if (this.meterNeedle) this.meterNeedle.style.left = `${value * 100}%`
+    // The needle sweeps the arc (see METER_ARC): a rotation about the arc's centre.
+    if (this.meterNeedle) this.meterNeedle.style.transform = `rotate(${METER_ARC.from + value * (METER_ARC.to - METER_ARC.from)}deg)`
     if (this.meterWrap) this.meterWrap.dataset.green = inGreen ? '1' : '0'
+    if (inGreen && !this.meterWasGreen) this.audio.tick()
+    this.meterWasGreen = inGreen
+  }
+
+  /* ---------------- radar, picture-in-picture, hero shots ---------------- */
+
+  private radar: SVGGElement | null = null
+  private radarDots: SVGCircleElement[] = []
+  private radarBall: SVGCircleElement | null = null
+  private radarT = 0
+  private radarKey = ''
+
+  /** The HUD hands over the radar's group element; the dots are made here and moved at 30 Hz. */
+  attachRadar(g: SVGGElement | null) {
+    this.radar = g
+    this.radarDots = []
+    this.radarBall = null
+    this.radarKey = ''
+    if (!g) return
+    while (g.firstChild) g.removeChild(g.firstChild)
+    const NS = 'http://www.w3.org/2000/svg'
+    for (let i = 0; i < ACTORS; i++) {
+      const c = document.createElementNS(NS, 'circle')
+      c.setAttribute('r', i <= NONSTRIKER ? '3.2' : '2.8')
+      g.appendChild(c)
+      this.radarDots.push(c)
+    }
+    const b = document.createElementNS(NS, 'circle')
+    b.setAttribute('r', '2.2')
+    b.setAttribute('class', 'ck-radar-ball')
+    g.appendChild(b)
+    this.radarBall = b
+    this.updateRadar()
+  }
+
+  private updateRadar() {
+    const g = this.radar
+    if (!g) return
+    const d = this.director
+    const inn = d.state.current
+    if (!inn) return
+    // Oriented like the broadcast camera: the striker's end at the top. Radar units are metres (rope ~65).
+    const dz = inward(1 - inn.strikerEnd)
+    const teams = d.state.setup.teams
+    const key = `${inn.battingTeam}`
+    const recolour = key !== this.radarKey
+    this.radarKey = key
+    for (let i = 0; i < ACTORS; i++) {
+      const a = d.actors[i]
+      const c = this.radarDots[i]
+      if (!c) continue
+      const vis = a.visible && a.pose !== 'hidden' && !(d.nets && a.kind === 'fielder')
+      c.style.display = vis ? '' : 'none'
+      if (!vis) continue
+      c.setAttribute('cx', (a.pos.x * dz).toFixed(1))
+      c.setAttribute('cy', (-a.pos.z * dz).toFixed(1))
+      if (recolour) {
+        const team = a.kind === 'umpire' ? -1 : i <= NONSTRIKER ? inn.battingTeam : 1 - inn.battingTeam
+        c.setAttribute('fill', team < 0 ? '#cbd5e1' : teams[team].primary)
+        c.setAttribute('stroke', i <= NONSTRIKER ? '#ffffff' : a.kind === 'keeper' ? '#fde047' : 'rgba(0,0,0,0.55)')
+      }
+    }
+    if (this.radarBall) {
+      const show = d.ballVisible && !this.replaying
+      this.radarBall.style.display = show ? '' : 'none'
+      if (show) {
+        this.radarBall.setAttribute('cx', (d.ball.pos.x * dz).toFixed(1))
+        this.radarBall.setAttribute('cy', (-d.ball.pos.z * dz).toFixed(1))
+      }
+    }
+  }
+
+  private pipCam = new THREE.PerspectiveCamera(22, 1.6, 0.1, 160)
+  private pip = { on: false, x: 12, y: 12, w: 0, h: 0, label: '' }
+
+  /** Picture-in-picture of the batter, front-on (medium and high tiers) while the ball is being bowled. */
+  private updatePip() {
+    const d = this.director
+    const inn = d.state.current
+    const phaseOk = d.phase === 'predelivery' || d.phase === 'runup' || (d.phase === 'flight' && this.sinceRelease < 1.2)
+    const on = this.quality.tier !== 'low' && !this.replaying && !this.debugView && !!inn && (d.localBowls || d.localBats || !!this.opts.autopilot) && phaseOk && this.container.clientWidth >= 560 && this.container.clientHeight >= 500
+    this.pip.on = on
+    if (!on || !inn) return
+    const W = this.container.clientWidth
+    const H = this.container.clientHeight
+    const w = Math.round(Math.min(300, Math.max(160, W * 0.2)))
+    this.pip.w = w
+    this.pip.h = Math.round(w * 0.62)
+    this.pip.x = 12
+    this.pip.y = H < 480 ? 8 : 12
+    this.pip.label = d.localBats ? 'YOUR STANCE' : 'BATTER CAM'
+    const s = toView(d.striker.pos, _pp)
+    const toBowler = inward(inn.strikerEnd)
+    const offX = Math.sign(toView(d.frame.off).x || 1)
+    this.pipCam.position.set(s.x + offX * 0.7, 1.45, s.z + toBowler * 7.5)
+    this.pipCam.lookAt(s.x + offX * 0.15, 1.0, s.z)
+    this.pipCam.aspect = w / this.pip.h
+    this.pipCam.updateProjectionMatrix()
+  }
+
+  private renderPip() {
+    if (!this.pip.on) return
+    const r = this.renderer
+    const H = this.container.clientHeight
+    const p = this.pip
+    const tone = r.toneMapping
+    r.toneMapping = THREE.ACESFilmicToneMapping
+    r.shadowMap.needsUpdate = false
+    const guides = this.guides.group.visible
+    this.guides.group.visible = false
+    this.marker.visible = false
+    r.setScissorTest(true)
+    r.setScissor(p.x, H - p.y - p.h, p.w, p.h)
+    r.setViewport(p.x, H - p.y - p.h, p.w, p.h)
+    r.render(this.scene, this.pipCam)
+    r.setScissorTest(false)
+    r.setViewport(0, 0, this.container.clientWidth, H)
+    r.toneMapping = tone
+    this.guides.group.visible = guides
+  }
+
+  /** The celebration close-up after a wicket, a six or a milestone (low angle, a slow push-in, a key light). */
+  private hero: { actor: number; kind: string } | null = null
+  private milestone: { title: string; name: string; line: string; kind: string; t: number } | null = null
+  private runCall: { text: string; who: number; t: number } | null = null
+  private heroK = 0
+
+  private heroActive() {
+    const d = this.director
+    return !!this.hero && !this.replaying && d.phase === 'dead' && d.phaseTime > 0.7 && !d.reviewWindowOpen
+  }
+
+  /** Which side the hero camera works from (chosen once per shot so nobody stands in the way). */
+  private heroSide = 0
+  private heroFor = -1
+
+  private heroCamera(pos: THREE.Vector3, look: THREE.Vector3) {
+    const d = this.director
+    const h = this.hero!
+    const a = d.actors[h.actor]
+    const p = toView(a.pos, _rb)
+    const yaw = yawToView(a.yaw)
+    const t = Math.max(0, d.phaseTime - 0.7)
+    const k = 1 - Math.exp(-t * 0.9)
+    const dist = 4.6 - 1.7 * k
+    if (this.heroFor !== d.ballId * 100 + h.actor) {
+      this.heroFor = d.ballId * 100 + h.actor
+      this.heroSide = this.clearHeroAngle(h.actor, p, yaw)
+    }
+    const ang = yaw + this.heroSide + (0.12 - 0.1 * k) * (this.heroSide >= 0 ? 1 : -1)
+    pos.set(p.x + Math.sin(ang) * dist, 0.55 + 0.1 * k, p.z + Math.cos(ang) * dist)
+    look.set(p.x, 1.42, p.z)
+    return 30
+  }
+
+  /** The first angle (around the front of the subject) with a clear line to him: nobody within 0.8 m of it. */
+  private clearHeroAngle(index: number, p: THREE.Vector3, yaw: number) {
+    const d = this.director
+    const tries = [0, 0.6, -0.6, 1.1, -1.1, 1.6, -1.6]
+    let best = 0
+    let bestClear = -1
+    for (const off of tries) {
+      const ang = yaw + off
+      const cx = p.x + Math.sin(ang) * 4.2
+      const cz = p.z + Math.cos(ang) * 4.2
+      let clear = Infinity
+      for (const o of d.actors) {
+        if (o.index === index || !o.visible) continue
+        const q = toView(o.pos, _rl)
+        // Distance from the actor to the camera-subject segment (on the ground).
+        const sx = p.x - cx
+        const sz = p.z - cz
+        const u = Math.max(0, Math.min(1, ((q.x - cx) * sx + (q.z - cz) * sz) / (sx * sx + sz * sz)))
+        const dx = cx + sx * u - q.x
+        const dz = cz + sz * u - q.z
+        clear = Math.min(clear, Math.hypot(dx, dz))
+      }
+      if (clear > 0.9) return off
+      if (clear > bestClear) {
+        bestClear = clear
+        best = off
+      }
+    }
+    return best
+  }
+
+  private updateHeroLight(dt: number) {
+    const L = this.heroLight
+    const on = this.heroActive()
+    this.heroK += ((on ? 1 : 0) - this.heroK) * Math.min(1, dt * 4 || 1)
+    const base = this.opts.setup.time === 'night' ? 1.05 : this.opts.setup.time === 'dusk' ? 1.18 : 1.0
+    this.renderer.toneMappingExposure = base * (1 - 0.18 * this.heroK)
+    if (!L) return
+    L.intensity = 60 * this.heroK
+    if (this.hero && this.heroK > 0.01) {
+      const a = this.director.actors[this.hero.actor]
+      const p = toView(a.pos, _rb)
+      const yaw = yawToView(a.yaw)
+      L.position.set(p.x - Math.sin(yaw) * 2.5 + 1.2, 6.5, p.z - Math.cos(yaw) * 2.5)
+      L.target.position.set(p.x, 1.2, p.z)
+      L.target.updateMatrixWorld()
+    }
   }
 
   private pushHud() {
@@ -1612,7 +2344,7 @@ export class Game {
               options: d.eligibleBowlers().map((p) => {
                 const pl = ft.players[p]
                 const card = inn.bowling.find((b) => b.player === p)
-                return { player: p, name: pl.name, style: styleName(pl), figures: card ? `${card.wickets}-${card.runs}` : '—', overs: card ? oversText(card.balls) : '0' }
+                return { player: p, name: pl.name, style: styleName(pl), tag: styleTag(pl), type: pl.bowl, pace: pl.pace, skill: pl.bowling, figures: card ? `${card.wickets}-${card.runs}` : '—', overs: card ? oversText(card.balls) : '0' }
               }),
             }
           : null,
@@ -1621,7 +2353,7 @@ export class Game {
           ? { summary: `${teams[lastInn.battingTeam].name} ${scoreText(lastInn)} (${oversText(lastInn.legalBalls)} ov)`, next: st.result ? st.result : `${teams[1 - lastInn.battingTeam].name} need ${lastInn.runs + 1} to win` }
           : null,
       matchEnd: d.phase === 'end' ? { result: st.result, winner: st.winner } : null,
-      replay: this.replaying,
+      replay: this.replayHud(),
       banner: d.bannerTime > 0 ? d.banner : '',
       bannerSub: d.bannerTime > 0 ? d.bannerSub : '',
       bannerTime: Math.round(d.bannerTime * 20) / 20,
@@ -1638,6 +2370,20 @@ export class Game {
       markerWords: d.localBowls && (d.phase === 'predelivery' || d.phase === 'runup') ? lengthWords(d.frame.offsetFwd(d.marker), d.frame.offsetOff(d.marker)).text : '',
       aimDeg: d.localBats ? this.aimFromKeys() : null,
       shotKind: this.shotKind,
+      hero: this.heroActive(),
+      milestone: this.milestone && this.time - this.milestone.t < 4.2 ? { title: this.milestone.title, name: this.milestone.name, line: this.milestone.line, kind: this.milestone.kind, age: Math.round((this.time - this.milestone.t) * 10) / 10 } : null,
+      runCall: this.runCall && this.time - this.runCall.t < 1.3 ? { text: this.runCall.text, who: this.runCall.who, age: Math.round((this.time - this.runCall.t) * 10) / 10 } : null,
+      bowlerCard:
+        bp && bc
+          ? { name: bp.name, tag: styleTag(bp), pace: bp.pace, skill: bp.bowling, stamina: Math.round(bowlerActor?.stamina ?? 100), figures: `${bc.wickets}-${bc.runs} (${oversText(bc.balls)})`, type: DELIVERIES[d.selectedDelivery]?.name ?? '' }
+          : null,
+      pip: this.pip.on ? { x: this.pip.x, y: this.pip.y, w: this.pip.w, h: this.pip.h, label: this.pip.label } : null,
+      restrictions: inn && !d.nets ? { powerplay: st.isPowerplay, maxOutside: d.maxOutside, outside: d.field.filter((f) => f.dist > Geo.InnerCircle + 2).length } : null,
+      canReplay: this.canInstantReplay,
+      replayPref: this.replayPref,
+      canEditField: !this.opts.autopilot && d.localBowls && !d.nets && (d.phase === 'predelivery' || d.phase === 'choosebowler') && inn.bowler >= 0,
+      fieldVersion: d.fieldVersion,
+      rrr: inn && inn.target > 0 ? st.requiredRate.toFixed(2) : '',
       toContact: d.localBats && d.ballReleased && d.phase === 'flight' && d.crossTime('auto') > 0 ? Math.round((d.crossTime('auto') - d.ball.time - SHOT_LEAD) * 100) / 100 : -1,
     }
   }

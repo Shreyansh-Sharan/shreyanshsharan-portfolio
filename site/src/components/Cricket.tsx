@@ -223,7 +223,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
     return (
       <Suspense fallback={<Loader3D status="Fetching the game…" progress={null} />}>
         {/* The stage loads the cricketer and pitch textures on mount; the gate follows that burst. */}
-        <LoadingGate key={playing.key} status="Building the stadium…" />
+        <LoadingGate key={`gate-${playing.key}`} status="Building the stadium…" />
         <CricketStage
           key={playing.key}
           setup={playing.setup}
@@ -242,14 +242,23 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
 
   return (
     <Page onBack={() => navigate('#/home/cricket')} className="arena-page">
-      <header className="page-header">
-        <p className="eyebrow">Games · three.js</p>
-        <h1 className="page-title">Cricket</h1>
-        <p className="page-lead">
-          Broadcast-style cricket in the browser. Hold a direction and time your shot off the front or back foot, set a field, place your marker and hit the
-          green on the run-up meter. Real ball physics (swing, seam, spin and bounce off green, flat or dusty pitches), diving fielders, run outs, DRS
-          ball-tracking and replays of every wicket and six. Play the CPU or a friend online.
-        </p>
+      <header className="page-header ck-menu-hero">
+        <img className="ck-menu-art" src={`${import.meta.env.BASE_URL}cricket/menu-hero.webp`} alt="A batter at the top of his backlift under the floodlights" />
+        <div className="ck-menu-copy">
+          <p className="eyebrow">Games · three.js</p>
+          <h1 className="page-title ck-menu-title">Cricket</h1>
+          <p className="page-lead">
+            Floodlit, broadcast-style cricket in the browser. Bowl inswingers, cutters, yorkers, doosras and googlies off a real run-up and hit the green on
+            the release arc; read the swing and the turn and play drives, cuts, pulls, hooks and sweeps off the front or back foot; drag your fielders into place
+            under the powerplay rules. Multi-angle replays with ball tracking, third-umpire run outs and DRS. Play the CPU or a friend online.
+          </p>
+          <ul className="ck-menu-tags">
+            <li>Swing · seam · spin</li>
+            <li>8-way shots</li>
+            <li>Field editor</li>
+            <li>Replays &amp; ball tracking</li>
+          </ul>
+        </div>
       </header>
 
       {stage === 'builder' ? (
@@ -470,7 +479,7 @@ function Controls() {
     <section className="arena-panel arena-info">
       <h2 className="section-title">Batting</h2>
       <ul className="keys">
-        <li>The cyan ring on the pitch is where the ball will land; the yellow ring at your feet closes as it arrives</li>
+        <li>The cyan ring on the pitch is where the ball will land; watch it swing in the air and turn off the pitch. The yellow ring at your feet closes as it arrives</li>
         <li>
           Hold a direction: <kbd>W</kbd>
           <kbd>A</kbd>
@@ -478,31 +487,32 @@ function Controls() {
           <kbd>D</kbd> or arrows (8 ways, none = natural shot). The wedge on the ground shows where it goes
         </li>
         <li>
-          Press when the ring turns green: <kbd>J</kbd> defend · <kbd>K</kbd> along the ground · <kbd>L</kbd> lofted
+          Press when the ring turns green: <kbd>J</kbd> defend · <kbd>K</kbd> along the ground · <kbd>L</kbd> lofted · <kbd>H</kbd> leave
         </li>
         <li>
           Hold <kbd>Shift</kbd> front foot · <kbd>Space</kbd> back foot · <kbd>T</kbd> charge the spinner
         </li>
         <li>
-          <kbd>R</kbd> run · <kbd>F</kbd> stay / back to the crease
+          Calls: <kbd>R</kbd> yes · <kbd>F</kbd> no · <kbd>G</kbd> wait. On a phone, the thumb pad and buttons do the same
         </li>
       </ul>
       <h2 className="section-title">Bowling</h2>
       <ul className="keys">
         <li>
-          <kbd>1</kbd>–<kbd>6</kbd> delivery: seam, swing, bouncer, yorker, slower ball; off-break, leg-break, googly, arm ball, top-spinner
+          Pick a fast, swing, off-spin or leg-spin bowler, then <kbd>1</kbd>–<kbd>8</kbd>: inswinger, outswinger, off- and leg-cutter, yorker, bouncer, slower
+          ball; off-break, doosra, leg-break, googly, arm ball, top-spinner, slider
         </li>
         <li>
-          <kbd>WASD</kbd> place the pitch marker · <kbd>Space</kbd> run in, <kbd>Space</kbd> again in the green
+          <kbd>WASD</kbd> or tap the pitch to place the marker · <kbd>Space</kbd> run in, <kbd>Space</kbd> again as the needle crosses the green on the arc (the bright middle swings late)
         </li>
         <li>
-          <kbd>F</kbd> field: attacking, normal, defensive, death · <kbd>V</kbd> over/round the wicket
+          <kbd>G</kbd> field editor: drag fielders to named positions under the powerplay rules · <kbd>F</kbd> preset · <kbd>V</kbd> over/round the wicket
         </li>
       </ul>
       <h2 className="section-title">Everything else</h2>
       <p className="muted small">
-        <kbd>Y</kbd> review (DRS) · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera (batter's view, broadcast, high) ·{' '}
-        <kbd>Esc</kbd> pause. New to it? Start in the practice nets. Build your own XI (names, kit colours, roles and ratings) in the team builder.
+        <kbd>Y</kbd> review (DRS) · <kbd>I</kbd> instant replay · hold <kbd>Tab</kbd> scorecard, wagon wheel and run-rate graph · <kbd>C</kbd> camera (batter's
+        view, broadcast, high) · <kbd>Esc</kbd> pause. New to it? Start in the practice nets. Build your own XI (names, kit colours, roles and ratings) in the team builder.
       </p>
       <h2 className="section-title">3D models</h2>
       <p className="muted small">
