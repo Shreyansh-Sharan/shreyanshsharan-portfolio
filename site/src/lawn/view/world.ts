@@ -36,12 +36,17 @@ const std = (key: string, opts: THREE.MeshStandardMaterialParameters) => mat(key
 const TILE: Record<string, number> = { siding: 1.6, brick: 1.4, shingles: 2.2, oak: 2.2, wallpaper: 1.2, tiles: 2.4, grass: 5, asphalt: 7, sidewalk: 2, snow: 6 }
 const texBase = `${import.meta.env.BASE_URL}lawn/textures/`
 const texCache = new Map<string, THREE.Texture>()
+const texPending = new Set<Promise<unknown>>()
 let texLoader: THREE.TextureLoader | null = null
 function tiled(name: keyof typeof TILE | string) {
   let t = texCache.get(name)
   if (!t) {
     texLoader ??= new THREE.TextureLoader()
-    t = texLoader.load(`${texBase}${name}.webp`)
+    let done: (v?: unknown) => void = () => {}
+    const p = new Promise((r) => (done = r))
+    texPending.add(p)
+    p.then(() => texPending.delete(p))
+    t = texLoader.load(`${texBase}${name}.webp`, done, undefined, done)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     t.colorSpace = THREE.SRGBColorSpace
     t.anisotropy = 8
@@ -51,6 +56,11 @@ function tiled(name: keyof typeof TILE | string) {
   }
   return t
 }
+/** Resolves once every tiling texture requested so far has loaded (or failed), so a preview never shows them blank. */
+export function texturesSettled(): Promise<void> {
+  return Promise.all(Array.from(texPending)).then(() => undefined)
+}
+
 const surf = (name: string, tint = '#ffffff', extra: THREE.MeshStandardMaterialParameters = {}) => std(`tex-${name}-${tint}`, { map: tiled(name), color: tint, roughness: 0.92, ...extra })
 
 /** World-space planar UVs (metres) for an axis-aligned mesh placed at `at`. */
@@ -110,14 +120,15 @@ export class World {
   readonly lights: THREE.PointLight[] = []
   shadows: boolean
 
-  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], night: boolean, shadows: boolean) {
+  /** `street: false` builds only the pieces (the lobby's house preview brings its own small lawn). */
+  constructor(assets: LawnAssets, map: MapInfo, theme: MapTheme, houseThemes: [HouseTheme, HouseTheme], night: boolean, shadows: boolean, street = true) {
     this.assets = assets
     this.map = map
     this.theme = theme
     this.houseThemes = houseThemes
     this.night = night
     this.shadows = shadows
-    this.buildGround()
+    if (street) this.buildGround()
   }
 
   /* ---------- ground ---------- */

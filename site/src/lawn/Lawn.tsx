@@ -22,6 +22,8 @@ import { resolveQuality } from './engine/quality'
 import type { Game, Hud } from './engine/game'
 import type { NetSession } from './engine/net'
 import { LawnHud } from './Hud'
+import { Lobby3D } from './Lobby3D'
+import { useLobbyStage, type LobbyHandle } from './lobbyStage'
 import { portrait } from './portraits'
 import { CHARACTER_CREDITS, MODEL_CREDITS } from './credits'
 import './lawn.css'
@@ -113,6 +115,8 @@ function Menu(p: { profile: Profile; assets: LawnAssets | null; pct: number; err
   const lvl = level(profile.xp)
   const lvlPct = Math.round(((profile.xp - xpForLevel(lvl)) / Math.max(1, xpForLevel(lvl + 1) - xpForLevel(lvl))) * 100)
   const jobs = profile.jobs.list
+  // One shared preview canvas for the hero sheet and the house turntable (only one tab shows at a time).
+  const lobby = useLobbyStage(p.assets, profile.settings.quality)
   return (
     <Page onBack={() => navigate('#/home/lawn-wars')} className="racer-page lw-page">
       <header className="page-header lw-hero">
@@ -200,8 +204,8 @@ function Menu(p: { profile: Profile; assets: LawnAssets | null; pct: number; err
               <Zap size={14} /> Controls & settings
             </button>
           </div>
-          {tab === 'heroes' && <HeroPicker profile={profile} onProfile={p.onProfile} />}
-          {tab === 'house' && <HouseScreen profile={profile} onProfile={p.onProfile} />}
+          {tab === 'heroes' && <HeroPicker profile={profile} onProfile={p.onProfile} lobby={lobby} />}
+          {tab === 'house' && <HouseScreen profile={profile} onProfile={p.onProfile} lobby={lobby} />}
           {tab === 'settings' && <SettingsScreen profile={profile} onProfile={p.onProfile} />}
         </section>
       </div>
@@ -213,7 +217,7 @@ function Menu(p: { profile: Profile; assets: LawnAssets | null; pct: number; err
 
 /* ---------- Hero picker + sheet ---------- */
 
-function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void }) {
+function HeroPicker({ profile, onProfile, lobby }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void; lobby: LobbyHandle }) {
   const hero = HEROES[profile.hero]
   const hxp = profile.heroXp[profile.hero] ?? 0
   const hl = heroLevel(hxp)
@@ -244,7 +248,14 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
       </div>
       <div className="lw-herosheet" style={{ ['--lw-accent' as string]: hero.colors[0], ['--lw-trim' as string]: hero.colors[1] }} data-testid="lw-herosheet">
         <div className="lw-sheetportrait">
-          <img src={portrait(profile.hero)} alt={`${hero.name}, the ${hero.role.toLowerCase()}`} />
+          <Lobby3D
+            mode="hero"
+            stage={lobby.stage}
+            spec={{ hero: profile.hero, colour }}
+            className="lw-3d-hero"
+            testId="lw-hero3d"
+            fallback={<img src={portrait(profile.hero)} alt={`${hero.name}, the ${hero.role.toLowerCase()}`} />}
+          />
           <div className="lw-sheetlevel">
             Hero level {hl}
             <i>
@@ -336,8 +347,10 @@ function HeroPicker({ profile, onProfile }: { profile: Profile; onProfile: (p: P
 
 /* ---------- House customisation ---------- */
 
-function HouseScreen({ profile, onProfile }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void }) {
+function HouseScreen({ profile, onProfile, lobby }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void; lobby: LobbyHandle }) {
   const theme = HOUSE_THEMES[profile.house.theme]
+  const [cutaway, setCutaway] = useState(false)
+  const { layout } = profile.house
   const traps = trapsFor(profile, profile.hero)
   const throwKind = throwFor(profile, profile.hero)
   const setTheme = (t: HouseTheme) => onProfile((p) => ({ ...p, house: { ...p.house, theme: t } }))
@@ -355,7 +368,22 @@ function HouseScreen({ profile, onProfile }: { profile: Profile; onProfile: (p: 
   return (
     <div className="lw-house" data-testid="lw-house">
       <div className="lw-housepreview">
-        <HousePreview theme={theme} layout={profile.house.layout} />
+        <Lobby3D
+          mode="house"
+          stage={lobby.stage}
+          spec={{ theme: profile.house.theme, layout, cutaway }}
+          className="lw-3d-house"
+          testId="lw-house3d"
+          fallback={lobby.still ? <HouseStill theme={profile.house.theme} layout={layout} cutaway={cutaway} /> : <HousePreview theme={theme} layout={layout} />}
+        />
+        <div className="lw-houserow">
+          <label className="lw-check lw-cutaway">
+            <input type="checkbox" checked={cutaway} onChange={(e) => setCutaway(e.target.checked)} data-testid="lw-cutaway" /> Cutaway
+          </label>
+          <span className="lw-legend">
+            <i className="lw-dot-ground" /> ground floor <i className="lw-dot-up" /> upstairs
+          </span>
+        </div>
         <p className="muted small">
           {theme.name} · {LAYOUTS[profile.house.layout].name}. Saved in your browser and used in every match you host or play solo.
         </p>
@@ -408,7 +436,15 @@ function HouseScreen({ profile, onProfile }: { profile: Profile; onProfile: (p: 
   )
 }
 
-/** A stylised front elevation of the house in the chosen theme, with the valuables layout as a floor plan. */
+/** The low-graphics preview: a picture of the same 3D house, rendered ahead of time per paint, layout and cutaway. */
+function HouseStill({ theme, layout, cutaway }: { theme: HouseTheme; layout: LayoutId; cutaway: boolean }) {
+  const [bad, setBad] = useState('')
+  const src = `${import.meta.env.BASE_URL}lawn/houses/${theme}-${layout}${cutaway ? '-cut' : ''}.webp`
+  if (bad === src) return <HousePreview theme={HOUSE_THEMES[theme]} layout={layout} />
+  return <img src={src} alt={`${HOUSE_THEMES[theme].name} house, ${LAYOUTS[layout].name} layout`} onError={() => setBad(src)} data-testid="lw-housestill" />
+}
+
+/** A stylised front elevation of the house in the chosen theme, with the valuables layout as a floor plan (shown until the 3D preview is ready). */
 function HousePreview({ theme, layout }: { theme: (typeof HOUSE_THEMES)[HouseTheme]; layout: LayoutId }) {
   const spots: Record<LayoutId, [number, number, number][]> = {
     classic: [[8, 62, 0], [22, 20, 0], [8, 92, 0], [38, 92, 0], [92, 70, 0], [8, 40, 1], [66, 22, 1], [118, 56, 0]],
@@ -417,7 +453,7 @@ function HousePreview({ theme, layout }: { theme: (typeof HOUSE_THEMES)[HouseThe
     garage: [[122, 48, 0], [110, 90, 0], [118, 56, 0], [124, 72, 0], [92, 70, 0], [22, 20, 0], [8, 92, 0], [66, 22, 1]],
   }
   return (
-    <svg viewBox="0 0 150 120" className="lw-housesvg" aria-hidden>
+    <svg viewBox="0 0 150 120" className="lw-housesvg" preserveAspectRatio="xMidYMid slice" aria-hidden>
       <rect x="0" y="0" width="150" height="120" fill="#7ec8ff" />
       <rect x="0" y="98" width="150" height="22" fill="#6cbf3a" />
       <polygon points="10,50 70,18 130,50" fill={theme.roof} />
@@ -438,9 +474,6 @@ function HousePreview({ theme, layout }: { theme: (typeof HOUSE_THEMES)[HouseThe
           </g>
         ))}
       </g>
-      <text x="4" y="114" fontSize="6" fill="#1b2a12" fontWeight="700">
-        ● ground ● upstairs
-      </text>
     </svg>
   )
 }
