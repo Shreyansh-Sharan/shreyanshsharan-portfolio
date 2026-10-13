@@ -614,6 +614,23 @@ export const tiles: Tile[] = [
     activities: [],
   },
   {
+    id: 'neon-siege',
+    tab: 'extras',
+    title: 'NEON SIEGE',
+    tagline: 'Arena Shooter',
+    org: 'Three.js · Deterministic sim · Twin-stick',
+    period: 'Play now',
+    genre: 'Shooter · Online',
+    blurb:
+      'A top-down cyberpunk arena shooter: six heroes with their own blasters and supers, 3v3 Team Takedown and Core Control on three neon maps, and a solo Grid Royale against sixteen bots on a shrinking grid with loot crates. Coins, gear merging, palettes and daily jobs are saved in your browser.',
+    cover: 'siege/keyart.webp',
+    icon: Crosshair,
+    accent: ['#4c1d95', '#f0abfc'],
+    action: { kind: 'route', to: '#/siege', label: 'Play now' },
+    stats: [],
+    activities: [],
+  },
+  {
     id: 'trophies',
     tab: 'extras',
     alsoIn: 'profile',

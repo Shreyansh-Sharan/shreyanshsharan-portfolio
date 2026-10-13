@@ -71,6 +71,13 @@ function previewCards(tile: Tile): Activity[] {
         { title: 'Sabotage', detail: 'Crumb Flick, Table Slam, Milk Splash, Plate Swap, thumbtacks, magnets and Bubble Wrap. Grudges make revenge half price; awards for the Biggest Menace.' },
         { title: 'Online', detail: 'Host a room and share the code: the host runs the physics, friends join peer to peer. Walk round the Loft together between Shows.' },
       ]
+    case 'neon-siege':
+      return [
+        { title: 'Heroes', detail: 'Rook (scattergun, Bulwark Dash), Wren (rail rifle, Sentry Pod), Furnace (flamethrower, Armour Pulse), Flick (SMG, Ghost Cloak), Pike (grenades, Minefield) and Salve (needler, Mend Zone).' },
+        { title: 'Modes', detail: '3v3 Team Takedown (first to 20) and Core Control (hold the centre), plus Grid Royale: you and 16 bots on a bigger map while the neon grid closes in.' },
+        { title: 'Maps', detail: 'Kessho Row (neon street block), Helipad Seven (rooftops), Underpass Nine (subway) and the Sector Grid royale map, all built from a small kit of props with destructible crates.' },
+        { title: 'Online', detail: 'Host a room and share the code; the host runs the match, friends join peer to peer and bots fill the squads.' },
+      ]
     case 'sports-complex':
       return [
         { title: 'F1 circuit', detail: 'Drive through the career, one sector per role.' },

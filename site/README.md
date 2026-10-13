@@ -60,6 +60,32 @@ turn, carries, bat speeds) and three CPU v CPU T10 matches. In the browser, `?sn
 live loop (advance it with `simulate()` / `simulateUntil()`), `?autopilot` lets the CPU play both sides, `?seed=` fixes
 the match, and `#/cricket?auto` starts a quick match straight away.
 
+## NEON SIEGE (Extras)
+
+`#/siege` is a top-down cyberpunk arena shooter written with three.js; the lobby page is `src/siege/Siege.tsx` and
+the game is a lazily loaded chunk under `src/siege/`:
+
+- `engine/sim.ts`: a pure, deterministic simulation on a 2 m grid (movement and grid collision, six weapons, supers,
+  deployables, destructible crates, battle-royale grid and loot, Team Takedown / Core Control / Grid Royale rules,
+  snapshots for the view and the network). `engine/bots.ts` is the bot brain (targeting, range-keeping, strafing,
+  cover when low, chasing, objectives, loot, staying inside the grid, super timing) with a small A* over the grid.
+- `engine/heroes.ts` (Rook, Wren, Furnace, Flick, Pike, Salve), `engine/maps.ts` (ASCII layouts mirrored into the
+  three arenas and the royale map), `engine/progress.ts` (coins, XP, gear cards that merge up four tiers, palettes,
+  daily jobs, all in `localStorage`), `engine/net.ts` (host-authoritative online play on the shared PeerJS transport,
+  bots filling the squads), `engine/audio.ts` (synthesised blasters, hits, supers and a synthwave loop),
+  `engine/input.ts` (WASD + mouse, gamepad, two virtual sticks on touch), `engine/game.ts` (the match runner).
+- `view/`: renderer, follow camera with aim look-ahead and shake, the map builder (instanced walls with neon trims,
+  props from the manifest with procedural stand-ins, holo-ads, decals, the shrinking grid), fighter actors on the
+  CC0 characters, instanced projectiles, pooled particles, floating damage numbers and bloom on the high tier.
+- `public/siege/models/` holds meshopt-compressed GLBs listed in `engine/assets.ts` (drop a file in and add a
+  manifest line); sources and licences are in `public/siege/CREDITS.md`.
+
+`node src/siege/engine/sim.test.ts [matches]` runs bot-only matches of every mode on every map plus a 1v1 hero
+balance sweep, headless. In the browser, `?snap` exposes `window.__siege` without a live loop (advance it with
+`simulate(seconds)`, read `state()`), `?autopilot` lets a bot drive your hero, `?quality=low|medium|high` forces a
+tier, `#/siege?auto=tdm|capture|br&map=kessho|helipad|underpass` starts a match straight away, and `?net=local`
+plays between tabs of one browser.
+
 ## Structure
 
 - `src/components/Background.tsx`: 2D ribbon background (single WebGL fragment shader), used as fallback

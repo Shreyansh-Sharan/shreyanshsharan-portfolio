@@ -1,0 +1,103 @@
+// Gear screen: equip cards, merge two of the same type and rarity into the next tier, buy a chest with coins or
+// watch a rewarded ad for a free one.
+import { useState } from 'react'
+import { Gift, Package, Sparkles } from 'lucide-react'
+import { rewardedAd, adsEnabled, GAME_ADS } from '../lib/ads'
+import { play as uiSound } from '../lib/sound'
+import { CHEST_COST, GEAR_INFO, GEAR_TYPES, MAX_TIER, TIER_COLORS, TIER_NAMES, equip, gearMods, mergeCards, openChest, type GearCard, type Profile } from './engine/progress'
+
+export function GearScreen({ profile, onProfile }: { profile: Profile; onProfile: (p: Profile | ((p: Profile) => Profile)) => void }) {
+  const [sel, setSel] = useState<string | null>(null)
+  const [last, setLast] = useState<GearCard | null>(null)
+  const [adBusy, setAdBusy] = useState(false)
+  const mods = gearMods(profile)
+  const cards = [...profile.gear].sort((a, b) => GEAR_TYPES.indexOf(a.type) - GEAR_TYPES.indexOf(b.type) || b.tier - a.tier)
+  const selCard = sel ? profile.gear.find((g) => g.id === sel) : null
+  const canMergeWith = (c: GearCard) => !!selCard && selCard.id !== c.id && selCard.type === c.type && selCard.tier === c.tier && c.tier < MAX_TIER
+  const click = (c: GearCard) => {
+    if (selCard && canMergeWith(c)) {
+      onProfile((p) => mergeCards(p, selCard.id, c.id) ?? p)
+      uiSound('select')
+      setSel(null)
+      return
+    }
+    setSel(sel === c.id ? null : c.id)
+  }
+  const chest = (free: boolean) => {
+    onProfile((p) => {
+      const r = openChest(p, free)
+      if (!r) return p
+      setLast(r.card)
+      return r.profile
+    })
+    uiSound('select')
+  }
+  const freeChest = () => {
+    setAdBusy(true)
+    rewardedAd('siege-chest', {
+      granted: (ok) => {
+        setAdBusy(false)
+        if (ok || !adsEnabled() || !GAME_ADS) chest(true)
+      },
+    })
+  }
+  return (
+    <div className="sg-gear" data-testid="sg-gear">
+      <p className="muted small">
+        Equip one card per slot. Tap two cards of the same type and rarity to merge them. Current loadout: HP ×{mods.hp.toFixed(2)}, speed ×{mods.speed.toFixed(2)}, damage ×
+        {mods.dmg.toFixed(2)}, super charge ×{mods.charge.toFixed(2)}.
+      </p>
+      <div className="sg-slots">
+        {GEAR_TYPES.map((t) => {
+          const id = profile.equipped[t]
+          const c = id ? profile.gear.find((g) => g.id === id) : null
+          return (
+            <div key={t} className="sg-slot" style={{ ['--sg-tier' as string]: c ? TIER_COLORS[c.tier] : '#444' }}>
+              <span>{GEAR_INFO[t].name}</span>
+              <strong>{c ? `${TIER_NAMES[c.tier]} · +${Math.round(GEAR_INFO[t].perTier * c.tier * 100)}% ${GEAR_INFO[t].stat}` : 'empty'}</strong>
+            </div>
+          )
+        })}
+      </div>
+      <div className="sg-cards">
+        {cards.map((c) => (
+          <button
+            key={c.id}
+            className={`sg-card ${sel === c.id ? 'is-sel' : ''} ${canMergeWith(c) ? 'is-mergeable' : ''} ${profile.equipped[c.type] === c.id ? 'is-equipped' : ''}`}
+            style={{ ['--sg-tier' as string]: TIER_COLORS[c.tier] }}
+            onClick={() => click(c)}
+            data-testid={`sg-card-${c.type}-${c.tier}`}
+          >
+            <strong>{GEAR_INFO[c.type].name}</strong>
+            <span>{TIER_NAMES[c.tier]}</span>
+            <em>+{Math.round(GEAR_INFO[c.type].perTier * c.tier * 100)}% {GEAR_INFO[c.type].stat}</em>
+            {profile.equipped[c.type] === c.id && <small>EQUIPPED</small>}
+          </button>
+        ))}
+        {!cards.length && <p className="muted small">No cards yet. Open a chest.</p>}
+      </div>
+      {selCard && (
+        <div className="sg-online">
+          <button className="btn" onClick={() => onProfile((p) => equip(p, selCard.id))} data-testid="sg-equip">
+            {profile.equipped[selCard.type] === selCard.id ? 'Unequip' : 'Equip'} {GEAR_INFO[selCard.type].name}
+          </button>
+          <span className="muted small">{selCard.tier < MAX_TIER ? `Tap another ${TIER_NAMES[selCard.tier]} ${GEAR_INFO[selCard.type].name} to merge.` : 'Max rarity.'}</span>
+        </div>
+      )}
+      <h3 className="sg-sub">Chests</h3>
+      <div className="sg-online">
+        <button className="btn" disabled={profile.coins < CHEST_COST} onClick={() => chest(false)} data-testid="sg-chest">
+          <Package size={16} /> Open a chest · {CHEST_COST} coins
+        </button>
+        <button className="btn" disabled={adBusy} onClick={freeChest} data-testid="sg-chest-ad">
+          <Gift size={16} /> {adsEnabled() && GAME_ADS ? 'Watch an ad for a free chest' : 'Free chest'}
+        </button>
+      </div>
+      {last && (
+        <p className="sg-drop" style={{ color: TIER_COLORS[last.tier] }}>
+          <Sparkles size={14} /> {TIER_NAMES[last.tier]} {GEAR_INFO[last.type].name} dropped.
+        </p>
+      )}
+    </div>
+  )
+}
