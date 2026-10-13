@@ -169,8 +169,9 @@ export class Bot {
     let best: Piece | null = null
     let bestScore = -1
     for (const v of targets) {
-      const d = Math.hypot(v.x - p.x, v.z - p.z) + Math.abs(v.y - p.y) * 3
-      const s = v.value / (10 + d) + ((v.id + p.id) % 3) * 0.5
+      const d = Math.hypot(v.x - p.x, v.z - p.z) + Math.abs(v.y - p.y) * 1.5
+      // Odd ids lean towards the upstairs loot, so the household splits across both floors.
+      const s = (v.value / (10 + d)) * (v.floor >= 1 && p.id % 2 === 1 ? 1.5 : 1) + ((v.id + p.id) % 3) * 0.5
       if (s > bestScore) {
         bestScore = s
         best = v
@@ -178,7 +179,7 @@ export class Bot {
     }
     if (best) {
       // Upstairs targets: a ladder to the balcony skips the barricades (some of the time).
-      if (best.floor >= 1 && p.ladders > 0 && this.ladderTried < 1 && sim.rng.chance(0.45) && sim.houseAt(p.x, p.z) !== 1 - p.team) {
+      if (best.floor >= 1 && p.ladders > 0 && this.ladderTried < 2 && sim.rng.chance(0.6) && sim.houseAt(p.x, p.z) !== 1 - p.team) {
         this.task = { kind: 'ladder', house: enemyHouse }
         this.path = null
         return
@@ -394,13 +395,20 @@ export class Bot {
 
   private doLadder(house: HouseInfo) {
     const s = house.ladderSpot
+    // A team-mate already leaned one here: use it instead of stacking another.
+    if (this.sim.ladders.some((l) => l.alive && Math.hypot(l.x - s.x, l.z - s.z) < 3 && l.y < 1)) {
+      this.task = { kind: 'idle' }
+      this.ladderTried++
+      this.path = null
+      return
+    }
     const d = this.goTo(s.x, 0, s.z)
     if (d < 0) {
       this.task = { kind: 'idle' }
       this.ladderTried++
       return
     }
-    if (d < 1.0) {
+    if (d < 0.6) {
       this.wantYaw = s.yaw
       this.wantPitch = 0.2
       if (Math.abs(angleDiff(this.inp.yaw, s.yaw)) < 0.15) {

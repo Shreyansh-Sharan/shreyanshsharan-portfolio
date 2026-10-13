@@ -1571,7 +1571,12 @@ export class Sim {
   private placeLadder(p: Player) {
     const sy = Math.sin(p.yaw)
     const cy = Math.cos(p.yaw)
-    const r = this.raycast(p.x, p.y + p.hero.eye, p.z, sy, 0, cy, 3.2, (q) => q.alive && q.solid && (q.kind === 'wall' || q.kind === 'window' || q.kind === 'rail' || q.kind === 'garage' || q.kind === 'door'))
+    const wallish = (q: Piece) => q.alive && q.solid && (q.kind === 'wall' || q.kind === 'window' || q.kind === 'rail' || q.kind === 'garage' || q.kind === 'door')
+    // Eye-height ray first; when that panel has already been smashed open, lean on the storey above instead
+    // (upper wall, balcony slab edge or parapet).
+    const r =
+      this.raycast(p.x, p.y + p.hero.eye, p.z, sy, 0, cy, 4.0, wallish) ??
+      this.raycast(p.x, p.y + 3.6, p.z, sy, 0, cy, 4.0, (q) => wallish(q) || (q.alive && q.solid && (q.kind === 'slab' || q.kind === 'roof')))
     if (!r) return false
     const q = r.piece
     // Which way does the wall face? Use the hit normal.
