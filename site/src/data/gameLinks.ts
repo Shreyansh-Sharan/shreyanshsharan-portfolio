@@ -18,6 +18,7 @@ export const GAME_LINKS: Record<string, string> = {
   'plush-panic': sub('plush-panic'),
   'neon-siege': sub('neon-siege'),
   'sports-complex': sub('sports'),
+  'lawn-wars': sub('lawn-wars'),
 }
 
 /** In-repo route name → tile id, so deep links (`#/racer`) can be redirected too. */
@@ -29,6 +30,7 @@ export const ROUTE_TILE: Record<string, string> = {
   plush: 'plush-panic',
   siege: 'neon-siege',
   sports: 'sports-complex',
+  lawn: 'lawn-wars',
 }
 
 /** The external URL for a tile when the games have moved out, else undefined (use the in-repo route). */

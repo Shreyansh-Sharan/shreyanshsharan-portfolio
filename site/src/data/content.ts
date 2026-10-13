@@ -23,6 +23,7 @@ import {
   Boxes,
   ShieldCheck,
   Workflow,
+  Hammer,
 } from 'lucide-react'
 
 export const profile = {
@@ -627,6 +628,23 @@ export const tiles: Tile[] = [
     icon: Crosshair,
     accent: ['#4c1d95', '#f0abfc'],
     action: { kind: 'route', to: '#/siege', label: 'Play now' },
+    stats: [],
+    activities: [],
+  },
+  {
+    id: 'lawn-wars',
+    tab: 'extras',
+    title: 'LAWN WARS',
+    tagline: 'Family Brawler',
+    org: 'Three.js · First-person · Destructible houses',
+    period: 'Play now',
+    genre: 'Brawler · Online',
+    blurb:
+      'A first-person 4v4 family-vs-family suburban brawler: sixty seconds to barricade doors and lay traps, then eight minutes to raid the rival house with garden tools and thrown junk, breaking their tagged valuables for points. Six original heroes with ultimates, ladders to the balcony, two streets (a sunny cul-de-sac and a snowy motor lodge) by day or night, Brawl and a co-op Robot Invasion. Coins, hero levels, perks and house customisation are saved in your browser.',
+    cover: 'lawn/keyart.webp',
+    icon: Hammer,
+    accent: ['#2f7d32', '#ffd93b'],
+    action: { kind: 'route', to: '#/lawn', label: 'Play now' },
     stats: [],
     activities: [],
   },

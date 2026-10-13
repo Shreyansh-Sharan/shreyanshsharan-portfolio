@@ -70,6 +70,16 @@ const GAMES = {
     publicDirs: ['siege'],
     extraDocs: {},
   },
+  lawn: {
+    repo: 'lawn-wars',
+    title: 'LAWN WARS',
+    tile: 'lawn-wars',
+    route: 'lawn',
+    entry: 'lawn/Lawn.tsx',
+    component: 'Lawn',
+    publicDirs: ['lawn'],
+    extraDocs: {},
+  },
   golf: {
     repo: 'bogey-brawl',
     title: 'BOGEY BRAWL',

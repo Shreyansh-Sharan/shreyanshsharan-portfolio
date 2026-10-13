@@ -86,6 +86,44 @@ balance sweep, headless. In the browser, `?snap` exposes `window.__siege` withou
 tier, `#/siege?auto=tdm|capture|br&map=kessho|helipad|underpass` starts a match straight away, and `?net=local`
 plays between tabs of one browser.
 
+## LAWN WARS (Extras)
+
+`#/lawn` is a first-person 4v4 family-vs-family suburban brawler written with three.js; the page is
+`src/lawn/Lawn.tsx` (modes, streets, the hero picker with hero sheets, the house customisation screen, daily jobs,
+settings, online rooms, credits) and the game is a lazily loaded chunk under `src/lawn/`:
+
+- `engine/sim.ts`: a pure, deterministic 60 Hz simulation. Axis-aligned box collision with step-up (stairs are
+  steps), ladders you lean on walls and climb to balconies and roof decks, light/heavy melee with wind-up,
+  blocking and parries, stamina, thrown junk with splashes, six traps, zones, hero ultimates (cookie tray, leaf
+  blower, RC car bomb, tow truck, ride-on mower, zoomies), chaos events (seagulls, ice-cream truck, rain), KO and
+  respawn, and the three modes: Destruction (prep phase then raid; only tagged valuables score), Brawl and Robot
+  Invasion (waves of garden robots). `engine/pieces.ts` is the piece/box model and spatial hash.
+- `engine/houses.ts`: the modular house kit (2 m wall panels with hit points and chip states, doors with
+  barricade layers and a dog flap, windows, stairs, slabs, balcony, roof deck with parapet, attic, attached garage,
+  furniture and the valuables layout presets). `engine/maps.ts`: the Sunny Cul-de-Sac and Snowline Motor Lodge
+  streets with their props, day/night themes and spawns.
+- `engine/nav.ts` + `engine/bots.ts`: a three-layer 0.5 m nav grid (ground, upper floor, roof) with stair,
+  ladder and drop links, breakable pieces as costed obstacles, and the bot brain (barricading, trap placement,
+  raiding, defending, fighting with blocks and throws, ladders to the balcony, ultimates) plus the robot brain.
+- `engine/heroes.ts` (Nana Pearl, Daddo, Pip, Margot Vance, Walt, Biscuit), `engine/gear.ts` (throwables,
+  traps, tools, valuables), `engine/progress.ts` (coins, XP, hero levels and perks, cosmetic colours, chests,
+  daily jobs, house customisation, all in `localStorage`), `engine/net.ts` (host-authoritative online play on the
+  shared PeerJS transport, bots filling the households), `engine/audio.ts` (synthesised cartoon SFX and a ukulele
+  loop), `engine/input.ts` (pointer-lock mouse + WASD, gamepad, touch sticks), `engine/game.ts` (the runner).
+- `view/`: renderer with first-person camera (bob, shake, hit-stop, KO tumble), the world builder (procedural
+  siding/shingle/plank textures, crack overlays, barricade planks, fracture chunks), characters built from the
+  Quaternius bodies with vertex-painted outfits, hairstyles, accessories and library clips, the first-person
+  forearms (the same skinned body filtered to its arm triangles), particles, decals, floating numbers and weather.
+- `public/lawn/models/` holds meshopt-compressed GLBs listed in `engine/assets.ts`; sources and licences are in
+  `public/lawn/CREDITS.md` and in the in-game credits panel.
+
+`node src/lawn/engine/sim.test.ts [matches]` runs bot-only matches of every mode on both streets plus a 1v1
+melee sweep, headless. In the browser, `?snap` exposes `window.__lawn` without a live loop (advance it with
+`simulate(seconds)`, read `state()`, `renderOnce()`, `setLook()`), `?autopilot` lets a bot drive your hero,
+`?quality=low|medium|high` forces a tier, `?seed=` and `?lineup=` fix the match,
+`#/lawn?auto=destruction|brawl|robots&map=culdesac|snowline` (plus `?time=night`) starts a match straight away,
+and `?net=local` plays between tabs of one browser.
+
 ## Structure
 
 - `src/components/Background.tsx`: 2D ribbon background (single WebGL fragment shader), used as fallback
@@ -107,7 +145,7 @@ overlay stays at least 600 ms, fades out, and shows a static logo + bar under `p
 
 ## Games as their own sites
 
-Each game can move to its own repository. `node ../scripts/split-game.mjs <racer|cricket|plush|siege|golf|sports|arena|all>`
+Each game can move to its own repository. `node ../scripts/split-game.mjs <racer|cricket|plush|siege|golf|sports|arena|lawn|all>`
 writes a standalone Vite + React app under `../games-split/<repo>/` (sources resolved from the game's entry, the CSS
 it uses, its public assets, a pruned `package.json`, Pages workflow, `vercel.json`, README and DEPLOY.md) and makes
 an initial commit. `src/data/gameLinks.ts` maps each game to its external URL; set `GAMES_EXTERNAL = true` once the
