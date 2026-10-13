@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { buildTerrain } from './terrain'
 import { Landmarks, Scatters, streamState } from './Models'
 import { Vegetation } from './Vegetation'
-import { Lighting, SkyClouds, SkyDome, Water } from './Environment'
+import { GroundFog, Lighting, SkyClouds, SkyDome, Water } from './Environment'
 import { Ambient } from './Ambient'
 import { Guide, Player, flyPose, player, spawnPlayer } from './Characters'
 import { animals } from './wildlife'
@@ -24,6 +24,11 @@ import { closeMinigame, completeMinigame, GAMES, gameState, photo, pressKey, sta
 import { dayClock } from './clock'
 import { heightAt } from './terrain'
 import { controls } from './controls'
+import { Exhibits } from './Exhibits'
+import { Vehicles } from './Vehicle'
+import { car, enterCar, exitCar, sail, ship, board, disembark } from './rides'
+import { exhibits } from './exhibits'
+import { nearestInteraction } from './interact'
 import { PlayerFx } from './PlayerFx'
 import { CameraRig } from './CameraRig'
 import { world, useWorld } from './store'
@@ -245,6 +250,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
             chance: (id: number) => captureChance(creatures[id]),
             roster, bestiary, setActive, ride: () => toggleRide(player), dismount, mount: () => ride.pal,
             clock: dayClock, photo, store: world, heightAt, controls, streamState,
+            car, enterCar, exitCar: () => exitCar(player), ship, sail, board, disembark: () => disembark(player), exhibits, interact: () => nearestInteraction(player.pos.x, player.pos.z, player),
             place: (x: number, z: number) => {
               player.pos.set(x, heightAt(x, z), z)
               player.beacon = { x, z }
@@ -271,6 +277,7 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
       <Lighting shadows={heavy} live={playing} />
       <Terrain segments={heavy ? 330 : 210} />
       <Water />
+      {playing && <GroundFog />}
       <Suspense fallback={null}>
         <SkyClouds count={heavy ? 8 : 6} />
       </Suspense>
@@ -281,6 +288,8 @@ export default function WorldCanvas({ mode, paused = false, onReady }: { mode: S
         <Ambient />
         <Guide />
         {playing && <Player />}
+        <Exhibits />
+        <Vehicles />
         <Animals casting={playing} />
         {playing && <SpellFx />}
         {playing && <Enemies />}

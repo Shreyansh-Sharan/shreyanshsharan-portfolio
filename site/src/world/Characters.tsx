@@ -18,6 +18,7 @@ import { gameDt, hitEnemies, impact, nearestEnemy, newSwing, stepCombat, type Hi
 import { emit, SHAPE, type Emit } from './particles'
 import { MISSIONS, INTERACT_DISTANCE } from './missions'
 import { lastCast } from './spells'
+import { car, DECK, exitCar, inTransit, ship } from './rides'
 import { world } from './store'
 
 /** Shared player state, read by the camera rig. */
@@ -387,6 +388,44 @@ export function Player() {
       controls.attack = controls.jump = controls.spin = controls.fly = controls.throw = controls.ride = false
       return
     }
+    if (car.eject) {
+      car.eject = false
+      exitCar(player)
+    }
+    // In the car or on the airship: the body goes where the vehicle goes (hidden inside the car).
+    if (inTransit()) {
+      if (car.driving) {
+        player.pos.copy(car.pos)
+        player.yaw = car.yaw
+        g.visible = false
+      } else {
+        player.pos.set(ship.pos.x, ship.pos.y + DECK, ship.pos.z)
+        player.yaw = ship.yaw
+        g.visible = true
+        g.position.copy(player.pos)
+        g.rotation.y = player.yaw
+        fadeTo('idle')
+      }
+      s.flying = false
+      s.grounded = true
+      s.vy = 0
+      s.move = null
+      player.speed = car.driving ? Math.abs(car.speed) : 0
+      player.flying = false
+      player.fly = 0
+      player.ground = player.pos.y
+      controls.jump = controls.fly = controls.attack = controls.spin = controls.throw = controls.ride = false
+      stepCombat(dt, raw, player)
+      stepCreatures(dt, player)
+      stepMinigames(dt, player)
+      if (s.near) {
+        s.near = null
+        world.set({ near: null })
+      }
+      world.setPlayer({ x: player.pos.x, z: player.pos.z, heading: player.camYaw })
+      return
+    }
+    g.visible = true
     // The ride: on and off a pal, with the mount's speeds (a flyer replaces the double-tap flight).
     if (controls.ride) {
       controls.ride = false

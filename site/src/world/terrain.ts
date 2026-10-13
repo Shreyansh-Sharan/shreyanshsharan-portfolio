@@ -215,9 +215,9 @@ export function heightAt(x: number, z: number) {
 const C = (hex: string) => new THREE.Color(hex)
 const PAL = {
   grassA: C('#5d9a3c'), grassB: C('#86b44f'), rock: C('#8d867c'), rockDark: C('#6f6a62'), sand: C('#e6cf98'), seabed: C('#8a7a5a'),
-  stone: C('#d3cab8'), stoneDark: C('#bdb39f'), asphalt: C('#222737'), asphaltB: C('#2c3246'), road: C('#2f3138'), roadLine: C('#e4c35a'), kerb: C('#9c968a'),
+  stone: C('#b9b0a0'), stoneDark: C('#a39a8a'), asphalt: C('#222737'), asphaltB: C('#2c3246'), road: C('#2f3138'), roadLine: C('#e4c35a'), kerb: C('#9c968a'),
   heather: C('#8b6aa6'), hlA: C('#4c8a39'), hlB: C('#76a64a'), snow: C('#f1f4f8'), moss: C('#4f7f3a'), sandDark: C('#c9ad78'),
-  autumnA: C('#9aa04a'), autumnB: C('#c08a3d'), plaza: C('#2b2a3a'), plazaB: C('#3a3650'), lush: C('#3fae5c'), concrete: C('#a8a7a3'), concreteB: C('#8f8e8a'),
+  autumnA: C('#9aa04a'), autumnB: C('#c08a3d'), plaza: C('#6b6878'), plazaB: C('#7d7890'), lush: C('#3fae5c'), concrete: C('#a8a7a3'), concreteB: C('#8f8e8a'),
   canyon: [C('#9b3f27'), C('#c45f30'), C('#dd8b4f'), C('#ebb47e')], river: C('#5f8f7c'), keepGrass: C('#5f8e45'), keepRock: C('#7a7570'),
   fields: [C('#d9c35a'), C('#8db24d'), C('#a07a4a'), C('#c7d26a'), C('#b8a04e')], pitch: C('#3f9a3c'),
 }
@@ -230,7 +230,7 @@ function biomeColor(b: Biome, r: Region, x: number, z: number, h: number, flat: 
   const d = Math.hypot(x - r.center[0], z - r.center[1])
   switch (b) {
     case 'harbour': {
-      if (d < 40) return out.copy(((Math.floor(x / 2.5) + Math.floor(z / 2.5)) & 1) ? PAL.stone : PAL.stoneDark)
+      if (d < 32) return out.copy(((Math.floor(x / 2.5) + Math.floor(z / 2.5)) & 1) ? PAL.stone : PAL.stoneDark)
       return out.copy(PAL.grassA).lerp(PAL.grassB, v)
     }
     case 'arcade': {

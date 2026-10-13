@@ -11,6 +11,7 @@ import { feel } from './combat'
 import { blocked } from './colliders'
 import { photo } from './minigames'
 import { ride, saddleHeight } from './creatures'
+import { car, ship } from './rides'
 
 // `?snap` jumps the camera instantly (handy for screenshots and slow machines).
 const SNAP = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('snap')
@@ -79,7 +80,7 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       }
       // Pull back a little (and widen the lens) as flight speeds up.
       const mount = ride.pal
-      const dist = 7.5 + player.fly * 3.5 + (mount ? mount.size * 1.5 : 0)
+      const dist = 7.5 + player.fly * 3.5 + (mount ? mount.size * 1.5 : 0) + (car.driving ? 4 + Math.abs(car.speed) * 0.1 : 0) + (ship.aboard ? 14 : 0)
       tmpTarget.set(player.pos.x, player.pos.y + 1.6 + (mount ? saddleHeight(mount) : 0), player.pos.z)
       tmpPos.set(
         tmpTarget.x + Math.sin(player.camYaw) * Math.cos(player.camPitch) * dist,

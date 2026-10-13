@@ -4,7 +4,7 @@
 // asks it what the player may do, PlayHud.tsx shows the prompts, timers and end cards. Every game can be
 // started, stepped and finished from the `?snap` hook (`window.__world.minigame`).
 import * as THREE from 'three'
-import { REGIONS, WATER_LEVEL } from './regions'
+import { REGIONS, ROADS, WATER_LEVEL } from './regions'
 import { heightAt, mulberry32 } from './terrain'
 import { blocked, boxCollider, setExtraColliders } from './colliders'
 import { neonBlocks } from './layout'
@@ -12,9 +12,10 @@ import { MISSIONS } from './missions'
 import { confetti, freeze, impact, results } from './combat'
 import { creatures, roster } from './creatures'
 import { world, type MinigameHud } from './store'
+import { car, enterCar, exitCar } from './rides'
 import { play } from '../lib/sound'
 
-export type GameId = 'fishing' | 'herding' | 'parkour' | 'treasure' | 'photo' | 'delivery' | 'range' | 'rings'
+export type GameId = 'fishing' | 'herding' | 'parkour' | 'treasure' | 'photo' | 'delivery' | 'range' | 'rings' | 'street'
 
 export interface GameDef {
   id: GameId
@@ -87,6 +88,7 @@ export function GAMES(): GameDef[] {
   const d = clear(...at('speedway', 44, 40))
   const r = clear(...at('highland', -20, 16))
   const fr = clear(...at('highland', 24, -14))
+  const st = clear(...at('neon', 74, 16), 2.5)
   defs = [
     { id: 'fishing', name: 'Harbour Fishing', icon: '🎣', x: f[0], z: f[1], region: 'hub', blurb: 'Cast from the pier, hook what bites, and reel in three fish. Six species swim here; one of them is rare.', controls: 'Space casts when the bar is in the green · Space again to hook a bite · A / D alternately to reel', coins: 20, trophy: false, limit: 0 },
     { id: 'herding', name: 'Sheep Herding', icon: '🐑', x: h[0], z: h[1], region: 'highland', blurb: 'Eight sheep have wandered off. Walk up behind them (your pals help) and drive all eight into the pen before the clock runs out.', controls: 'Walk towards sheep to push them · pals push too · 90 s', coins: 40, trophy: false, limit: 90 },
@@ -96,6 +98,7 @@ export function GAMES(): GameDef[] {
     { id: 'delivery', name: 'Drone Delivery', icon: '📦', x: d[0], z: d[1], region: 'speedway', blurb: 'Three parcels, three districts. Grab one from the depot, fly it to its pad, come back for the next. The clock runs the whole time.', controls: 'Walk over a parcel to pick it up · double-tap Space to fly · land on the glowing pad', coins: 50, trophy: false, limit: 0 },
     { id: 'range', name: 'Target Range', icon: '🎯', x: r[0], z: r[1], region: 'highland', blurb: 'Ten bottles on the barrels. Zap them all with your spells as fast as you can.', controls: 'F (or right click) zaps the bottle you face', coins: 35, trophy: false, limit: 0 },
     { id: 'rings', name: 'Highland Rings', icon: '💫', x: fr[0], z: fr[1], region: 'highland', blurb: 'Fifteen rings hang over the highlands. Fly through all of them against the clock.', controls: 'Double-tap Space to fly · Space / C for up and down · Shift to boost', coins: 55, trophy: false, limit: 0 },
+    { id: 'street', name: 'Street Time-Trial', icon: '🏎️', x: st[0], z: st[1], region: 'neon', blurb: 'The car is waiting. Out along the city road to the stadium turn and back through every gate, against the clock.', controls: 'W / S throttle and brake · A / D steer · Space handbrake · E gets out (and gives up)', coins: 50, trophy: false, limit: 0 },
   ]
   return defs
 }
@@ -249,6 +252,9 @@ export function startMinigame(id: GameId, p: { pos: THREE.Vector3; stomp: { n: n
       break
     case 'rings':
       setupRings(g, def)
+      break
+    case 'street':
+      setupStreet(g, def)
       break
   }
   game = g
@@ -434,6 +440,7 @@ export function finishMinigame(won: boolean, note = '') {
 }
 
 export function closeMinigame() {
+  if (game?.id === 'street' && car.driving) exitCar()
   if (game && !game.over) finishMinigame(false, 'Abandoned')
   if (game?.id === 'parkour') setExtraColliders('parkour', [])
   game = null
@@ -495,6 +502,10 @@ function publish(result: MinigameHud['result'] = null) {
       progress = `${g.n}/${g.total} rings`
       hint = 'Fly through the glowing ring'
       break
+    case 'street':
+      progress = `${g.n}/${g.total} gates`
+      hint = `${Math.round(Math.abs(car.speed) * 3.6)} km/h · drive through the glowing gate`
+      break
   }
   world.set({ minigame: { id: g.id, name: g.def.name, t: g.t, progress, hint, meter, result } })
 }
@@ -530,7 +541,10 @@ export function stepMinigames(dt: number, p: Runner) {
       break
     case 'parkour':
     case 'rings':
+    case 'street':
       stepRings(g, p)
+      // Getting out of the car gives the trial up.
+      if (!car.driving) finishMinigame(false, 'Out of the car')
       break
     case 'treasure':
       if (!g.dug && p.stomp.n !== g.stompN) {
@@ -762,14 +776,41 @@ function stepRings(g: Game, p: Runner) {
   if (!next) return
   const dy = p.pos.y + 0.9 - next.y
   const d = Math.hypot(p.pos.x - next.x, p.pos.z - next.z)
-  const reach = g.id === 'parkour' ? 2.2 : 3.2
+  const reach = g.id === 'parkour' ? 2.2 : g.id === 'street' ? 5 : 3.2
   if (d < reach && Math.abs(dy) < reach) {
     next.passed = true
     g.n++
     confetti(next.x, next.y, next.z, 0.5)
     play('select')
     publish()
-    if (g.n >= g.total) finishMinigame(true, g.id === 'parkour' ? 'Rooftops cleared' : 'Every ring')
+    if (g.n >= g.total) finishMinigame(true, g.id === 'parkour' ? 'Rooftops cleared' : g.id === 'street' ? 'Across the line' : 'Every ring')
+  }
+}
+
+/* ---------- Street time-trial ---------- */
+
+/** Gates every 22 m along the city road out to the stadium turn and back; the car is brought to the start. */
+function setupStreet(g: Game, def: GameDef) {
+  const road = ROADS[ROADS.length - 1]
+  const pts: [number, number][] = []
+  for (let i = 0; i + 1 < road.length; i++) {
+    const [ax, az] = road[i], [bx, bz] = road[i + 1]
+    const len = Math.hypot(bx - ax, bz - az)
+    for (let d = i === 0 ? 0 : 22; d < len; d += 22) pts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len])
+  }
+  pts.push(road[road.length - 1])
+  const out = [...pts, ...pts.slice(0, -1).reverse()]
+  g.rings = out.map(([x, z], i) => {
+    const n = out[Math.min(i + 1, out.length - 1)]
+    return { x, y: heightAt(x, z) + 1.4, z, yaw: Math.atan2(n[0] - x, n[1] - z), passed: false }
+  })
+  // Finish back at the start.
+  g.rings.push({ x: def.x, y: heightAt(def.x, def.z) + 1.4, z: def.z, yaw: 0, passed: false })
+  g.total = g.rings.length
+  if (!car.driving) {
+    car.pos.set(def.x, heightAt(def.x, def.z), def.z)
+    car.yaw = Math.atan2(g.rings[0].x - def.x, g.rings[0].z - def.z)
+    enterCar()
   }
 }
 

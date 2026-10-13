@@ -30,10 +30,16 @@ export interface WorldState {
   minigame: MinigameHud | null
   /** Photo mode (P): time frozen, free orbit. */
   photo: boolean
-  /** The HUD panel open over the world ('pals' = roster, bestiary and Palbox). */
-  panel: 'none' | 'pals'
+  /** The HUD panel open over the world ('pals' = roster, bestiary and Palbox; 'hub' = the arcade's game tiles). */
+  panel: 'none' | 'pals' | 'hub' | 'credits' | 'airship'
   /** Bumped whenever the pal roster or the bestiary changes. */
   palsN: number
+  /** The exhibit being read (a plaque, a board, a trophy), or null. */
+  exhibit: { title: string; subtitle?: string; lines: string[]; accent: string } | null
+  /** Tile the arcade opens on (a cabinet was used). */
+  hubTile: string | null
+  /** What fills the tab: the island, or the sports complex entered through the stadium gate. */
+  scene: 'world' | 'sports'
 }
 
 export interface MinigameHud {
@@ -76,6 +82,9 @@ let state: WorldState = {
   photo: false,
   panel: 'none',
   palsN: 0,
+  exhibit: null,
+  hubTile: null,
+  scene: 'world',
 }
 
 const listeners = new Set<() => void>()

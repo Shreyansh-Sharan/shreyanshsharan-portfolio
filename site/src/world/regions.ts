@@ -221,8 +221,6 @@ export const REGIONS: Region[] = [
       { model: 'portal', at: [0, -40], height: 9, pad: 7 },
       { model: 'signpost', at: [14, 2], height: 3.2, rot: -30, pad: 3 },
       { model: 'trophy', at: [-8, 6], height: 3.4, pad: 3, anim: 'spin' },
-      { model: 'airship', at: [66, -36], height: 15, rot: 60, lift: 22, ghost: true, foot: [16, 50] },
-      { model: 'car', at: [18, 22], height: 1.4, rot: 200, ghost: true },
     ],
     scatter: [
       { model: 'tree-oak', count: 20, height: [7, 10], radius: 80 },
@@ -320,19 +318,21 @@ export const REGIONS: Region[] = [
     radius: 95,
     accent: '#f97316',
     landmarks: [
-      { model: 'icon-arena', at: [0, -10], height: 30, rot: 0, pad: 70, set: true, foot: [120, 120] },
-      { model: 'stadium-seats', at: [-74, 30], height: 16, rot: 90, pad: 8, set: true, foot: [51, 12] },
-      { model: 'podium', at: [0, 62], height: 4, rot: 90, pad: 5 },
-      { model: 'metro-headhouse', at: [-24, 74], height: 5, rot: 180, pad: 5 },
-      { model: 'transit-shelter', at: [26, 76], height: 3.4, rot: 180, pad: 4 },
-      { model: 'led-streetlight', at: [-12, 84], height: 7, pad: 1 },
-      { model: 'led-streetlight', at: [12, 84], height: 7, pad: 1 },
-      { model: 'security-bollard', at: [-6, 70], height: 1, pad: 1 },
-      { model: 'security-bollard', at: [6, 70], height: 1, pad: 1 },
-      { model: 'box-truck', at: [40, 60], height: 3, rot: 40, pad: 3 },
+      { model: 'icon-arena', at: [0, -34], height: 30, rot: 0, pad: 70, set: true, foot: [120, 120] },
+      { model: 'stadium-seats', at: [-70, 50], height: 16, rot: 90, pad: 8, set: true, foot: [51, 12] },
+      { model: 'podium', at: [30, 60], height: 4, rot: 90, pad: 5 },
+      { model: 'metro-headhouse', at: [-26, 62], height: 5, rot: 180, pad: 5 },
+      { model: 'transit-shelter', at: [26, 70], height: 3.4, rot: 180, pad: 4 },
+      { model: 'led-streetlight', at: [-12, 48], height: 7, pad: 1 },
+      { model: 'led-streetlight', at: [12, 48], height: 7, pad: 1 },
+      { model: 'led-streetlight', at: [-12, 72], height: 7, pad: 1 },
+      { model: 'led-streetlight', at: [12, 72], height: 7, pad: 1 },
+      { model: 'security-bollard', at: [-7, 40], height: 1, pad: 1 },
+      { model: 'security-bollard', at: [7, 40], height: 1, pad: 1 },
+      { model: 'box-truck', at: [44, 44], height: 3, rot: 40, pad: 3 },
     ],
     scatter: [{ model: 'tree-poplar', count: 14, height: [9, 12], radius: 90 }],
-    beacon: [0, 72],
+    beacon: [0, 80],
     orbit: { radius: 130, height: 50 },
     stream: 230,
     mood: { sun: '#fff1d6', sky: '#cfe3ff', fog: '#bfd3ea', haze: 0.9, light: 1.05 },
@@ -349,7 +349,7 @@ export const REGIONS: Region[] = [
     accent: '#fb7185',
     landmarks: [
       ...bailey(0, -10, 96, 72),
-      { model: 'khotyn-fortress', at: [0, -14], height: 19, rot: 0, pad: 46, set: true, foot: [78, 57], lift: -3.5 },
+      { model: 'khotyn-fortress', at: [0, -14], height: 14, rot: 0, pad: 36, set: true, foot: [57, 42], lift: 1.0 },
       { model: 'medieval-village', at: [-64, 46], height: 8, rot: 120, pad: 26, set: true, foot: [52, 21] },
       { model: 'fortress-portal', at: [66, 48], height: 17, rot: 200, pad: 5, set: true, foot: [6, 4] },
       { model: 'observatory', at: [-70, -56], height: 11, rot: 160, pad: 10 },
@@ -516,9 +516,9 @@ export const REGIONS: Region[] = [
 
 /** Extra missions that are not regions of their own (placed in the hub unless a region is given). */
 export const HUB_MISSIONS: { tile: string; name: string; at: [number, number]; region?: string }[] = [
-  { tile: 'trophies', name: 'Visit the trophy hall', at: [-30, 10], region: 'ridge' },
+  { tile: 'trophies', name: 'Visit the trophy hall', at: [24, 20], region: 'ridge' },
   { tile: 'skill-tree', name: 'Read the signpost of skills', at: [16, 6] },
-  { tile: 'volt-riot', name: 'Start the VOLT RIOT', at: [-20, 40], region: 'speedway' },
+  { tile: 'volt-riot', name: 'Start the VOLT RIOT', at: [-24, 84], region: 'speedway' },
 ]
 
 /** Which region a portfolio tile (or page) lives in. */

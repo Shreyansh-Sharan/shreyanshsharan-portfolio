@@ -287,6 +287,13 @@ function LandmarkModel({ region, l, index }: { region: Region; l: Landmark; inde
   )
 }
 
+let readyAt = 0
+function settled() {
+  if (!world.get().assetsReady) return false
+  if (!readyAt) readyAt = performance.now()
+  return performance.now() - readyAt > 2500
+}
+
 /** Districts whose models have been asked for at least once this session (their URLs are in the loader cache). */
 const entered = new Set<string>()
 /** For tests (`?snap`): streaming state per district. */
@@ -303,6 +310,8 @@ function District({ region }: { region: Region }) {
   const frame = useRef(0)
   useFrame(({ camera }) => {
     if (frame.current++ % 12 !== 0) return
+    // The first paint is the harbour alone; the other districts wait until the island has settled.
+    if (region.id !== 'hub' && !settled()) return
     const d = Math.hypot(camera.position.x - region.center[0], camera.position.z - region.center[1]) - region.radius * 0.5
     const far = region.stream + 90
     if (!near && d < region.stream) setNear(true)

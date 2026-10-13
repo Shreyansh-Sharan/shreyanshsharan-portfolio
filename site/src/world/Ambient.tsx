@@ -316,6 +316,8 @@ export function Ambient() {
       <Birds center={highland.center} />
       <Birds center={[0, 0]} count={7} height={34} radius={40} />
       <Birds center={region('lab').center} count={6} height={26} radius={22} />
+      <Birds center={region('ridge').center} count={8} height={70} radius={60} />
+      <Birds center={region('campus').center} count={5} height={44} radius={30} />
       <Suspense fallback={null}>
         <RaceCar />
       </Suspense>

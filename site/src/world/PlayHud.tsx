@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, CircleCheck, Compass, Crosshair, Feather, Footprints, Gauge, Map as MapIcon, Sparkles, Swords, X, Zap } from 'lucide-react'
 import { MISSIONS, type Mission } from './missions'
-import { ISLAND_RADIUS, REGIONS } from './regions'
+import { ISLAND_RADIUS, REGIONS, ROADS } from './regions'
 import { controls } from './controls'
 import { lastCast } from './spells'
 import { player } from './Characters'
@@ -12,6 +12,10 @@ import { navigate } from '../lib/router'
 import { play } from '../lib/sound'
 import { isLowGraphics, setLowGraphics } from '../lib/graphics'
 import { startMinigame } from './minigames'
+import { nearestInteraction } from './interact'
+import { car } from './rides'
+import { AirshipBoard, ArcadeHub, CreditsPanel, ExhibitCard } from './ArcadeHub'
+import { Box, Gamepad2 } from 'lucide-react'
 import { FishingTouch, GameHud, GameTip, HurtVignette, hudKey, KnockedOut, nearGame, PalsPanel, PartyStrip, PhotoFrame, Reticle, Toasts, TreasureMap } from './WorldHud'
 
 function usePlayerTick() {
@@ -54,6 +58,17 @@ function Minimap({ target }: { target: Mission | null }) {
       g.beginPath()
       g.arc(x, y, r.radius * scale, 0, Math.PI * 2)
       g.fill()
+    }
+    g.strokeStyle = 'rgba(40, 42, 52, 0.9)'
+    g.lineWidth = 1.5
+    for (const line of ROADS) {
+      g.beginPath()
+      line.forEach(([x, z], i) => {
+        const [mx, my] = toMap(x, z)
+        if (i === 0) g.moveTo(mx, my)
+        else g.lineTo(mx, my)
+      })
+      g.stroke()
     }
     for (const m of MISSIONS) {
       const [x, y] = toMap(m.x, m.z)
@@ -243,6 +258,10 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
   const flying = player.flying
   // A mini-game start within reach (missions take priority when both are close).
   const gameNear = !near && !gameHud ? nearGame(p.x, p.z) : null
+  // Otherwise whatever else is within reach: a plaque, a cabinet, the car, the airship, a gate.
+  const exhibit = useWorld((s) => s.exhibit)
+  const action = !near && !gameNear && !gameHud && !exhibit ? nearestInteraction(p.x, p.z, player) : null
+  const driving = car.driving
 
   // Graphics tier, switchable without leaving the world; the canvas listens for the change. The world also
   // announces when it dropped the tier itself after seeing nothing but black frames.
@@ -308,6 +327,16 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Tab') {
+        // The arcade's tiles from anywhere on the island.
+        e.preventDefault()
+        e.stopPropagation()
+        const s = world.get()
+        if (s.open || s.exhibit) return
+        play('select')
+        world.set({ panel: s.panel === 'hub' ? 'none' : 'hub', hubTile: null })
+        return
+      }
       if (hudKey(e)) {
         e.preventDefault()
         e.stopPropagation()
@@ -318,10 +347,11 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         if (n && !world.get().open) {
           play('select')
           world.set({ open: n })
-        } else if (!n && !world.get().open && !world.get().minigame) {
+        } else if (!n && !world.get().open && !world.get().minigame && world.get().panel === 'none' && !world.get().exhibit) {
           const pl = world.get().player
           const g = nearGame(pl.x, pl.z)
           if (g) startMinigame(g.id, player)
+          else nearestInteraction(pl.x, pl.z, player)?.run()
         }
       }
       if (e.code === 'Escape' && world.get().open) {
@@ -370,6 +400,10 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
       {!open && panel === 'none' && !photoOn && <Reticle />}
       {!photoOn && <PartyStrip touch={touch} />}
       {panel === 'pals' && <PalsPanel onClose={() => world.set({ panel: 'none' })} />}
+      {panel === 'hub' && <ArcadeHub onClose={() => world.set({ panel: 'none', hubTile: null })} />}
+      {panel === 'credits' && <CreditsPanel onClose={() => world.set({ panel: 'none' })} />}
+      {panel === 'airship' && <AirshipBoard />}
+      <ExhibitCard />
       <GameHud below={!!fightState} />
       <TreasureMap />
       {touch && <FishingTouch />}
@@ -409,6 +443,11 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
         </div>
       )}
       {!fightState && !gameHud && !nextMission && <div className="objective">All missions complete. Thanks for exploring!</div>}
+      {driving && (
+        <div className="objective drive-hud">
+          <Gauge size={16} /> <strong>{Math.round(Math.abs(car.speed) * 3.6)} km/h</strong> · W / S drive · A / D steer · Space handbrake · E out
+        </div>
+      )}
 
       {!touch && !locked && !open && panel === 'none' && !photoOn && <div className="look-hint">Click the world to look around with the mouse · Esc frees it</div>}
 
@@ -421,6 +460,12 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
 
       <button className="pill exit-play" onClick={onExit}>
         Exit <kbd>⌘K</kbd>
+      </button>
+      <button className="pill hub-play" title="The arcade: every game on the island (Tab)" onClick={() => world.set({ panel: panel === 'hub' ? 'none' : 'hub', hubTile: null })}>
+        <Gamepad2 size={14} /> Arcade <kbd>Tab</kbd>
+      </button>
+      <button className="pill credits-play" title="The 3D models this island is built from" onClick={() => world.set({ panel: panel === 'credits' ? 'none' : 'credits' })}>
+        <Box size={14} /> 3D models
       </button>
       <button
         className={`pill gfx-play ${lowGfx ? 'is-low' : ''}`}
@@ -449,6 +494,12 @@ export function PlayHud({ onExit }: { onExit: () => void }) {
           }}
         >
           <kbd>E</kbd> {done.includes(nearMission.tile.id) ? 'Revisit' : 'Start'} mission: {nearMission.name}
+        </button>
+      )}
+
+      {action && !openMission && !photoOn && panel === 'none' && (
+        <button className="prompt" onClick={action.run}>
+          <kbd>E</kbd> {action.label}
         </button>
       )}
 

@@ -187,11 +187,11 @@ export function Minigames() {
     let rings = 0, pads = 0, sheep = 0, posts = 0, bottles = 0, barrels = 0, parcels = 0, drops = 0
     let showLine = false, showChest = false, showDirt = false
     if (g) {
-      if (g.id === 'parkour' || g.id === 'rings') {
+      if (g.id === 'parkour' || g.id === 'rings' || g.id === 'street') {
         g.rings.forEach((r, i) => {
           if (i >= 16) return
           const next = i === g.n
-          const sc = (g.id === 'parkour' ? 1.6 : 2.6) * (next ? 1 + Math.sin(time * 6) * 0.06 : 1)
+          const sc = (g.id === 'parkour' ? 1.6 : g.id === 'street' ? 4 : 2.6) * (next ? 1 + Math.sin(time * 6) * 0.06 : 1)
           m.rings.setMatrixAt(rings, m4.compose(vp.set(r.x, r.y, r.z), q.setFromEuler(eu.set(0, r.yaw, 0)), vs.set(sc, sc, sc)))
           m.rings.setColorAt(rings, r.passed ? PASSED : next ? NEXT : AHEAD)
           rings++

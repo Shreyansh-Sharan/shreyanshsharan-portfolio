@@ -68,6 +68,7 @@ export function Lighting({ shadows, live = true }: { shadows: boolean; live?: bo
     s.color.setRGB(THREE.MathUtils.lerp(0.55, mood.sun.r, day), THREE.MathUtils.lerp(0.65, mood.sun.g, day), THREE.MathUtils.lerp(0.95, mood.sun.b, day))
     const bg = scene.background as THREE.Color | null
     if (bg && bg.isColor) bg.setRGB(mood.fog.r * 0.94 * day + 0.04, mood.fog.g * 0.96 * day + 0.05, mood.fog.b * day + 0.12)
+    scene.environmentIntensity = 0.65 * (0.18 + 0.82 * day)
     const fog = scene.fog as THREE.Fog | null
     if (fog) {
       fog.color.setRGB(mood.fog.r * day + 0.04, mood.fog.g * day + 0.05, mood.fog.b * day + 0.12)
@@ -197,6 +198,49 @@ export function Water() {
         opacity={0.86}
       />
     </mesh>
+  )
+}
+
+/* ---------- Ground fog ---------- */
+
+const FOG_VERT = `varying vec2 vUv; varying vec3 vWorld; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`
+const FOG_FRAG = `
+uniform float uTime; uniform float uStrength; uniform vec3 uColor; varying vec2 vUv; varying vec3 vWorld;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
+void main(){
+  vec2 p = vWorld.xz * 0.02 + vec2(uTime * 0.012, uTime * 0.007);
+  float n = vnoise(p) * 0.6 + vnoise(p * 2.3 + 7.0) * 0.4;
+  float edge = smoothstep(0.0, 0.25, vUv.x) * smoothstep(0.0, 0.25, 1.0 - vUv.x) * smoothstep(0.0, 0.25, vUv.y) * smoothstep(0.0, 0.25, 1.0 - vUv.y);
+  gl_FragColor = vec4(uColor, n * n * edge * uStrength);
+}`
+
+/** Low mist that gathers over the harbour, the cove and the plains at night (and a little at dawn). */
+export function GroundFog() {
+  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uStrength: { value: 0 }, uColor: { value: new THREE.Color('#c7d4e6') } }), [])
+  const group = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    uniforms.uTime.value = clock.elapsedTime
+    const day = daylight()
+    uniforms.uStrength.value = (1 - day) * 0.55 + 0.06
+    if (group.current) group.current.visible = uniforms.uStrength.value > 0.08
+  })
+  const sheets: [number, number, number, number][] = [
+    [0, 330, 2.2, 260],
+    [-260, 330, 1.8, 220],
+    [340, 90, 2.6, 180],
+    [-90, -240, 3.4, 140],
+  ]
+  return (
+    <group ref={group}>
+      {sheets.map(([x, z, y, size], i) => (
+        <mesh key={i} position={[x, y, z]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={5}>
+          <planeGeometry args={[size, size, 1, 1]} />
+          <shaderMaterial vertexShader={FOG_VERT} fragmentShader={FOG_FRAG} uniforms={uniforms} transparent depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
   )
 }
 

@@ -34,7 +34,7 @@ function store(key: string, value: string) {
   }
 }
 
-export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string, string], focus: string) => void }) {
+export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (a: [string, string], focus: string) => void; onExit?: () => void }) {
   useEffect(() => onAccent(accent, 'sports-complex'), [onAccent])
   const [stage, setStage] = useState<'menu' | 'play'>(auto ? 'play' : 'menu')
   const [difficulty, setDifficulty] = useState(() => Math.min(2, Math.max(0, Number(stored('sc-difficulty', '1')) || 0)))
@@ -77,8 +77,13 @@ export function Sports({ auto, onAccent }: { auto?: boolean; onAccent: (a: [stri
   })
 
   return (
-    <Page onBack={() => navigate('#/home/sports-complex')} className="racer-page sc-page">
+    <Page onBack={() => (onExit ? onExit() : navigate('#/home/sports-complex'))} className="racer-page sc-page">
       <header className="page-header">
+        {onExit && (
+          <button className="btn btn-secondary sc-gate" onClick={onExit}>
+            Walk back out through the gate to the island
+          </button>
+        )}
         <p className="eyebrow">Games · 3D sports world</p>
         <h1 className="page-title sc-title">SPORTS COMPLEX</h1>
         <p className="page-lead">
