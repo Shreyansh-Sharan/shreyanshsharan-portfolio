@@ -28,13 +28,25 @@ export interface ModelSpec {
   unlit?: boolean
 }
 
-/** Which clips drive which state, and where the blaster goes. Clip names are matched as substrings. */
+/**
+ * Which clips drive which state, how the skeleton splits into layers, and where the blaster goes. Clip names are
+ * matched as substrings; hero files carry the canonical set (idle, walk, run, aim, fire, fire2, death, super) baked
+ * by the asset build (locomotion clips carry their natural ground speed in `extras.speed`).
+ */
 export interface CharSpec {
-  clips: { idle: string; run: string; walk?: string; fire?: string; death?: string; super?: string }
+  clips: { idle: string; run: string; walk?: string; aim?: string; fire?: string; fire2?: string; death?: string; super?: string }
   /** Right-hand bone (first match), where the blaster is held. */
   hand: RegExp
-  /** Upper-body bone that takes the procedural recoil. */
+  /** First spine bone: counter-twists against the pelvis and takes recoil / flinch. */
   spine: RegExp
+  /** Second spine bone (shares the counter-twist), when the rig has one. */
+  spine1?: RegExp
+  /** Head bone (flinch snap). */
+  head?: RegExp
+  /** Locomotion root (pelvis or the joint above it that owns the legs): yaws towards the velocity. */
+  root?: RegExp
+  /** Bones owned by the upper-body aim layer (everything above the first spine bone, arms, head). */
+  upper?: RegExp
   /** The model carries its own weapon: no blaster is attached, the muzzle sits on this bone. */
   ownGun?: RegExp
   /** Blaster offset from the hand in the fighter's frame (right, up, forward), metres. */
@@ -43,42 +55,51 @@ export interface CharSpec {
   metal?: number
   /** Death clip speed multiplier. */
   deathSpeed?: number
+  /** Death clip holds after `hold` seconds while the whole body topples backwards by `angle` radians (clips that stagger but never reach the floor). */
+  deathTopple?: [hold: number, angle: number]
   /** Only the first N seconds of the super clip play. */
   superCut?: number
 }
+
+/** Canonical clip names every hero file carries (see tools: the hero animation build). */
+const CANON_CLIPS = { idle: 'idle', walk: 'walk', run: 'run', aim: 'aim', fire: 'fire', fire2: 'fire2', death: 'death' }
+/** The Star Soldier death is a backwards fold at the hips: hold it at 0.2 s and topple the body 55°. */
+const FOLD_DEATH: [number, number] = [0.2, 0.96]
+/** Mixamo rigs: the aim layer owns Spine1 and up (bone names lose their `:` and `.` on load). */
+const MIXAMO_UPPER = /Spine1_|Spine2|Neck_|Head|Shoulder_|Arm_|ForeArm_|Hand|Gun/
 
 export const MANIFEST: Record<string, ModelSpec> = {
   // Heroes: Sketchfab characters (CC BY, see CREDITS.md) normalised to each hero's height, facing +Z.
   'char-rook': {
     file: 'char-rook.glb',
     height: 2.1,
-    char: { clips: { idle: 'Idle', run: 'Rifle_run', walk: 'Walk' }, hand: /RightHand_/, spine: /Spine1_/, gunOffset: [0.05, -0.05, 0.22], metal: 0.35 },
+    char: { clips: { ...CANON_CLIPS }, hand: /RightHand_/, spine: /mixamorigSpine_/, spine1: /mixamorigSpine1_/, head: /mixamorigHead_/, root: /mixamorigHips_/, upper: MIXAMO_UPPER, gunOffset: [0.05, -0.05, 0.22], metal: 0.35, deathTopple: FOLD_DEATH },
   },
   'char-wren': {
     file: 'char-wren.glb',
     height: 2.2,
-    char: { clips: { idle: 'idle', run: 'Run', walk: 'walk', fire: 'fire', death: 'death', super: 'melee' }, hand: /handR_/, spine: /torso_/, ownGun: /GUN_/, metal: 0.2 },
+    char: { clips: { ...CANON_CLIPS, aim: 'idle', super: 'super' }, hand: /handR_/, spine: /torso_/, head: /Head_/, root: /^root_00/, upper: /torso|shoulder|forearm|hand|GUN|clip|Head|jet/, ownGun: /GUN_/, metal: 0.2, deathTopple: FOLD_DEATH },
   },
   'char-furnace': {
     file: 'char-furnace.glb',
     height: 2.7,
     yaw: -Math.PI / 2,
-    char: { clips: { idle: 'idol', run: 'walk', death: 'death', super: 'thwamp' }, hand: /handr_/, spine: /torso|spine|chest/i, gunOffset: [0, 0.1, 0.45], metal: 0.4, deathSpeed: 2.8, superCut: 1.6 },
+    char: { clips: { ...CANON_CLIPS, run: 'walk', super: 'super' }, hand: /handr_/, spine: /^Bone_04/, spine1: /^Bone001_05/, head: /^Bone003_031/, root: /^Bone007_01/, upper: /^Bone001_|arm|hand|^Bone00[2-69]|^Bone01[0-7]/, gunOffset: [0, 0.1, 0.45], metal: 0.4, deathSpeed: 2.8, superCut: 1.6 },
   },
   'char-flick': {
     file: 'char-flick.glb',
     height: 2.0,
-    char: { clips: { idle: 'idle', run: 'run', super: 'kick-2' }, hand: /handr_/, spine: /spine_02/, gunOffset: [0.04, 0, 0.2], metal: 0.35 },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /handr_/, spine: /spine_01x/, spine1: /spine_02x/, head: /headx_/, root: /^rootx_00/, upper: /spine_02|spine_03|neck|head|shoulder|arm_stretch|forearm|hand/, gunOffset: [0.04, 0, 0.2], metal: 0.35, deathTopple: FOLD_DEATH },
   },
   'char-pike': {
     file: 'char-pike.glb',
     height: 2.05,
-    char: { clips: { idle: 'Idle', run: 'Run', walk: 'Walk', super: 'Attack' }, hand: /RightHand_/, spine: /Spine1_/, gunOffset: [0.04, -0.02, 0.22], metal: 0.2, superCut: 1.8 },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /RightHand_/, spine: /mixamorigSpine_/, spine1: /mixamorigSpine1_/, head: /mixamorigHead_/, root: /mixamorigHips_/, upper: MIXAMO_UPPER, gunOffset: [0.04, -0.02, 0.22], metal: 0.2, superCut: 1.8, deathTopple: FOLD_DEATH },
   },
   'char-salve': {
     file: 'char-salve.glb',
     height: 1.95,
-    char: { clips: { idle: 'idleEmotion', run: 'runReal', walk: 'caminar', super: 'Action.001' }, hand: /armLoweR_/, spine: /chest_/, gunOffset: [0.02, -0.12, 0.34], metal: 0.3 },
+    char: { clips: { ...CANON_CLIPS, super: 'super' }, hand: /armLoweR_/, spine: /waistL_/, spine1: /chest_/, head: /headR_/, root: /^caderaL_00/, upper: /chest|shoulder|armUpper|armLowe|neck|head/, gunOffset: [0.02, -0.12, 0.34], metal: 0.3, deathTopple: FOLD_DEATH },
   },
   'gun-rook': { file: 'gun-rook.glb', width: 0.9 },
   'gun-wren': { file: 'gun-wren.glb', width: 1.25 },
@@ -199,6 +220,7 @@ function normalise(root: THREE.Object3D, spec: ModelSpec, clips: THREE.Animation
   else if (spec.height && size.y > 0) s = spec.height / size.y
   root.scale.setScalar(s)
   root.updateMatrixWorld(true)
+  wrap.userData.scale = s
   if (spec.char) box.copy(skinnedBounds(root))
   else box.setFromObject(root)
   const c = box.getCenter(new THREE.Vector3())
