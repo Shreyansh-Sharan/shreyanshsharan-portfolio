@@ -12,7 +12,7 @@ import { heightAt } from './terrain'
 import { scatterLayout, type ScatterName } from './layout'
 import { boxCollider, circleCollider, groundAt, landmarkKey, setLandmarkCollider, setLandmarkFloor, setScatterFactor, type Collider } from './colliders'
 import { showLoader, trackManager } from '../lib/loader3d'
-import { world } from './store'
+import { useWorld, world } from './store'
 
 export const modelUrl = (name: string) => `${import.meta.env.BASE_URL}world/models/${name}.glb`
 
@@ -429,11 +429,20 @@ function ImpostorBox({ region, l }: { region: Region; l: Landmark }) {
   )
 }
 
-/** What a district shows from afar, and while its real models stream in: the far version (a few KB), a block until it arrives. */
+/** What a district shows from afar, and while its real models stream in: the far version (a few KB, fetched once the island is on screen), a block until then. */
 function Impostor({ region, l }: { region: Region; l: Landmark }) {
+  // A few seconds after the island is on screen (so the far versions never weigh on the first paint).
+  const shown = useWorld((s) => s.assetsReady)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (!shown) return
+    const id = window.setTimeout(() => setReady(true), 3000)
+    return () => window.clearTimeout(id)
+  }, [shown])
   // Street furniture (lamps, signs) has no far version: too slight to read at a distance, and a block would look wrong.
   if (l.ghost || l.lod === 'near' || !FAR.has(l.model) || (!l.foot && l.height < 6)) return null
   const box = <ImpostorBox region={region} l={l} />
+  if (!ready) return box
   return (
     <Suspense fallback={box}>
       <FarModel region={region} l={l} />
