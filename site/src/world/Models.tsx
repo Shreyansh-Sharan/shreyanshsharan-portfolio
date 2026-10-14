@@ -417,7 +417,7 @@ function FarModel({ region, l }: { region: Region; l: Landmark }) {
   return <primitive object={obj} position={[x, y, z]} rotation={[0, yaw, 0]} />
 }
 
-/** A plain block the size of the building: the stand-in until the island has settled and the far version is in. */
+/** A plain block the size of the building: the stand-in for the moment before its far version arrives. */
 function ImpostorBox({ region, l }: { region: Region; l: Landmark }) {
   const x = region.center[0] + l.at[0], z = region.center[1] + l.at[1]
   const y = heightAt(x, z)
@@ -429,12 +429,11 @@ function ImpostorBox({ region, l }: { region: Region; l: Landmark }) {
   )
 }
 
-/** What a district shows from afar, and while its real models stream in: the far version once the island has settled. */
-function Impostor({ region, l, far }: { region: Region; l: Landmark; far: boolean }) {
+/** What a district shows from afar, and while its real models stream in: the far version (a few KB), a block until it arrives. */
+function Impostor({ region, l }: { region: Region; l: Landmark }) {
   // Street furniture (lamps, signs) has no far version: too slight to read at a distance, and a block would look wrong.
   if (l.ghost || l.lod === 'near' || !FAR.has(l.model) || (!l.foot && l.height < 6)) return null
   const box = <ImpostorBox region={region} l={l} />
-  if (!far) return box
   return (
     <Suspense fallback={box}>
       <FarModel region={region} l={l} />
@@ -718,11 +717,11 @@ function District({ region }: { region: Region }) {
             </Suspense>
           ) : null
         ) : near ? (
-          <Suspense key={`${region.id}-${i}`} fallback={<Impostor region={region} l={l} far={farReady} />}>
+          <Suspense key={`${region.id}-${i}`} fallback={<Impostor region={region} l={l} />}>
             <LandmarkModel region={region} l={l} index={region.landmarks.indexOf(l)} />
           </Suspense>
         ) : (
-          <Impostor key={`${region.id}-${i}`} region={region} l={l} far={farReady} />
+          <Impostor key={`${region.id}-${i}`} region={region} l={l} />
         ),
       )}
     </>

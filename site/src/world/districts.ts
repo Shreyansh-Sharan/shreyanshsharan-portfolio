@@ -1,5 +1,5 @@
 // Street layouts for the districts built from kits of original buildings: the harbour lane, Neon City's downtown
-// grid, the walk-in stadium, the village below the keep and the keep's bailey. Coordinates are region space.
+// grid, the walk-in stadium, the village by the bailey gate and the keep's bailey. Coordinates are region space.
 import type { Landmark, ModelName } from './regions'
 
 /** Fortress module sizes at the heights they are placed at (metres, measured from the models). */
@@ -27,7 +27,7 @@ export function bailey(cx: number, cz: number, w: number, d: number): Landmark[]
     wall(cx + w / 2, z, 90)
   }
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
-    out.push({ model: 'fortress-tower', at: [cx + (sx * w) / 2, cz + (sz * d) / 2], height: 19, pad: 5, set: true, foot: [8, 8] })
+    out.push({ model: 'fortress-tower', at: [cx + (sx * w) / 2, cz + (sz * d) / 2], height: 19, pad: 7, set: true, foot: [8, 8] })
   out.push({ model: 'fortress-gate', at: [cx, cz + d / 2], height: GATE.height, rot: 0, pad: 10, passage: [2.8, 7.5], foot: [GATE.width, 6] })
   for (const sx of [-1, 1])
     out.push({ model: 'fortress-pillar', at: [cx + sx * (GATE.width / 2 + 2.5), cz + d / 2 + 4], height: 11, pad: 3, set: true, foot: [3, 3] })
@@ -121,14 +121,17 @@ export function walkInStadium(cx: number, cz: number): Landmark[] {
   return out
 }
 
-/** The village below the keep: cottages, stone houses and the forge round a small green. */
+/**
+ * The village outside the bailey gate: cottages, stone houses and the forge round a small green, all on the flat of
+ * the plateau (clear of the road up the ramp, the beacon and the gate's pillars).
+ */
 export function village(cx: number, cz: number): Landmark[] {
   const list: [ModelName, number, number, number, number][] = [
-    ['village-cottage', -8, -6, 7, 30],
-    ['village-stonehouse', 7, -8, 9, -20],
-    ['village-forge', -2, 9, 7, 160],
-    ['village-cottage', 13, 8, 6.5, 200],
-    ['village-stonehouse', -17, 6, 8.5, 100],
+    ['village-cottage', 0, -6, 7, 200],
+    ['village-stonehouse', 14, 0, 9, 160],
+    ['village-forge', -2, 8, 7, 190],
+    ['village-cottage', 20, -12, 6.5, 230],
+    ['village-stonehouse', -14, 6, 8.5, 170],
   ]
   return list.map(([model, x, z, height, rot]): Landmark => ({ model, at: [cx + x, cz + z], height, rot, pad: 6, foot: [10, 10] }))
 }
