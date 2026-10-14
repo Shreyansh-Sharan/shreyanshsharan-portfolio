@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, Copy, Crown, Flag, Globe, LogIn, Play, Skull, Star, Swords, User, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate, parse } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
 import { CONFIG } from './config'
@@ -330,6 +331,9 @@ export function Racer({
     setStage('race')
   }
 
+  // Back (browser, phone or mouse) from a race, its results or an online room returns to this setup page.
+  useBackToSetup(stage !== 'menu', quitOnline)
+
   /* ---------- Screens ---------- */
 
   if (stage === 'race') {
@@ -637,7 +641,7 @@ function Menu(p: {
         ? 'Create room'
         : 'Join room'
   return (
-    <Page onBack={() => navigate('#/home/volt-riot')} className="racer-page">
+    <Page onBack={() => navigate('#/home/volt-riot')} backLabel="Games" portfolio className="racer-page">
       <header className="page-header">
         <p className="eyebrow">Games · Combat racer</p>
         <h1 className="page-title vr-title">VOLT RIOT</h1>

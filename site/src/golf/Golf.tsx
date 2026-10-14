@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
@@ -274,6 +275,9 @@ export function Golf({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string
     setStage('play')
   }
 
+  // Back (browser, phone or mouse) from a round, its results or an online room returns to this setup page.
+  useBackToSetup(stage !== 'menu', leave)
+
   const tourNext = tour && tour.idx < tour.holes.length - 1
   if (stage === 'play')
     return (
@@ -344,7 +348,7 @@ export function Golf({ auto, onAccent }: { auto?: boolean; onAccent: (a: [string
     )
 
   return (
-    <Page onBack={() => navigate('#/home/bogey-brawl')} className="racer-page golf-page">
+    <Page onBack={() => navigate('#/home/bogey-brawl')} backLabel="Games" portfolio className="racer-page golf-page">
       <header className="page-header">
         <p className="eyebrow">Games · Battle golf</p>
         <h1 className="page-title bb-title">BOGEY BRAWL</h1>

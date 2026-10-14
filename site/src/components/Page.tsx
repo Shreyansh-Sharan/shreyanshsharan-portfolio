@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, UserRound } from 'lucide-react'
+import { navigate } from '../lib/router'
 import { useActions } from '../lib/input'
 import { play } from '../lib/sound'
 import { HintBar } from './HintBar'
@@ -9,11 +10,14 @@ export function Page({
   onBack,
   backLabel = 'Home',
   className = '',
+  portfolio = false,
   children,
 }: {
   onBack: () => void
   backLabel?: string
   className?: string
+  /** A game's setup page: also offer a way to the developer's portfolio (the home screen's profile). */
+  portfolio?: boolean
   children: ReactNode
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -49,6 +53,17 @@ export function Page({
       >
         <ArrowLeft size={18} /> {backLabel}
       </button>
+      {portfolio && (
+        <button
+          className="back-btn portfolio-btn"
+          onClick={() => {
+            play('select')
+            navigate('#/home')
+          }}
+        >
+          <UserRound size={18} /> <span className="portfolio-btn-full">Developer </span>Portfolio
+        </button>
+      )}
       <div className="page-body" ref={bodyRef} tabIndex={-1}>
         <div className="page-inner">{children}</div>
       </div>

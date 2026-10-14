@@ -678,6 +678,18 @@ p {
   font-size: 14px;
 }
 
+.back-btn.portfolio-btn {
+  left: auto;
+  right: var(--gutter);
+  padding: 0 16px 0 14px;
+}
+
+@media (max-width: 420px) {
+  .portfolio-btn-full {
+    display: none;
+  }
+}
+
 .page-body {
   height: 100%;
   overflow-y: auto;

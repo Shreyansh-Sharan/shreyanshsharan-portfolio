@@ -610,7 +610,7 @@ function controlsFrom(files) {
   return [...lines]
 }
 
-function readme(game, tile, controls, credits, docs, pagesUrl) {
+function readme(game, tile, controls, credits, docs, portfolioUrl) {
   const creditLine = credits.length ? `\n\n## Credits\n\nAsset sources and licences: ${credits.map((c) => `[${c}](${c})`).join(', ')}.` : ''
   const docLine = docs.length ? `\n\n## More\n\n${docs.map((d) => `- [${d}](${d})`).join('\n')}` : ''
   const unity = game.unity
@@ -620,7 +620,7 @@ function readme(game, tile, controls, credits, docs, pagesUrl) {
 
 ${tile.blurb}
 
-Built with ${game.builtWith ?? tile.org}. Part of [Shreyansh Sharan's portfolio](${pagesUrl.replace(/\/[^/]+\/$/, `/${PORTFOLIO_REPO}/`)}), split into its own site.
+Built with ${game.builtWith ?? tile.org}. Part of [Shreyansh Sharan's portfolio](${portfolioUrl}), split into its own site.
 
 \`\`\`bash
 npm install
@@ -688,7 +688,9 @@ function split(id) {
   const game = GAMES[id]
   const out = join(outRoot, game.repo)
   const pagesUrl = `https://${owner.toLowerCase()}.github.io/${game.repo}/`
-  const portfolioUrl = `https://${owner.toLowerCase()}.github.io/${PORTFOLIO_REPO}/`
+  // The portfolio lives on its own domain (the one the game subdomains hang off, see site/src/data/gameLinks.ts).
+  const domain = read(join(SRC, 'data/gameLinks.ts')).match(/const DOMAIN = '([^']+)'/)?.[1]
+  const portfolioUrl = domain ? `https://${domain}/` : `https://${owner.toLowerCase()}.github.io/${PORTFOLIO_REPO}/`
   console.log(`\n== ${id} → ${relative(ROOT, out)}`)
 
   // Fresh output, keeping an earlier install, its lock file and the repository.
@@ -775,7 +777,7 @@ function split(id) {
     cpSync(join(SITE, from), join(out, dest))
     docs.push(dest)
   }
-  write(join(out, 'README.md'), readme(game, tile, controlsFrom(files), [...new Set(credits)], docs, pagesUrl))
+  write(join(out, 'README.md'), readme(game, tile, controlsFrom(files), [...new Set(credits)], docs, portfolioUrl))
   write(join(out, 'DEPLOY.md'), deployMd(game, pagesUrl))
 
   // 5. A repository with one commit.

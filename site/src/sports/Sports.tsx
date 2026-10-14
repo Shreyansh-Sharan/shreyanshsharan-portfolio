@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Award, CarFront, Check, Goal, Lock, LogOut, MousePointer2, Network, Play, RotateCcw, Trophy } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
@@ -55,6 +56,12 @@ export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (
     }
   }, [])
 
+  // Back (browser, phone or mouse) from a session returns to this setup page.
+  useBackToSetup(stage === 'play', () => {
+    setProgress(loadProgress())
+    setStage('menu')
+  })
+
   if (stage === 'play')
     return (
       <SportsStage
@@ -78,7 +85,7 @@ export function Sports({ auto, onAccent, onExit }: { auto?: boolean; onAccent: (
   })
 
   return (
-    <Page onBack={() => (onExit ? onExit() : navigate('#/home/sports-complex'))} className="racer-page sc-page">
+    <Page onBack={() => (onExit ? onExit() : navigate('#/home/sports-complex'))} backLabel={onExit ? 'Island' : 'Games'} portfolio={!onExit} className="racer-page sc-page">
       <header className="page-header">
         {onExit && (
           <button className="btn btn-secondary sc-gate" onClick={onExit}>

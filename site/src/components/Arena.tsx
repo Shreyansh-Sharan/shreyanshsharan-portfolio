@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, Crosshair, Expand, LogOut, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { play } from '../lib/sound'
 import { Page } from './Page'
 import { AdSlot } from './AdSlot'
@@ -161,10 +162,13 @@ export function Arena({ join, onAccent }: { join?: string; onAccent: (a: [string
     setSrc(`${GAME_URL}?${params}`)
   }
 
+  // Back (browser, phone or mouse) from a match returns to this setup page.
+  useBackToSetup(src !== null, () => setSrc(null))
+
   if (src) return <ArenaPlayer src={src} onExit={() => setSrc(null)} />
 
   return (
-    <Page onBack={() => navigate('#/home/arena')} className="arena-page">
+    <Page onBack={() => navigate('#/home/arena')} backLabel="Games" portfolio className="arena-page">
       <header className="page-header">
         <p className="eyebrow">Games · Unity 6</p>
         <h1 className="page-title">Dunes Arena</h1>

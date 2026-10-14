@@ -4,6 +4,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CircleDot, Copy, Globe, LogIn, Target, Users, Wrench } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { play } from '../lib/sound'
 import { Page } from './Page'
 import { AdSlot } from './AdSlot'
@@ -219,6 +220,14 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
     }
   }
 
+  // Back from a match, an online room or the team builder returns to this setup page.
+  const backToSetup = () => {
+    if (net) leaveRoom()
+    setPlaying(null)
+    setStage('menu')
+  }
+  useBackToSetup(stage !== 'menu', backToSetup)
+
   if (stage === 'play' && playing)
     return (
       <Suspense fallback={<Loader3D status="Fetching the game…" progress={null} />}>
@@ -241,7 +250,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
     )
 
   return (
-    <Page onBack={() => navigate('#/home/cricket')} className="arena-page">
+    <Page onBack={stage === 'menu' ? () => navigate('#/home/cricket') : backToSetup} backLabel={stage === 'menu' ? 'Games' : 'Menu'} portfolio className="arena-page">
       <header className="page-header ck-menu-hero">
         <img className="ck-menu-art" src={`${import.meta.env.BASE_URL}cricket/menu-hero.webp`} alt="A batter at the top of his backlift under the floodlights" />
         <div className="ck-menu-copy">

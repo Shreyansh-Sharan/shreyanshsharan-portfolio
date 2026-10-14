@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Globe, LogIn, ShieldAlert, Sparkles, Swords, Users, Zap } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
@@ -69,6 +70,13 @@ export function Siege({ auto, map, join, onAccent }: { auto?: string; map?: stri
     })
   }
 
+  // Back (browser, phone or mouse) from a match returns to this setup page.
+  useBackToSetup(launch !== null, () => {
+    setError(null)
+    setLaunch(null)
+    setRun((r) => r + 1)
+  })
+
   if (launch)
     return (
       <Stage
@@ -118,7 +126,7 @@ function Menu(p: { profile: Profile; assets: SiegeAssets | null; pct: number; er
   const setSettings = (s: Partial<Settings>) => p.onProfile((prev) => ({ ...prev, settings: { ...prev.settings, ...s } }))
   const quests = profile.quests.list
   return (
-    <Page onBack={() => navigate('#/home/neon-siege')} className="racer-page sg-page">
+    <Page onBack={() => navigate('#/home/neon-siege')} backLabel="Games" portfolio className="racer-page sg-page">
       <header className="page-header sg-hero">
         <img className="sg-keyart" src={KEYART} alt="Six fighters charging across a neon-lit street block under holo-ads" />
         <div>

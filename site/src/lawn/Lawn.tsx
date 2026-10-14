@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Gift, Globe, Home as HomeIcon, LogIn, Moon, Sparkles, Sun, Swords, Users, Zap } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { rewardedAd } from '../lib/ads'
@@ -67,6 +68,13 @@ export function Lawn({ auto, map, join, onAccent }: { auto?: string; map?: strin
     })
   }
 
+  // Back (browser, phone or mouse) from a match returns to this setup page.
+  useBackToSetup(launch !== null, () => {
+    setError(null)
+    setLaunch(null)
+    setRun((r) => r + 1)
+  })
+
   if (launch)
     return (
       <Stage
@@ -118,7 +126,7 @@ function Menu(p: { profile: Profile; assets: LawnAssets | null; pct: number; err
   // One shared preview canvas for the hero sheet and the house turntable (only one tab shows at a time).
   const lobby = useLobbyStage(p.assets, profile.settings.quality)
   return (
-    <Page onBack={() => navigate('#/home/lawn-wars')} className="racer-page lw-page">
+    <Page onBack={() => navigate('#/home/lawn-wars')} backLabel="Games" portfolio className="racer-page lw-page">
       <header className="page-header lw-hero">
         <img className="lw-keyart" src={KEYART} alt="Six neighbours charging across a sunny cul-de-sac with garden tools" />
         <div>

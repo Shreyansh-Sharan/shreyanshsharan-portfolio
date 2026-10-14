@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Cookie, Crown, Globe, LogIn, Sparkles, Users } from 'lucide-react'
 import { tiles } from '../data/content'
 import { navigate } from '../lib/router'
+import { useBackToSetup } from '../lib/backToSetup'
 import { setInputSuspended } from '../lib/input'
 import { play as uiSound } from '../lib/sound'
 import { Page } from '../components/Page'
@@ -67,6 +68,13 @@ export function Plush({ auto, level, join, onAccent }: { auto?: string; level?: 
     })
   }
 
+  // Back (browser, phone or mouse) from a match returns to this setup page.
+  useBackToSetup(launch !== null, () => {
+    setError(null)
+    setLaunch(null)
+    setRun((r) => r + 1)
+  })
+
   if (launch)
     return (
       <Stage
@@ -107,7 +115,7 @@ function Menu(p: { profile: Profile; assets: PlushAssets | null; pct: number; er
   const [code, setCode] = useState('')
   const levels = useMemo(() => quickPlayLevels(), [])
   return (
-    <Page onBack={() => navigate('#/home/plush-panic')} className="racer-page pp-page">
+    <Page onBack={() => navigate('#/home/plush-panic')} backLabel="Games" portfolio className="racer-page pp-page">
       <header className="page-header pp-hero">
         <img className="pp-keyart" src={KEYART} alt="Plush toys tumbling on a stool in a sunny attic while giant scissors snip the edge" />
         <div>
