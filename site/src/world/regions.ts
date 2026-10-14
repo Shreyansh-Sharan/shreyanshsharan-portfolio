@@ -378,7 +378,7 @@ export const REGIONS: Region[] = [
     landmarks: [
       ...bailey(0, -10, 96, 72),
       { model: 'fortress-keep', at: KEEP_AT, height: 24, rot: 0, pad: 24, foot: [32, 24] },
-      ...village(-66, 48),
+      ...village(16, 48),
       { model: 'fortress-gate', at: [66, 48], height: 14, rot: 200, pad: 7, passage: [2.8, 7.5], foot: [18, 6] },
       { model: 'observatory', at: [-70, -56], height: 11, rot: 160, pad: 10 },
       { model: 'crane', at: [82, 10], height: 22, rot: 30, pad: 5 },
@@ -434,7 +434,7 @@ export const REGIONS: Region[] = [
       { model: 'distillery', at: [0, 0], height: 13, rot: 200, pad: 11 },
       { model: 'pot-still', at: [11, 8], height: 6, pad: 4 },
       { model: 'pot-still', at: [15, 2], height: 5, rot: 40, pad: 4 },
-      { model: 'barrels', at: [-11, 7], height: 4, rot: 20, pad: 4, foot: [5, 5] },
+      { model: 'barrels', at: [-11, 7], height: 4, rot: 20, pad: 7, foot: [5, 5] },
       { model: 'burrow-house', at: [-70, 40], height: 6, rot: 200, pad: 10, foot: [12, 11] },
       { model: 'cabin', at: [60, -70], height: 6, rot: -30, pad: 5, foot: [8, 8] },
       { model: 'village-cottage', at: [-40, -60], height: 7, rot: 140, pad: 6, foot: [7, 8] },
