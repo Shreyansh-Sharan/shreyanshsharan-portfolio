@@ -10,7 +10,8 @@ The players' movement clips (idle, walk, jog, sprint, throw, pick-up, dive, cele
 Universal Animation Library (CC0) and were retargeted onto each body's skeleton; the cricket strokes, bowling
 actions, keeping and catches are procedural.
 
-Ground textures (grass.webp, pitch.webp, concrete.webp) are ambientCG Grass005, Ground109 and Concrete034 (CC0).
+The ground textures (turf.webp and its normal map, pitch-soil.webp, pitch-worn.webp) are original seamless images
+made for this project.
 
 The menu backdrops (menu-hero.webp, menu-loft.webp) are original images made for this project; the players in them
 are invented and wear plain kit with no team, sponsor or maker marks.

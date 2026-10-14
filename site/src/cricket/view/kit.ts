@@ -6,6 +6,7 @@
 // body's own surface (cached per body), textured with a canvas per player, all fictional.
 import * as THREE from 'three'
 import type { CricketBody } from '../assets'
+import { receiveVenueShadow, venueShadowUniforms, type VenueShadowUniforms } from './sunshadow'
 
 /** Mask class ids (the mask stores id * 32). */
 export const KIT = { shirt: 1, trim: 2, trousers: 3, headwear: 4, pads: 5, gloves: 6, skin: 7 } as const
@@ -33,13 +34,36 @@ export interface ShirtSpec {
 }
 
 const KIT_FRAGMENT = `#include <map_fragment>
+  int kid = int(floor(texture2D(kitMask, vMapUv).r * 255.0 / 32.0 + 0.5));
   {
-    int kid = int(floor(texture2D(kitMask, vMapUv).r * 255.0 / 32.0 + 0.5));
     if (kid == 7) diffuseColor.rgb *= kitCol[7];
     else if (kid > 0) {
       float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-      diffuseColor.rgb = kitCol[kid] * min(1.7, l / max(kitRef[kid], 0.002));
+      vec3 kc = kitCol[kid];
+      // Dyed cloth in daylight: a touch less saturated than the swatch.
+      kc = mix(vec3(dot(kc, vec3(0.2126, 0.7152, 0.0722))), kc, 0.84);
+      diffuseColor.rgb = kc * min(1.35, l / max(kitRef[kid], 0.002));
+      // Real cloth never reflects all the light: whites stay white in full sun instead of burning out.
+      diffuseColor.rgb = min(diffuseColor.rgb, vec3(0.8));
     }
+  }`
+
+/** Per class: cloth is matte, trim a little shinier, skin soft, the helmet shell glossy (a cap is felt). */
+const KIT_SURFACE = `#include <roughnessmap_fragment>
+  if (kid > 0) {
+    float kr[8] = float[8](1.0, 0.7, 0.58, 0.76, 0.82, 0.6, 0.68, 0.52);
+    roughnessFactor = kr[kid];
+    if (kid == 4 && kitHelmet > 0.5) roughnessFactor = 0.26;
+  }`
+
+const KIT_METAL = `#include <metalnessmap_fragment>
+  if (kid > 0) metalnessFactor = 0.0;`
+
+/** Cloth sheen and skin: a soft rim of sky light at grazing angles (fabric fibres, the light through an ear). */
+const KIT_RIM = `#include <emissivemap_fragment>
+  if (kid > 0 && kid != 4) {
+    float rim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
+    totalEmissiveRadiance += diffuseColor.rgb * rim * (kid == 7 ? 0.35 : 0.22);
   }`
 
 /** One decal patch: the body triangles inside a box on its front or back, with planar UVs into part of the canvas. */
@@ -58,14 +82,22 @@ export class Kits {
   private cache = new Map<string, THREE.CanvasTexture>()
   private decalGeo = new Map<CricketBody, THREE.BufferGeometry | null>()
   private size: number
+  /** Venue shadow taps for the tier (1 on low). */
+  private taps: number
+  /** The venue's baked shadows (set by the game from its stadium). */
+  venue: VenueShadowUniforms = venueShadowUniforms()
 
-  constructor(size = 512) {
+  constructor(size = 512, taps = 5) {
     this.size = size
+    this.taps = taps
   }
 
   /** A body material in a team's kit (a clone of the body's own material, sharing its textures and program). */
-  bodyMaterial(body: CricketBody, src: THREE.MeshStandardMaterial, paint: KitPaint) {
+  bodyMaterial(body: CricketBody, src: THREE.MeshStandardMaterial, paint: KitPaint, helmet = false) {
+    const taps = this.taps
+    const venue = this.venue
     const m = src.clone()
+    m.envMapIntensity = 0.9
     const col = new Array(8).fill(0).map(() => new THREE.Color(1, 1, 1))
     col[KIT.shirt].set(paint.shirt)
     col[KIT.trim].set(paint.trim)
@@ -76,14 +108,19 @@ export class Kits {
     col[KIT.skin].set(paint.skin)
     const refs = new Array(8).fill(0.5).map((v, i) => body.refs[i] || v)
     m.onBeforeCompile = (sh) => {
+      receiveVenueShadow(sh, venue, taps)
       sh.uniforms.kitMask = { value: body.mask }
       sh.uniforms.kitCol = { value: col }
       sh.uniforms.kitRef = { value: refs }
+      sh.uniforms.kitHelmet = { value: helmet ? 1 : 0 }
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform sampler2D kitMask;\nuniform vec3 kitCol[8];\nuniform float kitRef[8];')
+        .replace('#include <common>', '#include <common>\nuniform sampler2D kitMask;\nuniform vec3 kitCol[8];\nuniform float kitRef[8];\nuniform float kitHelmet;')
         .replace('#include <map_fragment>', KIT_FRAGMENT)
+        .replace('#include <roughnessmap_fragment>', KIT_SURFACE)
+        .replace('#include <metalnessmap_fragment>', KIT_METAL)
+        .replace('#include <emissivemap_fragment>', KIT_RIM)
     }
-    m.customProgramCacheKey = () => 'cricket-kit'
+    m.customProgramCacheKey = () => `cricket-kit-${taps}`
     return m
   }
 

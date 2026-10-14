@@ -2,14 +2,17 @@
 // the wicket, a scoreboard in a gap of the ring, sight screens behind both ends, floodlight towers on the diagonals
 // and the pitch roller parked by the rope (all original models made for this project), the game's own ground
 // (mowing stripes, pitch with creases and wear, the 30-yard circle, rope, scrolling boundary boards), an instanced
-// crowd seated on the stands' seats, and sky and lighting for day, dusk and night. Built once per match; the quality
-// tier decides the crowd size and shadows.
+// crowd seated on the stands' seats with flags and fans' banners, and the sky and light for the time of day (see
+// env.ts). The venue's own shadows are baked once from the fixed sun (sunshadow.ts). Built once per match; the quality
+// tier decides the crowd size, the texture sizes and the shadows.
 import * as THREE from 'three'
 import type { CricketAssets } from '../assets'
 import type { QualitySettings } from '../quality'
 import type { PitchType, TimeOfDay } from '../sim/conditions'
 import { Geo } from '../sim/geo'
 import { Crowd, ringSeats } from './crowd'
+import { LOOKS, makeSky, type Look } from './env'
+import { bakeVenueShadow, receiveVenueShadow, venueShadowUniforms, VENUE_LAYER } from './sunshadow'
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0)
 const RX = Geo.BoundarySquare
@@ -32,6 +35,8 @@ export interface StadiumOptions {
   time: TimeOfDay
   quality: QualitySettings
   colors: [string, string]
+  /** The teams' names (the fans' banners). */
+  names?: [string, string]
 }
 
 /** A point on an ellipse scaled from the boundary by `k` (and `extra` metres). */
@@ -89,11 +94,14 @@ function arcSlots(extra: number, step: number, skip: [number, number][], width =
 
 const SPONSORS = ['NORTHWIND AIR', 'KETTLE & CRUMB', 'ZENITH MOBILE', 'PINEWOOD BANK', 'ORBIT COLA', 'HALCYON TYRES', 'LUMEN ENERGY', 'GRAINFIELD', 'VOLT RIOT', 'BOGEY BRAWL', 'SKYLARK TRAVEL', 'IRONLEAF']
 
+const BANNERS = ['GO {A}!', '{A} ARMY', 'SIX PLEASE!', 'COME ON {B}!', 'HOWZAT!', '{B} TILL I DIE', 'WE LOVE CRICKET', 'HIT IT HERE!']
+
 export class Stadium {
   group = new THREE.Group()
   sun: THREE.DirectionalLight
   hemi: THREE.HemisphereLight
   crowd: Crowd
+  look: Look
   private boards: THREE.Mesh[] = []
   private boardTex: THREE.CanvasTexture | null = null
   private boardScroll = 0
@@ -101,41 +109,39 @@ export class Stadium {
   private screenTex: THREE.CanvasTexture
   private opts: StadiumOptions
   /** The venue materials, one per source material (lit for the time of day). */
-  private venueMats: Map<THREE.Material, THREE.MeshStandardMaterial>
+  private venueMats: Map<string, THREE.MeshStandardMaterial>
   private glow: THREE.Color
+  private skyU: ReturnType<typeof makeSky>['uniforms']
+  private flagU = { uTime: { value: 0 } }
+  private wearU = { uWear: { value: 0 } }
+  private wearCanvas: HTMLCanvasElement
+  private wearTex: THREE.CanvasTexture
+  private venueRt: THREE.WebGLRenderTarget | null = null
+  private taps: number
+  /** The venue's baked shadows (the players' kit receives them too). */
+  venueU = venueShadowUniforms()
 
   constructor(assets: CricketAssets, opts: StadiumOptions) {
     this.opts = opts
     const g = this.group
     const night = opts.time === 'night'
-    const dusk = opts.time === 'dusk'
+    const look = (this.look = LOOKS[opts.time])
+    this.taps = opts.quality.venueTaps
 
-    // Sky dome.
-    g.add(this.sky())
+    // Sky dome with clouds.
+    const sky = makeSky(look, opts.quality.tier)
+    this.skyU = sky.uniforms
+    g.add(sky.mesh)
 
-    // Lights.
-    this.hemi = new THREE.HemisphereLight(night ? '#8fa3c8' : dusk ? '#ffd9b8' : '#d9ecff', night ? '#20301c' : '#4a6b2e', night ? 0.75 : dusk ? 1.35 : 1.1)
+    // Lights: the sun (or the floodlights' key) and a little sky fill (the environment map does most of it).
+    this.hemi = new THREE.HemisphereLight(look.hemiSky, look.hemiGround, look.hemiIntensity)
+    this.setAmbient(opts.quality)
     g.add(this.hemi)
-    this.sun = new THREE.DirectionalLight(night ? '#f4f7ff' : dusk ? '#ffc184' : '#fff6e5', night ? 2.2 : dusk ? 2.8 : 2.8)
-    if (night) this.sun.position.set(-40, 90, -30)
-    else if (dusk) this.sun.position.set(-80, 38, 50)
-    else this.sun.position.set(-50, 85, 35)
+    this.sun = new THREE.DirectionalLight(look.sunColor, look.sunIntensity)
+    this.sun.position.copy(look.sunDir).multiplyScalar(120)
     this.sun.target.position.set(0, 0, 0)
     g.add(this.sun, this.sun.target)
-    if (opts.quality.shadows) {
-      this.sun.castShadow = true
-      const s = this.sun.shadow
-      s.mapSize.set(opts.quality.shadowMapSize, opts.quality.shadowMapSize)
-      const half = opts.quality.tier === 'high' ? 45 : 32
-      s.camera.left = -half
-      s.camera.right = half
-      s.camera.top = half
-      s.camera.bottom = -half
-      s.camera.near = 20
-      s.camera.far = 220
-      s.bias = -0.0004
-      s.normalBias = 0.03
-    }
+    this.configureShadow(opts.quality)
     if (night) {
       // Fill from the other towers (no shadows) so players aren't half black.
       const fill = new THREE.DirectionalLight('#e8eeff', 0.9)
@@ -143,12 +149,18 @@ export class Stadium {
       g.add(fill)
     }
 
+    this.wearCanvas = document.createElement('canvas')
+    this.wearCanvas.width = 128
+    this.wearCanvas.height = 1024
+    this.wearTex = new THREE.CanvasTexture(this.wearCanvas)
+    this.wearTex.colorSpace = THREE.NoColorSpace
+
     g.add(this.ground(assets))
     g.add(this.pitchStrip(assets))
     g.add(this.circleMarks())
     g.add(this.rope())
     this.venueMats = new Map()
-    this.glow = new THREE.Color(night ? '#2c3650' : dusk ? '#2a1c12' : '#000000')
+    this.glow = new THREE.Color(look.standGlow)
     g.add(this.adBoards(assets))
     g.add(this.sightScreens(assets))
     const standAngles = arcSlots(STAND_AT + 2, STAND_STEP, [
@@ -157,7 +169,9 @@ export class Stadium {
     ], 40)
     g.add(this.stands(assets, standAngles))
     g.add(this.buildings(assets))
-    this.crowd = new Crowd(standSeats(assets, standAngles, opts.quality.crowd), opts.colors, night)
+    if (opts.quality.tier !== 'low') g.add(this.flags(standAngles))
+    g.add(this.banners(standAngles))
+    this.crowd = new Crowd(standSeats(assets, standAngles, opts.quality.crowd), opts.colors, night, (sh) => receiveVenueShadow(sh, this.venueU, this.taps))
     g.add(this.crowd.mesh)
     g.add(this.floodlightGlow(night))
     this.screenCanvas = document.createElement('canvas')
@@ -169,28 +183,59 @@ export class Stadium {
     this.setScreen(['CRICKET', '', 'Welcome'])
   }
 
-  private sky() {
-    const night = this.opts.time === 'night'
-    const dusk = this.opts.time === 'dusk'
-    const geo = new THREE.SphereGeometry(400, 32, 16)
-    const top = new THREE.Color(night ? '#060b1d' : dusk ? '#2a3a6e' : '#3d7fd6')
-    const mid = new THREE.Color(night ? '#16244a' : dusk ? '#e98b5b' : '#8fc1ef')
-    const bot = new THREE.Color(night ? '#2a3a5c' : dusk ? '#f6c48b' : '#dcecf8')
-    const mat = new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms: { top: { value: top }, mid: { value: mid }, bot: { value: bot }, stars: { value: night ? 1 : 0 } },
-      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform float stars; varying vec3 vDir;
-        float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164))) * 43758.5453); }
-        void main(){ float y = vDir.y; vec3 c = y > 0.12 ? mix(mid, top, smoothstep(0.12, 0.7, y)) : mix(bot, mid, smoothstep(-0.05, 0.12, y));
-          if (stars > 0.5 && y > 0.2) { vec3 q = floor(vDir * 260.0); float s = step(0.9975, h(q)); c += vec3(s) * 0.7 * smoothstep(0.2, 0.5, y); }
-          gl_FragColor = vec4(c, 1.0); }`,
-    })
-    const m = new THREE.Mesh(geo, mat)
-    m.renderOrder = -10
-    m.frustumCulled = false
-    return m
+  /** The sun's shadow map for a quality tier (live: the game calls this when the tier changes). */
+  configureShadow(q: QualitySettings) {
+    this.sun.castShadow = q.shadows
+    if (!q.shadows) return
+    const s = this.sun.shadow
+    if (s.mapSize.x !== q.shadowMapSize) {
+      s.mapSize.set(q.shadowMapSize, q.shadowMapSize)
+      s.map?.dispose()
+      s.map = null
+    }
+    // A tight frustum that the game moves with the play (see Game.followShadow).
+    s.camera.left = s.camera.bottom = -30
+    s.camera.right = s.camera.top = 30
+    s.camera.near = 40
+    s.camera.far = 220
+    s.camera.updateProjectionMatrix()
+    s.bias = -0.0003
+    s.normalBias = 0.025
+    s.radius = q.tier === 'high' ? 3 : 2
+  }
+
+  /** Sky fill for a tier: stronger where there is no environment map to light things. */
+  setAmbient(q: QualitySettings) {
+    this.hemi.intensity = this.look.hemiIntensity + (q.env ? 0 : this.look.envIntensity * 0.9)
+  }
+
+  /** Bakes the venue's shadows (once, after the stadium is in the scene). */
+  bakeShadows(renderer: THREE.WebGLRenderer, scene: THREE.Scene) {
+    if (this.opts.time === 'night') return
+    this.venueRt?.depthTexture?.dispose()
+    this.venueRt?.dispose()
+    this.venueRt = bakeVenueShadow(renderer, scene, this.venueU, this.look.sunDir, this.opts.quality.tier === 'low' ? 1024 : 2048, 125)
+  }
+
+  /** Pitch wear, 0 (a fresh strip) to 1 (the last over of a long match). */
+  setWear(k: number) {
+    this.wearU.uWear.value = THREE.MathUtils.clamp(k, 0, 1)
+  }
+
+  /** A ball mark where a delivery pitched (view x, z in metres). */
+  markPitch(x: number, z: number) {
+    if (Math.abs(x) > 1.5 || Math.abs(z) > 12) return
+    const c = this.wearCanvas
+    const ctx = c.getContext('2d')!
+    const px = ((x + 1.525) / 3.05) * c.width
+    const pz = ((z + 12) / 24) * c.height
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.fillStyle = 'rgba(0,70,0,1)'
+    ctx.beginPath()
+    ctx.ellipse(px, pz, 1.6, 2.6, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalCompositeOperation = 'source-over'
+    this.wearTex.needsUpdate = true
   }
 
   private ground(assets: CricketAssets) {
@@ -200,28 +245,65 @@ export class Stadium {
     // Elliptical: squash x so the boundary oval sits inside.
     geo.scale(RX / RZ, 1, 1)
     geo.scale(1.08, 1, 1.08)
-    const tex = assets.grass.clone()
-    tex.needsUpdate = true
-    tex.repeat.set(26, 26)
-    const mat = new THREE.MeshStandardMaterial({ map: tex, color: night ? '#5f9c4b' : '#6aa64f', roughness: 0.95, metalness: 0 })
+    // UVs in metres (the turf tile is 3.6 m square).
+    const pos = geo.getAttribute('position')
+    const uv = geo.getAttribute('uv')
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 3.6, pos.getZ(i) / 3.6)
+    const map = assets.turf.clone()
+    map.anisotropy = 8
+    map.needsUpdate = true
+    const nrm = assets.turfNormal.clone()
+    nrm.needsUpdate = true
+    const low = this.opts.quality.tier === 'low'
+    // One turf sample and one noise below the high tier.
+    const simple = this.opts.quality.tier !== 'high'
+    const mat = new THREE.MeshStandardMaterial({ map, normalMap: low ? null : nrm, normalScale: new THREE.Vector2(0.55, 0.55), color: night ? '#9bc08a' : '#ffffff', roughness: 0.93, metalness: 0 })
+    // The outfield always takes the stands' shadows (one tap on the low tier).
+    const taps = Math.max(1, this.taps)
+    const venueU = this.venueU
     mat.onBeforeCompile = (sh) => {
+      receiveVenueShadow(sh, venueU, taps)
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldPos;').replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vWorldPos;')
+        .replace(
+          '#include <common>',
+          `#include <common>
+          varying vec3 vWorldPos;
+          float gHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float gNoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }`,
+        )
         .replace(
           '#include <map_fragment>',
-          `#include <map_fragment>
-          float k = sqrt(vWorldPos.x*vWorldPos.x/(${RX.toFixed(1)}*${RX.toFixed(1)}) + vWorldPos.z*vWorldPos.z/(${RZ.toFixed(1)}*${RZ.toFixed(1)}));
-          float stripe = mod(floor((vWorldPos.z + 400.0) / 6.0), 2.0);
-          float cross = mod(floor((vWorldPos.x + 400.0) / 6.0), 2.0);
-          float band = mix(0.9, 1.1, stripe) * mix(0.97, 1.03, cross);
-          float inner = 1.0 - smoothstep(0.98, 1.0, k);
-          diffuseColor.rgb *= mix(0.82, band, inner);
-          // Worn square around the pitch.
-          float sq = (1.0 - smoothstep(9.0, 12.0, abs(vWorldPos.x))) * (1.0 - smoothstep(14.0, 18.0, abs(vWorldPos.z)));
-          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 1.04, 0.9), sq * 0.6);`,
+          `{
+          // Two scales of the turf (no visible tiling), large patches of lighter and darker grass, mowing stripes
+          // that swap light and dark with the view (the blades lean the way the mower went).
+          vec4 t1 = texture2D(map, vMapUv);
+          ${simple ? 'vec3 turf = t1.rgb;' : 'vec3 turf = mix(t1.rgb, texture2D(map, vMapUv * 0.27 + vec2(0.31, 0.57)).rgb, 0.35);'}
+          float lum = dot(turf, vec3(0.2126, 0.7152, 0.0722));
+          turf = mix(vec3(lum), turf, 0.78) * vec3(0.94, 0.98, 0.82);
+          vec2 w = vWorldPos.xz;
+          ${low ? '' : simple ? 'turf *= mix(0.86, 1.1, gNoise(w * 0.06));' : `float macro = gNoise(w * 0.045) * 0.6 + gNoise(w * 0.13) * 0.4;
+          turf *= mix(0.86, 1.1, macro);
+          turf = mix(turf, turf * vec3(1.1, 1.04, 0.78), smoothstep(0.62, 0.9, gNoise(w * 0.07 + 7.0)) * 0.35);`}
+          float k = sqrt(w.x * w.x / (${RX.toFixed(1)} * ${RX.toFixed(1)}) + w.y * w.y / (${RZ.toFixed(1)} * ${RZ.toFixed(1)}));
+          float inner = 1.0 - smoothstep(0.985, 1.0, k);
+          float band = mod(floor((w.x + 400.0) / 4.4), 2.0) * 2.0 - 1.0;
+          float cross = mod(floor((w.y + 400.0) / 8.8), 2.0) * 2.0 - 1.0;
+          vec3 V = cameraPosition - vWorldPos;
+          vec2 look = -normalize(V.xz + vec2(1e-4));
+          float grain = band * look.y;
+          float stripe = 1.0 + inner * (0.085 * grain + 0.035 * band + 0.02 * cross * look.x);
+          turf *= stripe;
+          turf *= mix(0.84, 1.0, inner);
+          // The square: a little paler and drier around the pitch.
+          float sq = (1.0 - smoothstep(8.0, 12.0, abs(w.x))) * (1.0 - smoothstep(13.0, 17.0, abs(w.y)));
+          turf = mix(turf, turf * vec3(1.08, 1.05, 0.86), sq * 0.55);
+          diffuseColor.rgb *= turf;
+          }`,
         )
     }
+    mat.customProgramCacheKey = () => `ground-${taps}-${low ? 'l' : simple ? 's' : 'h'}`
     const m = new THREE.Mesh(geo, mat)
     m.receiveShadow = true
     m.name = 'ground'
@@ -229,77 +311,157 @@ export class Stadium {
   }
 
   private pitchStrip(assets: CricketAssets) {
-    const w = 256
-    const h = 2048
+    const low = this.opts.quality.tier === 'low'
+    const w = low ? 256 : 512
+    const h = w * 8
     const c = document.createElement('canvas')
     c.width = w
     c.height = h
     const x = c.getContext('2d')!
-    // Base: the soil texture, tiled and tinted for the pitch type.
-    const img = assets.pitch.image as CanvasImageSource
-    for (let yy = 0; yy < h; yy += 256) x.drawImage(img, 0, yy, 256, 256)
-    const tint = this.opts.pitch === 'green' ? 'rgba(120,150,70,0.55)' : this.opts.pitch === 'dusty' ? 'rgba(225,190,130,0.45)' : 'rgba(205,190,140,0.35)'
+    const rnd = mulberry(this.opts.pitch === 'green' ? 11 : this.opts.pitch === 'dusty' ? 23 : 37)
+    // Base: the rolled soil, tiled down the strip and tinted for the pitch type.
+    const img = assets.soil.image as CanvasImageSource
+    for (let yy = 0; yy < h; yy += w) x.drawImage(img, 0, yy, w, w)
+    const tint = this.opts.pitch === 'green' ? 'rgba(112,140,66,0.42)' : this.opts.pitch === 'dusty' ? 'rgba(232,196,140,0.32)' : 'rgba(210,192,150,0.16)'
     x.fillStyle = tint
+    x.fillRect(0, 0, w, h)
+    // Live grass creeping in at the edges and in thin patches (more on a green top).
+    const grassy = this.opts.pitch === 'green' ? 1 : this.opts.pitch === 'dusty' ? 0.25 : 0.55
+    for (let i = 0; i < 2600 * grassy; i++) {
+      const edge = rnd() < 0.65
+      const gx = edge ? (rnd() < 0.5 ? rnd() * w * 0.09 : w - rnd() * w * 0.09) : rnd() * w
+      const gy = rnd() * h
+      x.fillStyle = `rgba(${70 + rnd() * 40},${105 + rnd() * 40},${40 + rnd() * 20},${edge ? 0.35 : 0.12})`
+      x.fillRect(gx, gy, 1 + rnd() * 2, 2 + rnd() * 5)
+    }
+    const eg = x.createLinearGradient(0, 0, w, 0)
+    eg.addColorStop(0, 'rgba(84,120,52,0.55)')
+    eg.addColorStop(0.05, 'rgba(84,120,52,0.0)')
+    eg.addColorStop(0.95, 'rgba(84,120,52,0.0)')
+    eg.addColorStop(1, 'rgba(84,120,52,0.55)')
+    x.fillStyle = eg
     x.fillRect(0, 0, w, h)
     if (this.opts.pitch === 'dusty') {
       // Cracks.
       x.strokeStyle = 'rgba(90,60,30,0.45)'
-      x.lineWidth = 1
-      for (let i = 0; i < 90; i++) {
-        let px = Math.random() * w
-        let py = Math.random() * h
+      x.lineWidth = w / 256
+      for (let i = 0; i < 120; i++) {
+        let px = rnd() * w
+        let py = rnd() * h
         x.beginPath()
         x.moveTo(px, py)
-        for (let k = 0; k < 5; k++) {
-          px += (Math.random() - 0.5) * 30
-          py += (Math.random() - 0.5) * 30
+        for (let k = 0; k < 6; k++) {
+          px += (rnd() - 0.5) * w * 0.12
+          py += (rnd() - 0.5) * w * 0.12
           x.lineTo(px, py)
         }
         x.stroke()
       }
     }
-    // Slight sheen down the middle.
+    // The roller's sheen down the middle.
     const grd = x.createLinearGradient(0, 0, w, 0)
-    grd.addColorStop(0, 'rgba(0,0,0,0.12)')
-    grd.addColorStop(0.5, 'rgba(255,255,255,0.06)')
-    grd.addColorStop(1, 'rgba(0,0,0,0.12)')
+    grd.addColorStop(0, 'rgba(0,0,0,0.1)')
+    grd.addColorStop(0.5, 'rgba(255,248,230,0.07)')
+    grd.addColorStop(1, 'rgba(0,0,0,0.1)')
     x.fillStyle = grd
     x.fillRect(0, 0, w, h)
-    // Creases. The strip is 3.05 m x 24 m: 1 m = 256/3.05 px across, 2048/24 px along.
+    // Creases: crisp paint with a scuffed edge. The strip is 3.05 m x 24 m.
     const L = 24
     const pz = (z: number) => ((z + L / 2) / L) * h
     const px = (xm: number) => ((xm + 3.05 / 2) / 3.05) * w
-    x.fillStyle = 'rgba(255,255,255,0.92)'
+    const line = w / 64
+    const paint = (x0: number, y0: number, ww: number, hh: number) => {
+      x.fillStyle = 'rgba(250,250,246,0.95)'
+      x.fillRect(x0, y0, ww, hh)
+      x.fillStyle = 'rgba(160,140,110,0.5)'
+      for (let i = 0; i < (ww * hh) / 18; i++) x.fillRect(x0 + rnd() * ww, y0 + rnd() * hh, 1, 1)
+    }
     for (const end of [-1, 1]) {
       const stumpsZ = end * Geo.HalfPitch
       const popZ = stumpsZ - end * Geo.CreaseDepth
       // Bowling crease (2.64 m wide), popping crease (full width), return creases.
-      x.fillRect(px(-1.32), pz(stumpsZ) - 2, px(1.32) - px(-1.32), 4)
-      x.fillRect(0, pz(popZ) - 2, w, 4)
-      for (const s of [-1.32, 1.32]) x.fillRect(px(s) - 2, Math.min(pz(popZ), pz(stumpsZ + end * 0.6)), 4, Math.abs(pz(stumpsZ + end * 0.6) - pz(popZ)))
-      // Footmarks and the bowlers' scuffs.
-      x.fillStyle = 'rgba(70,50,30,0.35)'
-      for (let i = 0; i < 70; i++) {
-        const fx = px((Math.random() - 0.5) * 1.6)
-        const fz = pz(popZ + end * (0.3 + Math.random() * 1.8))
-        x.beginPath()
-        x.ellipse(fx, fz, 5 + Math.random() * 6, 8 + Math.random() * 10, 0, 0, Math.PI * 2)
-        x.fill()
-      }
-      x.fillStyle = 'rgba(255,255,255,0.92)'
+      paint(px(-1.32), pz(stumpsZ) - line / 2, px(1.32) - px(-1.32), line)
+      paint(0, pz(popZ) - line / 2, w, line)
+      for (const s of [-1.32, 1.32]) paint(px(s) - line / 2, Math.min(pz(popZ), pz(stumpsZ + end * 0.6)), line, Math.abs(pz(stumpsZ + end * 0.6) - pz(popZ)))
     }
     // Wide guide lines (limited overs).
-    x.fillStyle = 'rgba(255,255,255,0.7)'
     for (const end of [-1, 1]) {
       const popZ = end * (Geo.HalfPitch - Geo.CreaseDepth)
-      for (const s of [-(Geo.WideLineOff + 0.0), Geo.WideLineOff]) x.fillRect(px(s) - 1, pz(popZ) - (end > 0 ? 18 : -2), 2, 16)
+      for (const s of [-Geo.WideLineOff, Geo.WideLineOff]) paint(px(s) - line / 3, pz(popZ) - (end > 0 ? w / 14 : -w / 128), (line * 2) / 3, w / 16)
     }
     const tex = new THREE.CanvasTexture(c)
     tex.colorSpace = THREE.SRGBColorSpace
     tex.anisotropy = 8
+
+    // Where the strip wears (red: footholds and the bowlers' rough, by how early each spot goes; green: ball marks).
+    const wx = this.wearCanvas.getContext('2d')!
+    wx.fillStyle = '#000'
+    wx.fillRect(0, 0, 128, 1024)
+    const mz = (z: number) => ((z + 12) / 24) * 1024
+    const mx = (xm: number) => ((xm + 1.525) / 3.05) * 128
+    const blob = (cx: number, cz: number, rx: number, rz: number, v: number) => {
+      const gg = wx.createRadialGradient(mx(cx), mz(cz), 0, mx(cx), mz(cz), 1)
+      gg.addColorStop(0, `rgba(${v},0,0,1)`)
+      gg.addColorStop(1, 'rgba(0,0,0,0)')
+      wx.save()
+      wx.translate(mx(cx), mz(cz))
+      wx.scale((rx / 3.05) * 128, (rz / 24) * 1024)
+      wx.translate(-mx(cx), -mz(cz))
+      wx.fillStyle = gg
+      wx.globalCompositeOperation = 'lighter'
+      wx.beginPath()
+      wx.arc(mx(cx), mz(cz), 1, 0, Math.PI * 2)
+      wx.fill()
+      wx.restore()
+    }
+    for (const end of [-1, 1]) {
+      const popZ = end * (Geo.HalfPitch - Geo.CreaseDepth)
+      // The batter's guard and the bowler's landing either side of the stumps.
+      blob(0.05, popZ + end * 0.25, 0.45, 0.9, 150)
+      for (const side of [-0.55, 0.55]) blob(side, popZ - end * 0.1, 0.4, 0.9, 120)
+      // The rough outside the right-hander's off stump and the left-hander's (from the follow-through).
+      for (let i = 0; i < 26; i++) {
+        const side = rnd() < 0.6 ? -1 : 1
+        blob(side * (0.55 + rnd() * 0.75), popZ + end * (0.6 + rnd() * 3.2), 0.12 + rnd() * 0.2, 0.25 + rnd() * 0.35, 40 + rnd() * 70)
+      }
+      // Scuffs all over the ends.
+      for (let i = 0; i < 40; i++) blob((rnd() - 0.5) * 2.4, popZ + end * (rnd() * 4.5 - 0.6), 0.08 + rnd() * 0.12, 0.12 + rnd() * 0.2, 20 + rnd() * 50)
+    }
+    this.wearTex.needsUpdate = true
+    const worn = assets.worn.clone()
+    worn.needsUpdate = true
+    worn.wrapS = worn.wrapT = THREE.RepeatWrapping
     const geo = new THREE.PlaneGeometry(3.05, L)
     geo.rotateX(-Math.PI / 2)
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
+    const mat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 1.2, roughness: 0.86, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+    const wearU = this.wearU
+    const wearTex = this.wearTex
+    const taps = this.taps
+    const venueU = this.venueU
+    mat.onBeforeCompile = (sh) => {
+      receiveVenueShadow(sh, venueU, taps)
+      Object.assign(sh.uniforms, wearU, { uWearMask: { value: wearTex }, uWorn: { value: worn } })
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uWear;\nuniform sampler2D uWearMask;\nuniform sampler2D uWorn;')
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          float wearSpot = 0.0;
+          {
+            vec2 wm = texture2D(uWearMask, vMapUv).rg;
+            // Footholds deepen and spread as the match goes on: the earliest spots first.
+            float go = 1.0 - (0.42 + uWear * 0.55);
+            wearSpot = smoothstep(go, go + 0.3, wm.r) * (0.55 + 0.45 * uWear);
+            vec3 worn = texture2D(uWorn, vMapUv * vec2(1.0, 7.87)).rgb;
+            diffuseColor.rgb = mix(diffuseColor.rgb, worn * vec3(0.9, 0.84, 0.78), wearSpot);
+            diffuseColor.rgb *= 1.0 - wm.g * 0.35;
+            diffuseColor.rgb *= 1.0 - uWear * 0.05;
+          }`,
+        )
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = min(1.0, roughnessFactor + wearSpot * 0.12);')
+    }
+    mat.customProgramCacheKey = () => `pitch-${taps}`
+    const m = new THREE.Mesh(geo, mat)
     m.position.y = 0.005
     m.receiveShadow = true
     m.name = 'pitch'
@@ -319,41 +481,113 @@ export class Stadium {
     }
     const disc = new THREE.CircleGeometry(0.14, 8)
     disc.rotateX(-Math.PI / 2)
-    const m = new THREE.InstancedMesh(disc, new THREE.MeshBasicMaterial({ color: '#f8fafc', transparent: true, opacity: 0.85 }), pts.length)
+    const m = new THREE.InstancedMesh(disc, new THREE.MeshStandardMaterial({ color: '#f4f4ee', roughness: 0.8, transparent: true, opacity: 0.9 }), pts.length)
+    m.receiveShadow = true
     const mat = new THREE.Matrix4()
     pts.forEach((p, i) => m.setMatrixAt(i, mat.makeTranslation(p.x, 0.02, p.z)))
     return m
   }
 
+  /** The boundary: a padded cushion (a low triangular profile) in the home colour with a white stripe. */
   private rope() {
-    const pts: THREE.Vector3[] = []
-    for (let i = 0; i <= 200; i++) pts.push(ellipse((i / 200) * Math.PI * 2, 0).setY(0.07))
-    const curve = new THREE.CatmullRomCurve3(pts, true)
-    const geo = new THREE.TubeGeometry(curve, 400, 0.09, 6, true)
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: this.opts.colors[0], roughness: 0.5, emissive: this.opts.colors[0], emissiveIntensity: 0.15 }))
-    m.castShadow = false
+    const n = 400
+    const P: number[] = []
+    const UV: number[] = []
+    const idx: number[] = []
+    const prof: [number, number, number][] = [
+      [-0.22, 0.0, 0],
+      [-0.03, 0.2, 0.45],
+      [0.03, 0.2, 0.55],
+      [0.22, 0.0, 1],
+    ]
+    let u = 0
+    let prev = ellipse(0)
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2
+      const p = ellipse(a)
+      u += p.distanceTo(prev)
+      prev = p
+      const nx = Math.sin(a) / RX
+      const nz = Math.cos(a) / RZ
+      const l = Math.hypot(nx, nz)
+      for (const [o, y, v] of prof) {
+        P.push(p.x + (nx / l) * o, y, p.z + (nz / l) * o)
+        UV.push(u / 6, v)
+      }
+      if (i < n) {
+        const k = i * 4
+        for (let j = 0; j < 3; j++) idx.push(k + j, k + j + 4, k + j + 1, k + j + 1, k + j + 4, k + j + 5)
+      }
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3))
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2))
+    geo.setIndex(idx)
+    geo.computeVertexNormals()
+    const c = document.createElement('canvas')
+    c.width = 256
+    c.height = 32
+    const x = c.getContext('2d')!
+    x.fillStyle = this.opts.colors[0]
+    x.fillRect(0, 0, 256, 32)
+    x.fillStyle = 'rgba(255,255,255,0.92)'
+    x.fillRect(0, 13, 256, 6)
+    x.fillStyle = 'rgba(0,0,0,0.25)'
+    x.fillRect(0, 0, 256, 3)
+    x.fillRect(0, 29, 256, 3)
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.wrapS = THREE.RepeatWrapping
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, side: THREE.DoubleSide }))
+    m.receiveShadow = true
+    m.name = 'rope'
     return m
   }
 
   private adBoards(assets: CricketAssets) {
     const c = document.createElement('canvas')
-    c.width = 2048
-    c.height = 64
+    c.width = 4096
+    c.height = 128
     const x = c.getContext('2d')!
-    const palette = ['#0f172a', '#7c2d12', '#064e3b', '#1e3a8a', '#581c87', '#831843']
+    const palette: [string, string, string][] = [
+      ['#0b1b3d', '#1d4ed8', '#f8fafc'],
+      ['#7c1d0a', '#ea580c', '#fff7ed'],
+      ['#053b2c', '#10b981', '#ecfdf5'],
+      ['#f8fafc', '#e2e8f0', '#0f172a'],
+      ['#3b0764', '#9333ea', '#fdf4ff'],
+      ['#facc15', '#fde047', '#1c1917'],
+    ]
     const seg = c.width / 6
     for (let i = 0; i < 6; i++) {
-      x.fillStyle = palette[i % palette.length]
-      x.fillRect(i * seg, 0, seg, 64)
-      x.fillStyle = i % 2 ? '#fde68a' : '#f8fafc'
-      x.font = 'bold 34px system-ui, sans-serif'
+      const [a, b, ink] = palette[i]
+      const gr = x.createLinearGradient(i * seg, 0, i * seg + seg, 0)
+      gr.addColorStop(0, a)
+      gr.addColorStop(0.5, b)
+      gr.addColorStop(1, a)
+      x.fillStyle = gr
+      x.fillRect(i * seg, 0, seg, 128)
+      // A simple mark and the name.
+      const name = SPONSORS[(i * 2) % SPONSORS.length]
+      x.font = '900 70px system-ui, sans-serif'
+      const tw = x.measureText(name).width
+      const cx = i * seg + seg / 2 + 40
+      x.fillStyle = ink
+      x.beginPath()
+      if (i % 3 === 0) x.arc(cx - tw / 2 - 60, 64, 30, 0, Math.PI * 2)
+      else if (i % 3 === 1) {
+        x.moveTo(cx - tw / 2 - 90, 94)
+        x.lineTo(cx - tw / 2 - 60, 34)
+        x.lineTo(cx - tw / 2 - 30, 94)
+      } else x.rect(cx - tw / 2 - 88, 36, 56, 56)
+      x.fill()
       x.textAlign = 'center'
       x.textBaseline = 'middle'
-      x.fillText(SPONSORS[(i * 2) % SPONSORS.length], i * seg + seg / 2, 33)
+      x.fillText(name, cx, 68)
     }
     const tex = new THREE.CanvasTexture(c)
     tex.colorSpace = THREE.SRGBColorSpace
     tex.wrapS = THREE.RepeatWrapping
+    tex.anisotropy = 8
     // The ribbon runs anticlockwise, so flip the texture to read the right way from the field.
     tex.repeat.x = -1
     this.boardTex = tex
@@ -370,7 +604,7 @@ export class Stadium {
     for (let i = 0; i <= n; i++) {
       const a = (i / n) * Math.PI * 2
       const p = ellipse(a, BOARDS_AT)
-      if (i > 0) u += p.distanceTo(ellipse(((i - 1) / n) * Math.PI * 2, BOARDS_AT)) / 24
+      if (i > 0) u += p.distanceTo(ellipse(((i - 1) / n) * Math.PI * 2, BOARDS_AT)) / 30
       positions.push(p.x, y0, p.z, p.x, hgt, p.z)
       uvs.push(u, 0, u, 1)
       if (i < n) {
@@ -384,7 +618,8 @@ export class Stadium {
     geo.setIndex(idx)
     geo.computeVertexNormals()
     const night = this.opts.time === 'night'
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: night ? 0.9 : 0.35, side: THREE.DoubleSide, roughness: 0.6 }))
+    // LED panels: they glow by themselves, enough to read in full sun.
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#202020', map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: night ? 0.9 : 0.75, side: THREE.DoubleSide, roughness: 0.35 }))
     this.boards.push(m)
     // The boards themselves (frames and legs), one every board length round the ribbon, faces on its line.
     const g = new THREE.Group()
@@ -409,10 +644,12 @@ export class Stadium {
 
   private sightScreens(assets: CricketAssets) {
     const g = new THREE.Group()
+    // White behind the red ball by day and at dusk; black for the white ball under lights.
+    const white = this.opts.time !== 'night'
     for (const end of [-1, 1]) {
       // Two screens side by side behind each end, faces towards the far stumps.
       for (const side of [-1, 1]) {
-        const m = this.venueClone(assets.sightScreen)
+        const m = this.venueClone(assets.sightScreen, white ? 'white' : '')
         m.position.set(side * 4.56, 0, end * (RZ + 5.5))
         m.rotation.y = end > 0 ? Math.PI : 0
         g.add(m)
@@ -422,34 +659,40 @@ export class Stadium {
   }
 
   /** A venue material for a model's material (shared per source): lit for the time of day. */
-  private venueMaterial(src: THREE.Material) {
-    const hit = this.venueMats.get(src)
+  private venueMaterial(src: THREE.Material, variant = '') {
+    const key = `${src.uuid}-${variant}`
+    const hit = this.venueMats.get(key)
     if (hit) return hit
-    const night = this.opts.time === 'night'
-    const dusk = this.opts.time === 'dusk'
     const mat = (src as THREE.MeshStandardMaterial).clone()
-    mat.metalness = Math.min(mat.metalness, 0.3)
-    mat.envMapIntensity = 0.6
+    mat.metalness = Math.min(mat.metalness, 0.6)
+    mat.envMapIntensity = 0.8
     const glow = this.glow
-    // The stands catch the floodlights at night (a flat lift on the surface colour).
+    const taps = this.taps
+    const venueU = this.venueU
+    const white = variant === 'white'
+    // The stands catch the floodlights at night (a flat lift on the surface colour), the roofs' shadows by day.
     mat.onBeforeCompile = (sh) => {
+      receiveVenueShadow(sh, venueU, taps)
       sh.uniforms.uGlow = { value: glow }
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uGlow;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * diffuseColor.rgb;')
+      // The sight screen's dark panels painted white (the frame keeps its colour).
+      if (white) sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n{ float l = dot(diffuseColor.rgb, vec3(0.333)); diffuseColor.rgb = mix(vec3(0.82, 0.83, 0.84), diffuseColor.rgb, smoothstep(0.035, 0.12, l)); }')
     }
-    mat.customProgramCacheKey = () => `venue-${night ? 'n' : dusk ? 'd' : 'y'}`
-    this.venueMats.set(src, mat)
+    mat.customProgramCacheKey = () => `venue-${this.opts.time}-${taps}-${variant}`
+    this.venueMats.set(key, mat)
     return mat
   }
 
-  /** A copy of a venue model with venue materials, no shadows (the shadow map only covers the field). */
-  private venueClone(src: THREE.Object3D) {
+  /** A copy of a venue model with venue materials. It casts into the venue's baked shadows, not the play's. */
+  private venueClone(src: THREE.Object3D, variant = '') {
     const o = src.clone()
     o.traverse((c) => {
       const m = c as THREE.Mesh
       if (!m.isMesh) return
-      m.material = this.venueMaterial(m.material as THREE.Material)
+      m.material = this.venueMaterial(m.material as THREE.Material, variant)
       m.castShadow = false
       m.receiveShadow = false
+      m.layers.enable(VENUE_LAYER)
       m.userData.shared = true
     })
     return o
@@ -464,6 +707,7 @@ export class Stadium {
     const mat4 = new THREE.Matrix4()
     angles.forEach((a, i) => m.setMatrixAt(i, mat4.compose(ellipse(a, STAND_AT), q.setFromAxisAngle(Y_AXIS, inwardYaw(a, STAND_AT)), one)))
     m.computeBoundingSphere()
+    m.layers.enable(VENUE_LAYER)
     m.userData.shared = true
     return m
   }
@@ -487,6 +731,132 @@ export class Stadium {
     roller.rotation.y = inwardYaw(ra, BOARDS_AT) + Math.PI / 2
     g.add(roller)
     return g
+  }
+
+  /** Flags on poles along the back of the stands' roofs, rippling in the breeze (teams' colours and white). */
+  private flags(angles: number[]) {
+    const g = new THREE.Group()
+    const spots: THREE.Matrix4[] = []
+    const q = new THREE.Quaternion()
+    const one = new THREE.Vector3(1, 1, 1)
+    angles.forEach((a, i) => {
+      if (i % 2) return
+      const base = new THREE.Matrix4().compose(ellipse(a, STAND_AT), q.setFromAxisAngle(Y_AXIS, inwardYaw(a, STAND_AT)), one)
+      for (const sx of [-17, 17]) spots.push(new THREE.Matrix4().makeTranslation(sx, 18, -15).premultiply(base))
+    })
+    const pole = new THREE.CylinderGeometry(0.06, 0.08, 6, 6)
+    pole.translate(0, 3, 0)
+    const poles = new THREE.InstancedMesh(pole, new THREE.MeshStandardMaterial({ color: '#d4d8de', metalness: 0.7, roughness: 0.35 }), spots.length)
+    const cloth = new THREE.PlaneGeometry(3, 1.9, 10, 4)
+    cloth.translate(1.5, 5.0, 0)
+    const flags = new THREE.InstancedMesh(cloth, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.8 }), spots.length)
+    const u = this.flagU
+    ;(flags.material as THREE.MeshStandardMaterial).onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, u)
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float ph = instanceMatrix[3][0] * 0.37 + instanceMatrix[3][2] * 0.11;
+        float k = clamp(position.x / 3.0, 0.0, 1.0);
+        transformed.z += sin(position.x * 2.1 - uTime * 6.0 + ph) * 0.22 * k + sin(position.y * 3.0 - uTime * 4.3 + ph) * 0.06 * k;
+        transformed.y -= k * k * 0.15;`,
+      )
+    }
+    // Every flag streams the same way (the wind), whatever its stand's facing.
+    const wind = Math.atan2(0.6, 0.8)
+    const cols = [this.opts.colors[0], this.opts.colors[1], '#f8fafc']
+    const col = new THREE.Color()
+    const p = new THREE.Vector3()
+    const m4 = new THREE.Matrix4()
+    spots.forEach((s, i) => {
+      p.setFromMatrixPosition(s)
+      poles.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z))
+      flags.setMatrixAt(i, m4.compose(p, q.setFromAxisAngle(Y_AXIS, wind), one))
+      flags.setColorAt(i, col.set(cols[i % cols.length]))
+    })
+    g.add(poles, flags)
+    return g
+  }
+
+  /** Fans' banners hung on the front of the lower tier (original slogans in the teams' names). */
+  private banners(angles: number[]) {
+    const names = this.opts.names ?? ['HOME', 'AWAY']
+    const c = document.createElement('canvas')
+    c.width = 1024
+    c.height = 512
+    const x = c.getContext('2d')!
+    const cloth = ['#f8fafc', this.opts.colors[0], '#facc15', this.opts.colors[1], '#111827', '#f8fafc', '#dc2626', '#0ea5e9']
+    for (let i = 0; i < 8; i++) {
+      const bx = (i % 2) * 512
+      const by = Math.floor(i / 2) * 128
+      x.fillStyle = cloth[i]
+      x.fillRect(bx + 4, by + 4, 504, 120)
+      const dark = ['#f8fafc', '#facc15', '#0ea5e9'].includes(cloth[i])
+      x.fillStyle = dark ? '#111827' : '#f8fafc'
+      const text = BANNERS[i].replace('{A}', names[0].toUpperCase()).replace('{B}', names[1].toUpperCase())
+      let size = 64
+      x.font = `900 ${size}px system-ui, sans-serif`
+      const tw = x.measureText(text).width
+      if (tw > 470) {
+        size = Math.floor((size * 470) / tw)
+        x.font = `900 ${size}px system-ui, sans-serif`
+      }
+      x.textAlign = 'center'
+      x.textBaseline = 'middle'
+      x.fillText(text, bx + 256, by + 66)
+    }
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = 4
+    const P: number[] = []
+    const UV: number[] = []
+    const N: number[] = []
+    const idx: number[] = []
+    const rnd = mulberry(91)
+    const q = new THREE.Quaternion()
+    const one = new THREE.Vector3(1, 1, 1)
+    const v = new THREE.Vector3()
+    const nrm = new THREE.Vector3()
+    angles.forEach((a) => {
+      const base = new THREE.Matrix4().compose(ellipse(a, STAND_AT), q.setFromAxisAngle(Y_AXIS, inwardYaw(a, STAND_AT)), one)
+      nrm.set(0, 0, 1).applyQuaternion(q)
+      const count = 1 + Math.floor(rnd() * 2)
+      for (let k = 0; k < count; k++) {
+        const tile = Math.floor(rnd() * 8)
+        const cx = -14 + rnd() * 28
+        const w = 3.6
+        const h = 0.9
+        const y0 = 1.25 + rnd() * 0.15
+        const u0 = (tile % 2) * 0.5
+        const v1 = 1 - Math.floor(tile / 2) * 0.25
+        const n0 = P.length / 3
+        for (const [lx, ly, uu, vv] of [
+          [cx - w / 2, y0, u0, v1 - 0.25],
+          [cx + w / 2, y0, u0 + 0.5, v1 - 0.25],
+          [cx + w / 2, y0 + h, u0 + 0.5, v1],
+          [cx - w / 2, y0 + h, u0, v1],
+        ]) {
+          v.set(lx, ly, 0.06).applyMatrix4(base)
+          P.push(v.x, v.y, v.z)
+          UV.push(uu, vv)
+          N.push(nrm.x, nrm.y, nrm.z)
+        }
+        idx.push(n0, n0 + 1, n0 + 2, n0, n0 + 2, n0 + 3)
+      }
+    })
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3))
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3))
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2))
+    geo.setIndex(idx)
+    const taps = this.taps
+    const venueU = this.venueU
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
+    mat.onBeforeCompile = (sh) => receiveVenueShadow(sh, venueU, taps)
+    mat.customProgramCacheKey = () => `banner-${taps}`
+    const m = new THREE.Mesh(geo, mat)
+    m.name = 'banners'
+    return m
   }
 
   private floodlightGlow(night: boolean) {
@@ -518,18 +888,23 @@ export class Stadium {
   setScreen(lines: string[]) {
     const c = this.screenCanvas
     const x = c.getContext('2d')!
-    x.fillStyle = '#05070d'
+    const bg = x.createLinearGradient(0, 0, 0, c.height)
+    bg.addColorStop(0, '#0b1222')
+    bg.addColorStop(1, '#04060c')
+    x.fillStyle = bg
     x.fillRect(0, 0, c.width, c.height)
     x.fillStyle = this.opts.colors[0]
-    x.fillRect(0, 0, c.width, 8)
+    x.fillRect(0, 0, c.width, 10)
+    x.fillStyle = this.opts.colors[1]
+    x.fillRect(0, c.height - 6, c.width, 6)
     x.textAlign = 'center'
     x.fillStyle = '#f8fafc'
-    x.font = 'bold 64px system-ui, sans-serif'
+    x.font = 'bold 68px system-ui, sans-serif'
     x.fillText(lines[0] ?? '', c.width / 2, 92)
-    x.font = '600 38px system-ui, sans-serif'
+    x.font = '600 40px system-ui, sans-serif'
     x.fillStyle = '#fde68a'
     x.fillText(lines[1] ?? '', c.width / 2, 160)
-    x.font = '32px system-ui, sans-serif'
+    x.font = '34px system-ui, sans-serif'
     x.fillStyle = '#cbd5e1'
     x.fillText(lines[2] ?? '', c.width / 2, 216)
     this.screenTex.needsUpdate = true
@@ -537,6 +912,8 @@ export class Stadium {
 
   update(dt: number) {
     this.crowd.update(dt)
+    this.skyU.uTime.value += dt
+    this.flagU.uTime.value += dt
     if (this.boardTex) {
       this.boardScroll += dt * 0.02
       this.boardTex.offset.x = this.boardScroll
@@ -544,6 +921,10 @@ export class Stadium {
   }
 
   dispose() {
+    this.venueU.uVenueOn.value = 0
+    this.venueRt?.depthTexture?.dispose()
+    this.venueRt?.dispose()
+    this.wearTex.dispose()
     this.group.traverse((o) => {
       const m = o as THREE.Mesh
       // The models' geometry belongs to the shared assets; everything else is this stadium's own.
@@ -554,6 +935,18 @@ export class Stadium {
       if (Array.isArray(mat)) mat.forEach((x) => x.dispose())
       else mat?.dispose()
     })
+  }
+}
+
+/** A small seeded random (the pitch and banners look the same for everyone in a match). */
+function mulberry(seed: number) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
 

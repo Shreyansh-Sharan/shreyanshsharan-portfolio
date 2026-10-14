@@ -19,12 +19,16 @@ export interface QualitySettings {
   lodDistance: number
   /** Stadium detail: roofs, floodlight towers' lamps, extra stand tiers. */
   detail: number
+  /** Sky environment map (image-based ambient light and reflections); off on low, where the sky fill does it. */
+  env: boolean
+  /** Taps of the venue's baked shadow (0: only the outfield gets it, one tap). */
+  venueTaps: number
 }
 
 export const QUALITY: Record<QualityTier, QualitySettings> = {
-  low: { tier: 'low', dpr: 1, shadows: false, shadowMapSize: 1024, crowd: 2200, post: false, antialias: false, lodDistance: 0, detail: 0 },
-  medium: { tier: 'medium', dpr: 1.25, shadows: true, shadowMapSize: 1024, crowd: 6000, post: false, antialias: true, lodDistance: 35, detail: 1 },
-  high: { tier: 'high', dpr: 2, shadows: true, shadowMapSize: 2048, crowd: 12000, post: true, antialias: true, lodDistance: 70, detail: 2 },
+  low: { tier: 'low', dpr: 1, shadows: false, shadowMapSize: 1024, crowd: 2200, post: false, antialias: false, lodDistance: 0, detail: 0, env: false, venueTaps: 0 },
+  medium: { tier: 'medium', dpr: 1.25, shadows: true, shadowMapSize: 1024, crowd: 6000, post: false, antialias: true, lodDistance: 35, detail: 1, env: true, venueTaps: 1 },
+  high: { tier: 'high', dpr: 2, shadows: true, shadowMapSize: 2048, crowd: 12000, post: true, antialias: true, lodDistance: 70, detail: 2, env: true, venueTaps: 5 },
 }
 
 const KEY = 'cricket-quality'

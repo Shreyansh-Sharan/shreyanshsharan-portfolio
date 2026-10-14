@@ -36,7 +36,7 @@ const PITCHES: { id: PitchType; label: string }[] = [
 ]
 const TIMES: { id: TimeOfDay; label: string }[] = [
   { id: 'day', label: 'Day' },
-  { id: 'dusk', label: 'Dusk' },
+  { id: 'dusk', label: 'Golden hour' },
   { id: 'night', label: 'Night' },
 ]
 
@@ -76,7 +76,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
   const [skill, setSkill] = useState(() => Number(stored('cricket-diff', '1')))
   const [netsBowling, setNetsBowling] = useState<NetsBowling>(() => (q.get('bowling') as NetsBowling) || (stored('cricket-nets-bowling', 'mixed') as NetsBowling))
   const [pitch, setPitch] = useState<PitchType>(() => (q.get('pitch') as PitchType) || (stored('cricket-pitch', 'flat') as PitchType))
-  const [time, setTime] = useState<TimeOfDay>(() => (q.get('time') as TimeOfDay) || (stored('cricket-time', 'night') as TimeOfDay))
+  const [time, setTime] = useState<TimeOfDay>(() => (q.get('time') as TimeOfDay) || (stored('cricket-tod', 'day') as TimeOfDay))
   const [quality, setQuality] = useState<QualityTier | 'auto'>(savedQuality)
   const [code, setCode] = useState((join ?? '').toUpperCase())
   const [error, setError] = useState<string | null>(null)
@@ -107,7 +107,7 @@ export function Cricket({ join, auto, onAccent }: { join?: string; auto?: boolea
     store('cricket-opp', opp)
     store('cricket-diff', String(skill))
     store('cricket-pitch', pitch)
-    store('cricket-time', time)
+    store('cricket-tod', time)
   }
 
   const startQuick = () => {

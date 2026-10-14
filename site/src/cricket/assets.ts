@@ -6,7 +6,8 @@
 //    helmet, pads, gloves or skin; the reference tones are in the material's extras);
 //  - bat, ball, stumps (one stump and one bail), and the venue: a grandstand section, the pavilion, sight screens,
 //    the scoreboard, boundary boards, floodlight towers and a pitch roller;
-//  - grass.webp, pitch.webp, concrete.webp: ambientCG Grass005, Ground109 and Concrete034 (CC0).
+//  - turf.webp (+ its normal map), pitch-soil.webp, pitch-worn.webp: original seamless ground textures made for this
+//    project (the outfield's mown ryegrass, the rolled pitch, the scuffed footholds).
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
@@ -43,9 +44,10 @@ export interface CricketAssets {
   adBoardFace: number[]
   floodlight: THREE.Object3D
   roller: THREE.Object3D
-  grass: THREE.Texture
-  pitch: THREE.Texture
-  concrete: THREE.Texture
+  turf: THREE.Texture
+  turfNormal: THREE.Texture
+  soil: THREE.Texture
+  worn: THREE.Texture
 }
 
 const base = `${import.meta.env.BASE_URL}cricket/`
@@ -96,16 +98,16 @@ function extras(root: THREE.Object3D, key: string): number[] {
 export function loadCricketAssets(onProgress?: (done: number, total: number) => void): Promise<CricketAssets> {
   if (pending) return pending
   const bodyKinds = Object.keys(BODY_FILES) as BodyKind[]
-  const total = bodyKinds.length * 2 + 13
+  const total = bodyKinds.length * 2 + 14
   let done = 0
   const tick = () => onProgress?.(++done, total)
   const texLoader = new THREE.TextureLoader()
   const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-  const tex = (name: string) =>
+  const tex = (name: string, linear = false) =>
     texLoader
       .loadAsync(base + name)
       .then((t) => {
-        t.colorSpace = THREE.SRGBColorSpace
+        t.colorSpace = linear ? THREE.NoColorSpace : THREE.SRGBColorSpace
         t.wrapS = t.wrapT = THREE.RepeatWrapping
         t.anisotropy = 4
         return t
@@ -151,10 +153,11 @@ export function loadCricketAssets(onProgress?: (done: number, total: number) => 
     gltf('adboard.glb'),
     gltf('floodlight.glb'),
     gltf('roller.glb'),
-    tex('grass.webp'),
-    tex('pitch.webp'),
-    tex('concrete.webp'),
-  ]).then(([bodyList, ball, bat, stumps, stand, pavilion, sight, score, board, flood, roller, grass, pitch, concrete]) => {
+    tex('turf.webp'),
+    tex('turf-normal.webp', true),
+    tex('pitch-soil.webp'),
+    tex('pitch-worn.webp'),
+  ]).then(([bodyList, ball, bat, stumps, stand, pavilion, sight, score, board, flood, roller, turf, turfNormal, soil, worn]) => {
     for (const t of [bat, pavilion, sight, score, flood, roller]) t.scene.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).frustumCulled = true) : null))
     return {
       bodies: Object.fromEntries(bodyList) as Record<BodyKind, CricketBody>,
@@ -173,9 +176,10 @@ export function loadCricketAssets(onProgress?: (done: number, total: number) => 
       adBoardFace: extras(board.scene, 'face'),
       floodlight: flood.scene,
       roller: roller.scene,
-      grass,
-      pitch,
-      concrete,
+      turf,
+      turfNormal,
+      soil,
+      worn,
     }
   })
   pending.catch(() => (pending = null))

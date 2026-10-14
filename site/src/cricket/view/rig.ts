@@ -316,7 +316,7 @@ export class Cricketer {
       const m = o as THREE.SkinnedMesh
       if (!m.isSkinnedMesh) return
       if (!mat) {
-        mat = kits.bodyMaterial(body, m.material as THREE.MeshStandardMaterial, paint)
+        mat = kits.bodyMaterial(body, m.material as THREE.MeshStandardMaterial, paint, kind === 'batter')
         this.ownMaterials.push(mat)
       }
       m.material = mat
