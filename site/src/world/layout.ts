@@ -94,7 +94,7 @@ function scatterTransforms(region: Region, s: Scatter, seed: number) {
     const height = THREE.MathUtils.lerp(s.height[0], s.height[1], rnd())
     q.setFromEuler(new THREE.Euler(s.model === 'rock' ? rnd() * 0.6 : 0, rnd() * Math.PI * 2, 0))
     const sx = s.model === 'rock' ? 0.8 + rnd() * 0.8 : 1
-    if (!small && tooSteep(x, z, BASE_R(s.model) * height)) continue
+    if (!small && tooSteep(x, z, BASE_R(s.model) * height * 1.3)) continue
     const y = baseHeight(x, z, BASE_R(s.model) * height * sx, 0.2)
     out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(height * sx, height, height * sx)))
   }
@@ -263,7 +263,7 @@ function wildTransforms(model: ScatterName, count: number, size: [number, number
     const height = THREE.MathUtils.lerp(size[0], size[1], rnd())
     q.setFromEuler(new THREE.Euler(model === 'rock' ? rnd() * 0.6 : 0, rnd() * Math.PI * 2, 0))
     const sx = model === 'rock' ? 0.8 + rnd() * 0.8 : 1
-    if (!small && tooSteep(x, z, BASE_R(model) * height)) continue
+    if (!small && tooSteep(x, z, BASE_R(model) * height * 1.3)) continue
     const y = baseHeight(x, z, BASE_R(model) * height * sx, 0.2)
     out.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(height * sx, height, height * sx)))
   }
