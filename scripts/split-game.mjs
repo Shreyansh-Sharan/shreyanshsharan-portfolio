@@ -736,8 +736,26 @@ function split(id) {
     const m = tileMatch[0].match(new RegExp(`${name}:\\s*\\n?\\s*'((?:[^'\\\\]|\\\\.)*)'`))
     return m ? m[1].replace(/\\'/g, "'") : ''
   }
-  const tile = { tagline: field('tagline'), blurb: field('blurb'), org: field('org') }
+  const accentMatch = tileMatch[0].match(/accent:\s*\['([^']+)',\s*'([^']+)'\]/)
+  const tile = {
+    tagline: field('tagline'),
+    blurb: field('blurb'),
+    org: field('org'),
+    hero: field('hero') || undefined,
+    accent: accentMatch ? [accentMatch[1], accentMatch[2]] : ['#05060f', '#22d3ee'],
+  }
   write(join(out, 'index.html'), indexHtml(game, tile))
+  // The loading screen shows the game's key art and thumbnail: copy every size and format of both.
+  for (const ref of [tile.hero, field('thumb')].filter(Boolean)) {
+    const dir = dirname(ref)
+    const stem = ref.slice(dir.length + 1).replace(/\.(webp|avif|png|jpg)$/, '')
+    if (!existsSync(join(PUBLIC, dir))) continue
+    for (const name of readdirSync(join(PUBLIC, dir))) {
+      if (!new RegExp(`^${stem}(-\\d+)?\\.(webp|avif|png|jpg)$`).test(name)) continue
+      mkdirSync(join(out, 'public', dir), { recursive: true })
+      cpSync(join(PUBLIC, dir, name), join(out, 'public', dir, name))
+    }
+  }
   write(join(out, 'package.json'), packageJson(game, packages, sitePkg))
   write(join(out, 'vite.config.ts'), read(join(SITE, 'vite.config.ts')))
   for (const f of ['tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json', '.oxlintrc.json', '.gitignore', '.env.example']) cpSync(join(SITE, f), join(out, f))
