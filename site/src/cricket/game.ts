@@ -18,6 +18,8 @@ import { makeBall, makeMarker, Wicket } from './view/props'
 import { Cricketer, type ClipName, type Identity, type KitKind } from './view/rig'
 import { Kits } from './view/kit'
 import { Stadium } from './view/stadium'
+import { bakeEnvironment, installGrade, LOOKS, type Look } from './view/env'
+import { ContactShadows } from './view/contact'
 import { Hawkeye } from './view/hawkeye'
 import { Guides, lengthWords, type ShotColour } from './view/guides'
 import type { Post } from './view/post'
@@ -153,6 +155,9 @@ const _aheadView = new THREE.Vector3()
 const _aheadChar = new THREE.Vector3()
 const _camPos = new THREE.Vector3()
 const _camLook = new THREE.Vector3()
+const _shadowC = new THREE.Vector3()
+const _shadowR = new THREE.Vector3()
+const _shadowU = new THREE.Vector3()
 const _focus = new THREE.Vector3()
 const _flat = new THREE.Vector3()
 const _away = new THREE.Vector3()
@@ -362,6 +367,11 @@ export class Game {
   private pendingCommands: Command[] = []
   private post: Post | null = null
   private postToken = 0
+  private look: Look
+  private contact: ContactShadows
+  private envMap: THREE.Texture
+  private wearBalls = -1
+  private markedBall = -1
   onHud?: (h: HudState) => void
   onEvent?: (e: GameEvent) => void
   onCommentary?: (lines: string[]) => void
@@ -374,14 +384,17 @@ export class Game {
     this.container = container
     this.opts = opts
     this.quality = QUALITY[opts.quality]
+    this.look = LOOKS[opts.setup.time]
+    // The match's grade lives in the renderer's tone mapping (compiled into this renderer's programs).
+    installGrade(this.look)
     this.renderer = new THREE.WebGLRenderer({ antialias: this.quality.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: !!opts.snap })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.dpr))
     this.renderer.shadowMap.enabled = this.quality.shadows
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     // The shadow map is redrawn on alternate frames on the medium tier (see frame()).
     this.renderer.shadowMap.autoUpdate = false
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = opts.setup.time === 'night' ? 1.05 : opts.setup.time === 'dusk' ? 1.18 : 1.0
+    this.renderer.toneMapping = THREE.CustomToneMapping
+    this.renderer.toneMappingExposure = this.look.exposure
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.domElement.className = 'cricket-canvas'
     container.appendChild(this.renderer.domElement)
@@ -391,11 +404,20 @@ export class Game {
     this.director.replayHook = (kind) => this.startReplay(kind)
 
     const colors: [string, string] = [opts.setup.teams[0].primary, opts.setup.teams[1].primary]
-    this.stadium = new Stadium(opts.assets, { pitch: opts.setup.pitch, time: opts.setup.time, quality: this.quality, colors })
+    const names: [string, string] = [opts.setup.teams[0].name, opts.setup.teams[1].name]
+    this.stadium = new Stadium(opts.assets, { pitch: opts.setup.pitch, time: opts.setup.time, quality: this.quality, colors, names })
     this.scene.add(this.stadium.group)
-    this.scene.fog = new THREE.Fog(opts.setup.time === 'night' ? '#0a1020' : opts.setup.time === 'dusk' ? '#e9b38a' : '#cfe3f2', 160, 520)
+    // A light haze over the far stands; the sky and an environment baked from it light and reflect in everything.
+    this.scene.fog = new THREE.FogExp2(this.look.fog, this.look.fogDensity)
+    this.envMap = bakeEnvironment(this.renderer, this.look, opts.setup.time === 'night')
+    if (this.quality.env) this.scene.environment = this.envMap
+    this.scene.environmentIntensity = this.look.envIntensity
+    this.stadium.bakeShadows(this.renderer, this.scene)
+    this.contact = new ContactShadows(ACTORS, this.look.sunDir, this.quality.shadows ? 0.5 : 0.62)
+    this.scene.add(this.contact.mesh)
 
-    this.kits = new Kits(this.quality.tier === 'low' ? 256 : 512)
+    this.kits = new Kits(this.quality.tier === 'low' ? 256 : 512, this.quality.venueTaps)
+    this.kits.venue = this.stadium.venueU
     this.prewarmKits()
     this.ball = makeBall(opts.assets)
     this.ball.visible = false
@@ -484,6 +506,8 @@ export class Game {
     this.guides.dispose()
     for (const p of this.people) p?.dispose()
     this.kits.dispose()
+    this.contact.dispose()
+    this.envMap.dispose()
     this.stadium.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
@@ -496,7 +520,7 @@ export class Game {
     this.post = null
     if (!this.quality.post) return
     void import('./view/post')
-      .then((m) => m.makePost(this.renderer, this.scene, this.camera, this.opts.setup.time === 'night'))
+      .then((m) => m.makePost(this.renderer, this.scene, this.camera, this.look))
       .then((p) => {
         if (token !== this.postToken) return p.dispose()
         this.post = p
@@ -564,7 +588,9 @@ export class Game {
     this.quality = QUALITY[q]
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.dpr))
     this.renderer.shadowMap.enabled = this.quality.shadows
-    this.stadium.sun.castShadow = this.quality.shadows
+    this.stadium.configureShadow(this.quality)
+    this.stadium.setAmbient(this.quality)
+    this.scene.environment = this.quality.env ? this.envMap : null
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh
       if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => (x.needsUpdate = true))
@@ -632,10 +658,14 @@ export class Game {
       this.pushHud()
     }
     t = P.add('hud', t)
+    this.updateWear()
     if (render) {
       this.frameNo++
       // Shadows every frame on high (and in tests), every other frame otherwise: a 16 ms lag nobody can see.
       this.renderer.shadowMap.needsUpdate = this.quality.tier === 'high' || !!this.opts.snap || dt === 0 || (this.frameNo & 1) === 0 || !this.stadium.sun.shadow.map
+      // The sun's shadow map only covers the play in view (moved only when it is redrawn, so it never swims).
+      if (this.renderer.shadowMap.needsUpdate && this.quality.shadows) this.followShadow()
+      this.contact.update(this.people)
       if (this.post) this.post.render(dt)
       else this.renderer.render(this.scene, this.camera)
       this.renderPip()
@@ -643,6 +673,59 @@ export class Game {
     }
     P.add('frame', tFrame)
     P.frameEnd()
+  }
+
+  /**
+   * Fits the sun's shadow frustum to the ground in play: from the camera's feet to past what it looks at, sized by
+   * how far that is (tight and crisp for the batting view, wider for the broadcast angle), snapped to whole shadow
+   * texels so it doesn't shimmer as it follows.
+   */
+  private followShadow() {
+    const sun = this.stadium.sun
+    const cam = this.camera.position
+    const look = this.camLook
+    const dist = Math.hypot(look.x - cam.x, look.z - cam.z)
+    const max = this.quality.tier === 'high' ? 42 : 32
+    const half = Math.ceil(THREE.MathUtils.clamp(dist * 0.62 + 7, 14, max) / 2) * 2
+    const sc = sun.shadow.camera
+    if (sc.right !== half) {
+      sc.left = sc.bottom = -half
+      sc.right = sc.top = half
+      sc.updateProjectionMatrix()
+    }
+    const c = _shadowC.set(cam.x + (look.x - cam.x) * 0.6, 0, cam.z + (look.z - cam.z) * 0.6)
+    c.x = THREE.MathUtils.clamp(c.x, -80, 80)
+    c.z = THREE.MathUtils.clamp(c.z, -80, 80)
+    // Snap in the light's view (its right and up axes) to the texel grid.
+    const dir = this.look.sunDir
+    const right = _shadowR.set(0, 1, 0).cross(dir).normalize()
+    const up = _shadowU.copy(dir).cross(right).normalize()
+    const texel = (2 * half) / sun.shadow.mapSize.x
+    const a = Math.round(c.dot(right) / texel) * texel - c.dot(right)
+    const b = Math.round(c.dot(up) / texel) * texel - c.dot(up)
+    c.addScaledVector(right, a).addScaledVector(up, b)
+    sun.target.position.copy(c)
+    sun.position.copy(c).addScaledVector(dir, 120)
+    sun.target.updateMatrixWorld()
+    sun.updateMatrixWorld()
+  }
+
+  /** The pitch wears through the match (footholds, the rough) and keeps a mark where each ball pitched. */
+  private updateWear() {
+    const d = this.director
+    const st = d.state
+    let balls = 0
+    for (const inn of st.innings) balls += inn.legalBalls
+    if (balls !== this.wearBalls) {
+      this.wearBalls = balls
+      const total = Math.min(240, Math.max(30, st.rules.overs * 12))
+      this.stadium.setWear(0.08 + (0.92 * balls) / total)
+    }
+    if (d.pitched && d.ballId !== this.markedBall) {
+      this.markedBall = d.ballId
+      const p = toView(d.pitched, _shadowC)
+      this.stadium.markPitch(p.x, p.z)
+    }
   }
 
   private trackRelease(dt: number) {
@@ -2166,7 +2249,7 @@ export class Game {
     const H = this.container.clientHeight
     const p = this.pip
     const tone = r.toneMapping
-    r.toneMapping = THREE.ACESFilmicToneMapping
+    r.toneMapping = THREE.CustomToneMapping
     r.shadowMap.needsUpdate = false
     const guides = this.guides.group.visible
     this.guides.group.visible = false
@@ -2250,8 +2333,7 @@ export class Game {
     const L = this.heroLight
     const on = this.heroActive()
     this.heroK += ((on ? 1 : 0) - this.heroK) * Math.min(1, dt * 4 || 1)
-    const base = this.opts.setup.time === 'night' ? 1.05 : this.opts.setup.time === 'dusk' ? 1.18 : 1.0
-    this.renderer.toneMappingExposure = base * (1 - 0.18 * this.heroK)
+    this.renderer.toneMappingExposure = this.look.exposure * (1 - 0.15 * this.heroK)
     if (!L) return
     L.intensity = 60 * this.heroK
     if (this.hero && this.heroK > 0.01) {

@@ -1,6 +1,7 @@
 // An instanced crowd: thousands of simple spectators (torso, head, arms) animated in the vertex shader. They bob
 // when idle, jump and throw their arms up on boundaries and wickets, and run a Mexican wave round the ground.
-// Seats come from the stadium (sampled on the venue model's terraces).
+// Seats come from the stadium (sampled on the venue model's terraces). Each fan gets a shirt (a team's colours or
+// everyday clothes), a skin tone, sometimes a hat, sleeves or bare arms, and a size of his own.
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
@@ -35,12 +36,13 @@ export class Crowd {
   private exciteHold = 0
   private waveT = -1
 
-  constructor(seats: Float32Array, colors: [string, string], night: boolean) {
+  constructor(seats: Float32Array, colors: [string, string], night: boolean, patch?: (sh: THREE.WebGLProgramParametersWithUniforms) => void) {
     const n = seats.length / 4
     const geo = personGeometry()
     const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: night ? '#2a3044' : '#000000' })
     const u = this.uniforms
     mat.onBeforeCompile = (sh) => {
+      patch?.(sh)
       Object.assign(sh.uniforms, u)
       sh.vertexShader = sh.vertexShader
         .replace(
@@ -74,7 +76,16 @@ export class Crowd {
         .replace(
           '#include <color_vertex>',
           `#include <color_vertex>
-          if (part > 0.5 && part < 1.5) { float t = fract(aPhase * 7.31); vColor.rgb = mix(vec3(0.95, 0.76, 0.6), vec3(0.42, 0.28, 0.2), t); }`,
+          {
+            float t = fract(aPhase * 7.31);
+            vec3 skin = mix(vec3(0.86, 0.64, 0.5), vec3(0.3, 0.19, 0.13), t * t);
+            float hat = step(0.72, fract(aPhase * 13.7));
+            float bare = step(0.55, fract(aPhase * 5.3));
+            if (part > 0.5 && part < 1.5) vColor.rgb = (hat > 0.5 && position.y > 0.79) ? mix(vec3(0.95), vColor.rgb, step(0.5, fract(aPhase * 3.1))) : skin;
+            else if (part > 1.5 && bare > 0.5) vColor.rgb = skin;
+            // Shirts a touch darker at the waist (the rows in front shade them).
+            if (part < 0.5) vColor.rgb *= mix(0.62, 1.0, smoothstep(0.0, 0.45, position.y));
+          }`,
         )
     }
     const mesh = new THREE.InstancedMesh(geo, mat, n)
@@ -82,7 +93,9 @@ export class Crowd {
     const m = new THREE.Matrix4()
     const q = new THREE.Quaternion()
     const sc = new THREE.Vector3()
-    const pal = [new THREE.Color(colors[0]), new THREE.Color(colors[1]), new THREE.Color('#f8fafc'), new THREE.Color('#1f2937'), new THREE.Color('#facc15'), new THREE.Color('#38bdf8'), new THREE.Color('#ef4444')]
+    // Everyday clothes: whites, greys, denim, black, khaki, a few brights.
+    const casual = ['#eeeeea', '#d9d6cf', '#9ca3af', '#4b5563', '#1f2937', '#3b5b8a', '#7a8fa6', '#b5a58a', '#6b4f3a', '#e9d8b4', '#c0392b', '#e8b931', '#2f855a', '#f2a7b5'].map((c) => new THREE.Color(c))
+    const pal = [new THREE.Color(colors[0]), new THREE.Color(colors[1])]
     const col = new THREE.Color()
     for (let i = 0; i < n; i++) {
       const x = seats[i * 4]
@@ -99,7 +112,10 @@ export class Crowd {
       // Home fans in one half, visitors in the other, neutrals everywhere.
       const k = phase[i]
       const side = x > 0 ? 0 : 1
-      col.copy(k < 0.45 ? pal[side] : k < 0.55 ? pal[1 - side] : pal[2 + Math.floor(((k - 0.55) / 0.45) * 5) % 5])
+      const r2 = (Math.sin(i * 78.233) * 12543.21) % 1
+      col.copy(k < 0.32 ? pal[side] : k < 0.4 ? pal[1 - side] : casual[Math.floor(Math.abs(r2) * casual.length) % casual.length])
+      // No two shirts quite the same (fading, light and shade).
+      col.multiplyScalar(0.62 + Math.abs((Math.sin(i * 3.7) * 9.1) % 1) * 0.3)
       mesh.setColorAt(i, col)
     }
     geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1))
