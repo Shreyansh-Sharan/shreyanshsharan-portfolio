@@ -58,8 +58,8 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Brawler',
     blurb: 'Riot scattergun. Brutal up close, useless at range.',
     hp: 1650,
-    speed: 5.2,
-    weapon: { kind: 'scatter', dmg: 84, cooldown: 0.55, range: 7.6, speed: 36, count: 6, spread: 0.28, splash: 0, burstGap: 0 },
+    speed: 5.7,
+    weapon: { kind: 'scatter', dmg: 80, cooldown: 0.45, range: 7.6, speed: 36, count: 6, spread: 0.28, splash: 0, burstGap: 0 },
     superKind: 'bulwark',
     power: 'wall',
     superName: 'Bulwark Dash',
@@ -76,8 +76,8 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Marksman',
     blurb: 'A long rail rifle. Two clean hits end most fights.',
     hp: 950,
-    speed: 5.0,
-    weapon: { kind: 'rifle', dmg: 175, cooldown: 0.8, range: 22, speed: 80, count: 1, spread: 0.012, splash: 0, burstGap: 0 },
+    speed: 5.6,
+    weapon: { kind: 'rifle', dmg: 135, cooldown: 0.6, range: 22, speed: 80, count: 1, spread: 0.012, splash: 0, burstGap: 0 },
     superKind: 'sentry',
     power: 'dart',
     superName: 'Sentry Pod',
@@ -94,8 +94,8 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Tank',
     blurb: 'A flamethrower and a lot of armour. Slow, but nothing gets past.',
     hp: 2750,
-    speed: 5.25,
-    weapon: { kind: 'flame', dmg: 52, cooldown: 0.075, range: 7.2, speed: 14, count: 1, spread: 0.13, splash: 0, burstGap: 0 },
+    speed: 5.6,
+    weapon: { kind: 'flame', dmg: 52, cooldown: 0.075, range: 7.2, speed: 19, count: 1, spread: 0.13, splash: 0, burstGap: 0 },
     superKind: 'pulse',
     power: 'vent',
     superName: 'Armour Pulse',
@@ -112,7 +112,7 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Runner',
     blurb: 'A fast SMG and faster legs. Hit, run, repeat.',
     hp: 1150,
-    speed: 6.3,
+    speed: 6.6,
     weapon: { kind: 'smg', dmg: 67, cooldown: 0.085, range: 10, speed: 42, count: 1, spread: 0.07, splash: 0, burstGap: 0 },
     superKind: 'cloak',
     power: 'blink',
@@ -130,8 +130,8 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Grenadier',
     blurb: 'Lobs grenades over cover. Ruins anyone who stands still.',
     hp: 1200,
-    speed: 5.0,
-    weapon: { kind: 'launcher', dmg: 450, cooldown: 0.95, range: 13, speed: 16, count: 1, spread: 0.03, splash: 2.6, burstGap: 0 },
+    speed: 5.6,
+    weapon: { kind: 'launcher', dmg: 360, cooldown: 0.7, range: 13, speed: 17, count: 1, spread: 0.03, splash: 2.6, burstGap: 0 },
     superKind: 'mines',
     power: 'toxin',
     superName: 'Minefield',
@@ -148,8 +148,8 @@ export const HEROES: Record<HeroId, Hero> = {
     role: 'Medic',
     blurb: 'A three-shot needler and a steady hand. Keeps the squad standing.',
     hp: 1200,
-    speed: 5.4,
-    weapon: { kind: 'needler', dmg: 75, cooldown: 0.5, range: 12, speed: 44, count: 3, spread: 0.03, splash: 0, burstGap: 0.08 },
+    speed: 5.8,
+    weapon: { kind: 'needler', dmg: 64, cooldown: 0.42, range: 12, speed: 44, count: 3, spread: 0.03, splash: 0, burstGap: 0.08 },
     superKind: 'mend',
     power: 'purge',
     superName: 'Mend Zone',
@@ -164,7 +164,7 @@ export const HEROES: Record<HeroId, Hero> = {
 
 export const HERO_IDS: HeroId[] = ['rook', 'wren', 'furnace', 'flick', 'pike', 'salve']
 
-export const DASH = { speedMul: 3.6, duration: 0.2, cooldown: 2.8 }
+export const DASH = { speedMul: 3.6, duration: 0.2, cooldown: 2.2 }
 
 export const SUPER = {
   bulwark: { duration: 2.4, shield: 700, speedMul: 1.9, ramDmg: 320, ramRadius: 1.3, knock: 5 },
