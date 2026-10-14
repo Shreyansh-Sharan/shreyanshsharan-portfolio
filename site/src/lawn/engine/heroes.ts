@@ -84,7 +84,7 @@ export interface Hero {
   prefRange: number
 }
 
-const base = { lightUp: 0.14, lightDown: 0.3, heavyUp: 0.48, heavyDown: 0.55 }
+const base = { lightUp: 0.09, lightDown: 0.19, heavyUp: 0.38, heavyDown: 0.4 }
 
 export const HEROES: Record<HeroId, Hero> = {
   nana: {
@@ -98,7 +98,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.36,
     height: 1.62,
     eye: 1.5,
-    melee: { kind: 'rollingpin', light: 18, lightPieces: 22, heavy: 34, heavyPieces: 48, reach: 2.2, arc: 0.95, ...base, knock: 6 },
+    melee: { kind: 'rollingpin', light: 14, lightPieces: 18, heavy: 34, heavyPieces: 48, reach: 2.2, arc: 0.95, ...base, knock: 6 },
     ult: 'cookies',
     ultName: 'SCALDING TRAY',
     ultBlurb: 'Slams a tray of scalding cookies down: everyone nearby is burned for five seconds.',
@@ -125,7 +125,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.36,
     height: 1.85,
     eye: 1.72,
-    melee: { kind: 'golfclub', light: 16, lightPieces: 20, heavy: 36, heavyPieces: 44, reach: 2.6, arc: 0.8, ...base, knock: 8 },
+    melee: { kind: 'golfclub', light: 13, lightPieces: 16, heavy: 36, heavyPieces: 44, reach: 2.6, arc: 0.8, ...base, knock: 8 },
     ult: 'blower',
     ultName: 'LEAF BLOWER',
     ultBlurb: 'A roaring cone of wind that hurls everyone in front of him across the lawn.',
@@ -152,7 +152,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.26,
     height: 1.15,
     eye: 1.05,
-    melee: { kind: 'slingshot', light: 8, lightPieces: 8, heavy: 8, heavyPieces: 8, reach: 1.6, arc: 0.9, ...base, knock: 2, ranged: { speed: 26, gravity: 9, dmg: 14, pieces: 12, chargeTime: 0.6 } },
+    melee: { kind: 'slingshot', light: 6, lightPieces: 6, heavy: 8, heavyPieces: 8, reach: 1.6, arc: 0.9, ...base, knock: 2, ranged: { speed: 26, gravity: 9, dmg: 14, pieces: 12, chargeTime: 0.35 } },
     ult: 'rccar',
     ultName: 'RC CAR BOMB',
     ultBlurb: 'Launches a remote-control car packed with fireworks. It explodes on contact or after four seconds.',
@@ -180,7 +180,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.36,
     height: 1.74,
     eye: 1.62,
-    melee: { kind: 'clipboard', light: 16, lightPieces: 16, heavy: 33, heavyPieces: 36, reach: 2.3, arc: 1.0, ...base, knock: 5 },
+    melee: { kind: 'clipboard', light: 13, lightPieces: 13, heavy: 33, heavyPieces: 36, reach: 2.3, arc: 1.0, ...base, knock: 5 },
     ult: 'towtruck',
     ultName: 'TOW TRUCK',
     ultBlurb: 'A tow truck barrels through in the direction she is facing, smashing walls, doors and anyone in its way.',
@@ -207,7 +207,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.38,
     height: 1.7,
     eye: 1.56,
-    melee: { kind: 'cane', light: 17, lightPieces: 18, heavy: 38, heavyPieces: 40, reach: 2.3, arc: 0.85, ...base, knock: 7 },
+    melee: { kind: 'cane', light: 14, lightPieces: 14, heavy: 38, heavyPieces: 40, reach: 2.3, arc: 0.85, ...base, knock: 7 },
     ult: 'mower',
     ultName: 'RIDE-ON MOWER',
     ultBlurb: 'Hops on the mower and charges: anything in the way is flattened, walls included.',
@@ -234,7 +234,7 @@ export const HEROES: Record<HeroId, Hero> = {
     halfWidth: 0.3,
     height: 0.95,
     eye: 0.78,
-    melee: { kind: 'bite', light: 17, lightPieces: 12, heavy: 28, heavyPieces: 26, reach: 1.9, arc: 0.8, lightUp: 0.08, lightDown: 0.22, heavyUp: 0.34, heavyDown: 0.38, knock: 4 },
+    melee: { kind: 'bite', light: 14, lightPieces: 10, heavy: 28, heavyPieces: 26, reach: 1.9, arc: 0.8, lightUp: 0.06, lightDown: 0.15, heavyUp: 0.28, heavyDown: 0.3, knock: 4 },
     ult: 'zoomies',
     ultName: 'ZOOMIES',
     ultBlurb: 'Tears off in a straight line, knocking down everyone in the way and leaving them dizzy.',

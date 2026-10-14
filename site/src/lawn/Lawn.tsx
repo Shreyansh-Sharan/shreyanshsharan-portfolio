@@ -241,7 +241,7 @@ function HeroPicker({ profile, onProfile, lobby }: { profile: Profile; onProfile
     </div>
   )
   const m = hero.melee
-  const dps = m.ranged ? m.ranged.dmg / 0.7 : m.light / (m.lightUp + m.lightDown)
+  const dps = m.ranged ? m.ranged.dmg / (m.ranged.chargeTime + m.lightUp + m.lightDown) : m.light / (m.lightUp + m.lightDown)
   const colour = colourHex(profile, profile.hero)
   return (
     <div className="lw-herosheet-wrap">

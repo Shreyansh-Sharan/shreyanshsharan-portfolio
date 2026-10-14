@@ -297,10 +297,10 @@ export class Bot {
     void q
     if (heavy && p.stamina > 30 && sim.rng.chance(0.7)) {
       this.inp.heavy = true
-      this.swingAt = sim.time + 1.1
+      this.swingAt = sim.time + 0.85
     } else {
       this.inp.light = true
-      this.swingAt = sim.time + 0.5
+      this.swingAt = sim.time + 0.33
     }
   }
 
@@ -485,7 +485,7 @@ export class Bot {
     if (ranged && d < 11 && sim.time > this.swingAt && this.facing(e.x, e.z, 0.08)) {
       inp.light = true
       inp.charge = 1
-      this.swingAt = sim.time + 0.7
+      this.swingAt = sim.time + 0.45
       return
     }
     if (p.throwAmmo > 0 && d > 4 && d < 13 && sim.time > this.throwAt && !p.swing && Math.abs(e.y - p.y) < 3) {
@@ -502,7 +502,7 @@ export class Bot {
       const heavy = p.stamina > 30 && sim.rng.chance(0.3 + (e.blocking ? 0.3 : 0))
       if (heavy) inp.heavy = true
       else inp.light = true
-      this.swingAt = sim.time + (heavy ? 1.2 : 0.55) + (1 - this.skill) * 0.3
+      this.swingAt = sim.time + (heavy ? 0.9 : 0.36) + (1 - this.skill) * 0.2
     }
   }
 

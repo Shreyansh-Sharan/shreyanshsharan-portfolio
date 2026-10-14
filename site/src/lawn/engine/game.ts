@@ -495,9 +495,10 @@ export class Game {
   /** Turn the device input into a sim input. */
   private humanInput(f: InputFrame): Input {
     // Slingshot draw: hold the button to charge.
-    if (f.attackHeld) this.charge = Math.min(1, this.charge + 0.03)
+    if (f.attackHeld) this.charge = Math.min(1, this.charge + 0.05)
     const light = f.light
-    const charge = light ? Math.max(0.3, this.charge) : this.charge
+    // A quick tap still sends a useful pebble, so the slingshot can be fired as fast as you click.
+    const charge = light ? Math.max(0.6, this.charge) : this.charge
     if (light || f.heavy) this.charge = 0
     this.lastInput = {
       mx: f.mx,

@@ -999,7 +999,7 @@ export class Sim {
     const m = p.hero.melee
     if (p.tool) {
       const t = TOOLS[p.tool]
-      return { light: t.light, lightPieces: t.lightPieces, heavy: t.heavy, heavyPieces: t.heavyPieces, reach: t.reach, arc: 0.9, knock: t.knock, lightUp: 0.16, lightDown: 0.32, heavyUp: t.heavyUp, heavyDown: 0.6, ranged: undefined }
+      return { light: t.light, lightPieces: t.lightPieces, heavy: t.heavy, heavyPieces: t.heavyPieces, reach: t.reach, arc: 0.9, knock: t.knock, lightUp: 0.1, lightDown: 0.2, heavyUp: t.heavyUp, heavyDown: 0.45, ranged: undefined }
     }
     return m
   }

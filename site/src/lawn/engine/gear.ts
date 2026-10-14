@@ -64,12 +64,12 @@ export const TRAP_IDS = Object.keys(TRAPS) as TrapKind[]
 /** The garden tools anyone can pick up from a tool rack (swapping their hero weapon until they are knocked out). */
 export type ToolKind = 'rake' | 'shovel' | 'pan' | 'hose' | 'bat' | 'hammer'
 export const TOOLS: Record<ToolKind, { name: string; blurb: string; light: number; lightPieces: number; heavy: number; heavyPieces: number; reach: number; knock: number; heavyUp: number }> = {
-  rake: { name: 'Rake', blurb: 'Long reach, light hits.', light: 14, lightPieces: 20, heavy: 28, heavyPieces: 40, reach: 2.8, knock: 6, heavyUp: 0.45 },
-  shovel: { name: 'Shovel', blurb: 'Slow, and walls hate it.', light: 18, lightPieces: 34, heavy: 40, heavyPieces: 70, reach: 2.3, knock: 8, heavyUp: 0.6 },
-  pan: { name: 'Frying pan', blurb: 'Quick swings; the heavy one rings like a bell.', light: 16, lightPieces: 18, heavy: 32, heavyPieces: 30, reach: 1.9, knock: 7, heavyUp: 0.4 },
-  hose: { name: 'Garden hose', blurb: 'A jet of water that pushes raiders back and soaks them.', light: 4, lightPieces: 0, heavy: 8, heavyPieces: 0, reach: 5, knock: 9, heavyUp: 0.3 },
-  bat: { name: 'Baseball bat', blurb: 'The wide swing. Big wind-up, big knockback.', light: 17, lightPieces: 24, heavy: 42, heavyPieces: 52, reach: 2.5, knock: 10, heavyUp: 0.55 },
-  hammer: { name: 'Sledgehammer', blurb: 'Short overhead smash. Walls go first.', light: 15, lightPieces: 40, heavy: 36, heavyPieces: 90, reach: 2.0, knock: 9, heavyUp: 0.65 },
+  rake: { name: 'Rake', blurb: 'Long reach, light hits.', light: 11, lightPieces: 16, heavy: 28, heavyPieces: 40, reach: 2.8, knock: 6, heavyUp: 0.36 },
+  shovel: { name: 'Shovel', blurb: 'Slow, and walls hate it.', light: 14, lightPieces: 27, heavy: 40, heavyPieces: 70, reach: 2.3, knock: 8, heavyUp: 0.48 },
+  pan: { name: 'Frying pan', blurb: 'Quick swings; the heavy one rings like a bell.', light: 13, lightPieces: 14, heavy: 32, heavyPieces: 30, reach: 1.9, knock: 7, heavyUp: 0.32 },
+  hose: { name: 'Garden hose', blurb: 'A jet of water that pushes raiders back and soaks them.', light: 3, lightPieces: 0, heavy: 8, heavyPieces: 0, reach: 5, knock: 9, heavyUp: 0.24 },
+  bat: { name: 'Baseball bat', blurb: 'The wide swing. Big wind-up, big knockback.', light: 14, lightPieces: 19, heavy: 42, heavyPieces: 52, reach: 2.5, knock: 10, heavyUp: 0.44 },
+  hammer: { name: 'Sledgehammer', blurb: 'Short overhead smash. Walls go first.', light: 12, lightPieces: 32, heavy: 36, heavyPieces: 90, reach: 2.0, knock: 9, heavyUp: 0.52 },
 }
 export const TOOL_IDS = Object.keys(TOOLS) as ToolKind[]
 
