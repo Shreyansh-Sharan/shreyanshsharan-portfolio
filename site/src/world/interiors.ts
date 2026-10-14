@@ -10,6 +10,7 @@ import { heightAt } from './terrain'
 import { world } from './store'
 import { play } from '../lib/sound'
 import { showLoader, type LoaderHandle } from '../lib/loader3d'
+import { roomScene } from '../lib/loading'
 
 export type RoomId = 'arcade' | 'hall'
 
@@ -124,7 +125,7 @@ export function enterRoom(id: RoomId, player: Mover) {
   const r = ROOMS[id]
   if (!visited.has(id)) {
     visited.add(id)
-    const h = showLoader({ status: `Entering ${r.name}…`, progress: null })
+    const h = showLoader({ status: `Entering ${r.name}…`, progress: null, scene: roomScene(id) })
     doorLoader[id] = h
     // The room takes the loader over as it mounts; never leave it up if it does not.
     window.setTimeout(() => {

@@ -14,27 +14,85 @@
     <meta property="og:description" content="Data & AI platforms, Databricks, Azure, DevOps and GenAI. Play through the career." />
     <meta property="og:type" content="website" />
     <style>
-      /* Static loading shell: on screen from the first paint until the app takes it over (src/lib/loader3d.ts). */
-      .ld3{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#05060f;color:#f4f6fb;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
-      .ld3-box{display:grid;justify-items:center;gap:14px;width:min(360px,80vw)}
-      .ld3-stage{width:min(280px,60vw);aspect-ratio:1;display:grid;place-items:center}
-      .ld3-logo{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;font-weight:800;font-size:34px;letter-spacing:.04em;border:1px solid rgba(255,255,255,.14);background:linear-gradient(150deg,rgba(34,211,238,.28),rgba(240,171,252,.22));box-shadow:0 0 44px rgba(34,211,238,.25)}
-      .ld3-text{display:flex;justify-content:space-between;width:100%;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:rgba(244,246,251,.64)}
-      .ld3-bar{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
-      .ld3-bar i{position:absolute;top:0;bottom:0;left:-40%;width:40%;border-radius:4px;background:linear-gradient(90deg,#22d3ee,#f0abfc);animation:ld3-wait 1.4s ease-in-out infinite}
-      @keyframes ld3-wait{to{left:100%}}
-      @media (prefers-reduced-motion:reduce){.ld3-bar i{animation:none;left:0;width:100%;opacity:.5}}
+      /* Static loading shell: on screen from the first paint until the app takes it over (src/lib/loader3d.ts keeps the
+         same rules and markup; keep the two in step). */
+      .ld3{position:fixed;inset:0;z-index:1000;overflow:hidden;color:#fff;background:#05060f;
+      font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      --ld3-a:#22d3ee;--ld3-b:#f0abfc;--ld3-gx:clamp(20px,4.4vw,84px);transition:opacity 420ms ease}
+      .ld3::before{content:'';position:absolute;inset:0;background:radial-gradient(110% 90% at 78% 28%,color-mix(in srgb,var(--ld3-a) 20%,transparent),transparent 62%),radial-gradient(80% 70% at 6% 100%,color-mix(in srgb,var(--ld3-b) 14%,transparent),transparent 62%)}
+      .ld3.is-pre{opacity:0;transition-duration:220ms}
+      .ld3.is-out{opacity:0;pointer-events:none}
+      .ld3-art{position:absolute;inset:0}
+      .ld3-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:68% 35%;opacity:0;transform:scale(1.07);
+      transition:opacity .8s ease,transform 10s cubic-bezier(.2,.7,.2,1)}
+      .ld3-art img.is-in{opacity:1;transform:scale(1)}
+      .ld3-scrim{position:absolute;inset:0;background:
+      linear-gradient(90deg,rgba(3,5,12,.9) 0%,rgba(3,5,12,.66) 28%,rgba(3,5,12,.16) 56%,rgba(3,5,12,0) 70%),
+      linear-gradient(180deg,rgba(3,5,12,.5) 0%,rgba(3,5,12,0) 22%,rgba(3,5,12,0) 44%,rgba(3,5,12,.66) 76%,rgba(3,5,12,.95) 100%)}
+      .ld3-ui{position:absolute;left:var(--ld3-gx);right:var(--ld3-gx);bottom:clamp(28px,7vh,80px);display:grid;gap:clamp(22px,3.6vh,40px);max-width:780px}
+      .ld3-kicker{display:flex;align-items:center;gap:10px;margin:0;font-size:14px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.86)}
+      .ld3-kicker::before{content:'';flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--ld3-a);box-shadow:0 0 14px var(--ld3-a);animation:ld3-pulse 1.6s ease-in-out infinite}
+      .ld3-kicker:empty{display:none}
+      .ld3-title{margin:12px 0 0;font-size:clamp(40px,5.2vw,96px);font-weight:800;line-height:.98;letter-spacing:-.02em;text-wrap:balance;text-shadow:0 4px 34px rgba(0,0,0,.5)}
+      .ld3-title:empty,.ld3-sub:empty{display:none}
+      .ld3-sub{margin:14px 0 0;max-width:48ch;font-size:clamp(17px,calc(.5vw + 11px),21px);line-height:1.5;color:rgba(255,255,255,.9);text-shadow:0 2px 14px rgba(0,0,0,.6)}
+      .ld3-foot{display:flex;align-items:center;gap:18px;max-width:640px}
+      .ld3-stage{position:relative;flex:0 0 auto;width:84px;height:84px;display:grid;place-items:center}
+      .ld3-stage canvas{width:100%;height:100%;display:block}
+      .ld3-logo{width:56px;height:56px;display:grid;place-items:center;border-radius:16px;font-weight:800;font-size:20px;letter-spacing:.04em;color:#fff;
+      border:1px solid rgba(255,255,255,.16);background:linear-gradient(150deg,color-mix(in srgb,var(--ld3-a) 30%,transparent),color-mix(in srgb,var(--ld3-b) 24%,transparent));
+      box-shadow:0 0 34px color-mix(in srgb,var(--ld3-a) 28%,transparent)}
+      .ld3-meter{flex:1;min-width:0;display:grid;gap:10px}
+      .ld3-text{display:flex;justify-content:space-between;gap:12px;font-size:14px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.8)}
+      .ld3-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .ld3-pct{font-variant-numeric:tabular-nums;color:#fff}
+      .ld3-bar{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.16);overflow:hidden}
+      .ld3-bar i{position:absolute;inset:0;width:auto;animation:none;transform-origin:0 50%;transform:scaleX(0);border-radius:4px;
+      background:linear-gradient(90deg,var(--ld3-b),var(--ld3-a));transition:transform .18s ease-out}
+      .ld3-bar.is-wait i{animation:ld3-wait 1.4s ease-in-out infinite;transform:none;width:40%;left:0}
+      .ld3-tip{margin:4px 0 0;min-height:3em;font-size:clamp(15px,calc(.3vw + 11px),17px);line-height:1.5;color:rgba(255,255,255,.86);transition:opacity .35s ease}
+      .ld3-tip b{display:inline-block;margin-right:10px;padding:2px 8px;border-radius:5px;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+      vertical-align:1px;color:#0b0d14;background:color-mix(in srgb,var(--ld3-a) 70%,#fff)}
+      .ld3-tip.is-swap{opacity:0}
+      .ld3-tip:empty{display:none}
+      @keyframes ld3-wait{0%{left:-40%}100%{left:100%}}
+      @keyframes ld3-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+      @media (max-width:760px){
+      .ld3-scrim{background:linear-gradient(180deg,rgba(3,5,12,.45) 0%,rgba(3,5,12,0) 24%,rgba(3,5,12,.2) 42%,rgba(3,5,12,.86) 66%,rgba(3,5,12,.97) 100%)}
+      .ld3-art img{object-position:72% 40%}
+      .ld3-ui{bottom:calc(24px + env(safe-area-inset-bottom));gap:20px}
+      .ld3-title{font-size:clamp(32px,10vw,46px)}
+      .ld3-sub{font-size:16px}
+      .ld3-stage{width:60px;height:60px}
+      .ld3-logo{width:44px;height:44px;font-size:16px;border-radius:12px}
+      .ld3-tip{font-size:15px}
+      }
+      @media (prefers-reduced-motion:reduce){.ld3,.ld3-tip{transition:none}.ld3-art img{transition:opacity .2s;transform:none}.ld3-kicker::before{animation:none}
+      .ld3-bar i{transition:none}.ld3-bar.is-wait i{animation:none;left:0;width:100%;opacity:.5}}
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <div id="ld3" class="ld3" role="status" aria-live="polite">
-      <div class="ld3-box">
-        <div class="ld3-stage"><div class="ld3-logo">SS</div></div>
-        <div class="ld3-text"><span class="ld3-status">Starting up…</span><span class="ld3-pct"></span></div>
-        <div class="ld3-bar"><i></i></div>
+    <div id="ld3" class="ld3" role="status" aria-live="polite" data-art="home/hero/profile.webp" style="--ld3-a:#fcd34d;--ld3-b:#38bdf8">
+      <div class="ld3-art" aria-hidden="true"><img src="home/hero/profile.webp" srcset="home/hero/profile-1280.webp 1280w, home/hero/profile.webp 1920w, home/hero/profile-2560.webp 2560w, home/hero/profile-3840.webp 3840w" sizes="(orientation: portrait) 178vh, 100vw" alt="" fetchpriority="high" onload="this.classList.add('is-in')" /></div>
+      <div class="ld3-scrim" aria-hidden="true"></div>
+      <div class="ld3-ui">
+        <div class="ld3-copy">
+          <p class="ld3-kicker">Welcome to the island</p>
+          <h2 class="ld3-title">Shreyansh Sharan</h2>
+          <p class="ld3-sub">Solution Architect &amp; Engineering Manager · Data &amp; AI Platforms. Loading the open world, starting at Harbour Town.</p>
+        </div>
+        <div class="ld3-foot">
+          <div class="ld3-stage" aria-hidden="true"><div class="ld3-logo">SS</div></div>
+          <div class="ld3-meter">
+            <div class="ld3-text"><span class="ld3-status">Starting up…</span><span class="ld3-pct"></span></div>
+            <div class="ld3-bar is-wait"><i></i></div>
+            <p class="ld3-tip"><b>Tip</b>Press Ctrl K (⌘K on a Mac) anywhere on the site to step into the open world, and again to step back out.</p>
+          </div>
+        </div>
       </div>
     </div>
+    <!-- /ld3 -->
     <noscript>
       <h1>Shreyansh Sharan, Solution Architect</h1>
       <p>Data &amp; AI platforms on Databricks and Azure, enterprise DevOps and Generative AI. 8+ years, 30+ enterprise clients.</p>

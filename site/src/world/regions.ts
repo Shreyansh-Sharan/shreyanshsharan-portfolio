@@ -218,6 +218,12 @@ export interface Region {
   beacon: [number, number]
   /** Cinematic camera orbit around the centre while browsing. */
   orbit: { radius: number; height: number }
+  /**
+   * A composed establishing shot instead of the orbit (the home screen's live backdrop): the point to frame
+   * (relative to the centre, lifted `lift` metres off the ground) seen from `radius` metres away along `yaw`
+   * (0 = from +z), `height` metres above it, swaying slowly either side of that heading.
+   */
+  shot?: { at: [number, number]; lift: number; yaw: number; radius: number; height: number; sway: number }
   sparkle?: string
   /** Distance (metres from the camera) at which this district's architecture streams in. */
   stream: number
@@ -256,6 +262,8 @@ export const REGIONS: Region[] = [
     ],
     beacon: [0, 12],
     orbit: { radius: 70, height: 26 },
+    // From out on the bay: the water in front, the waterfront rows, the lighthouse on the right, the hills behind.
+    shot: { at: [48, 22], lift: 8, yaw: -0.15, radius: 105, height: 15, sway: 0.25 },
     sparkle: '#cbd5e1',
     stream: 220,
     mood: { sun: '#ffe9c4', sky: '#bcd7ff', fog: '#b8d0e6', haze: 1, light: 1 },

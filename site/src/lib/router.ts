@@ -64,13 +64,16 @@ export function parse(hash: string): Route {
       return parts[1] ? { name: 'game', id: parts[1] } : { name: 'home' }
     case 'embed':
       return parts[1] ? { name: 'embed', id: parts[1] } : { name: 'home' }
+    // The "Who's playing?" screen; the site itself opens on the home screen's profile.
+    case 'start':
+      return { name: 'boot' }
     case 'trophies':
     case 'skills':
     case 'profile':
     case 'resume':
       return { name: parts[0] }
     default:
-      return { name: 'boot' }
+      return { name: 'home' }
   }
 }
 
