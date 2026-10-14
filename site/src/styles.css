@@ -467,8 +467,8 @@ p {
   display: flex;
   gap: 14px;
   align-items: center;
-  font-size: 13px;
-  color: var(--muted);
+  font-size: 15px;
+  color: rgba(244, 246, 251, 0.78);
 }
 
 .genre {
@@ -499,16 +499,16 @@ p {
 
 .hero-org {
   margin-top: 16px;
-  font-size: 15px;
-  color: var(--muted);
+  font-size: 17px;
+  color: rgba(244, 246, 251, 0.8);
 }
 
 .hero-blurb {
   margin-top: 12px;
-  font-size: 16px;
-  line-height: 1.55;
-  max-width: 60ch;
-  color: rgba(244, 246, 251, 0.86);
+  font-size: clamp(17px, calc(0.4vw + 12px), 19px);
+  line-height: 1.65;
+  max-width: 62ch;
+  color: rgba(244, 246, 251, 0.92);
 }
 
 .hero-actions {
@@ -695,7 +695,7 @@ p {
 }
 
 .eyebrow {
-  font-size: 12px;
+  font-size: 13.5px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--muted);
@@ -710,8 +710,9 @@ p {
 
 .page-lead {
   margin-top: 10px;
-  font-size: 17px;
-  color: rgba(244, 246, 251, 0.85);
+  font-size: clamp(17px, calc(0.4vw + 12px), 19px);
+  line-height: 1.6;
+  color: rgba(244, 246, 251, 0.9);
 }
 
 .section {
@@ -719,18 +720,19 @@ p {
 }
 
 .section-title {
-  font-size: 13px;
-  letter-spacing: 0.16em;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 14px;
+  color: rgba(244, 246, 251, 0.78);
+  margin-bottom: 16px;
 }
 
 .prose {
-  font-size: 16px;
-  line-height: 1.65;
+  font-size: clamp(16px, calc(0.4vw + 11px), 18px);
+  line-height: 1.7;
   max-width: 70ch;
-  color: rgba(244, 246, 251, 0.88);
+  color: rgba(244, 246, 251, 0.92);
 }
 
 .chip-row {
@@ -747,7 +749,7 @@ p {
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .chip-gold {
@@ -788,14 +790,15 @@ p {
 }
 
 .stat-value {
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .stat-label {
-  font-size: 13px;
-  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+  color: rgba(244, 246, 251, 0.8);
 }
 
 .activity-list {
@@ -811,22 +814,23 @@ p {
   grid-template-columns: auto 1fr auto;
   gap: 14px;
   align-items: start;
-  padding: 16px 18px;
+  padding: 18px 20px;
   border-radius: var(--radius);
-  background: rgba(10, 12, 26, 0.55);
+  background: rgba(10, 12, 26, 0.72);
   border: 1px solid var(--border);
 }
 
 .activity h3 {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .activity p {
   margin-top: 6px;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--muted);
+  font-size: clamp(16px, calc(0.3vw + 12px), 17px);
+  line-height: 1.6;
+  color: rgba(244, 246, 251, 0.84);
 }
 
 .activity-check {
@@ -835,7 +839,7 @@ p {
 }
 
 .activity-status {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #4ade80;
   white-space: nowrap;
 }
@@ -1176,7 +1180,7 @@ p {
   }
 
   .hero-blurb {
-    font-size: 15px;
+    font-size: 16.5px;
   }
 
   .btn {
@@ -7965,11 +7969,8 @@ p {
 }
 
 .hub-hero .hero-blurb {
-  font-size: 14px;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: clamp(17px, calc(0.4vw + 12px), 19px);
+  line-height: 1.6;
 }
 
 .hub-hero .hero-key {

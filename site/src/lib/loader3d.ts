@@ -1,22 +1,49 @@
-// Full-screen loading overlay with a small three.js scene: a holographic cube that unfolds as the progress bar
-// fills, hovering over a slowly spinning neon disc. Framework-free (plain DOM + three.js), so the same file ships
-// unchanged with each game that was split out of the portfolio.
+// Full-screen loading screen, one system for every context: the thing being loaded fills the screen (a game's key
+// art, the district being entered, the island at boot) with its title, a line of lore, a rotating tip and real
+// progress, plus a small holographic cube (three.js) that unfolds as the bar fills. Framework-free (plain DOM +
+// three.js), so the same file ships unchanged with each game that was split out of the portfolio.
 //
-//   const h = showLoader({ status: 'Loading the island…' })
+//   const h = showLoader({ status: 'Loading the island…', scene: { title: 'Harbour Town', art: 'home/hero/profile.webp' } })
 //   h.update({ progress: 0.42 })     // 0..1, or null while the size of the work is unknown
 //   h.release()                      // hides once every holder has released (min 600 ms on screen, then a fade)
 //
+// A screen that owns a context (a game route, say) can claim it with claimLoaderScene(), so every loader shown
+// while it is mounted (its chunk download, its own asset loader) carries that game's art and tips without each
+// call site having to pass it. An explicit `scene` always wins.
+//
 // Progress is real: loadMonitor() watches three's DefaultLoadingManager (every GLTFLoader / TextureLoader that
 // is not given its own manager reports there), and the overlay can follow it with trackManager(). three itself is
-// imported lazily so the overlay (status + bar) appears before the 3D chunk has downloaded.
+// imported lazily so the overlay (art, status + bar) appears before the 3D chunk has downloaded.
 
 import type * as ThreeNS from 'three'
 
+/** What is loading: shown full-screen behind the progress. Every field is optional. */
+export interface LoaderScene {
+  /** Small label above the title, e.g. "Now loading · Game" or "Entering district". */
+  kicker?: string
+  title?: string
+  /** One line of lore or description under the title. */
+  sub?: string
+  /** Full-bleed image URL, and an optional srcset for it (sizes cover the screen). */
+  art?: string
+  artSet?: string
+  /** The same image as AVIF (a srcset), for browsers that take it; often already cached by the page. */
+  artAvif?: string
+  /** A small copy (usually cached already), shown blurred at once while the full image loads. */
+  artThumb?: string
+  /** Rotating tips, one every few seconds. */
+  tips?: string[]
+  /** Progress bar and glow colours. */
+  accent?: [string, string]
+}
+
 export interface LoaderState {
-  /** One line under the scene, e.g. "Loading the island…". */
+  /** One line by the progress bar, e.g. "Loading the island…". */
   status?: string
   /** 0..1 fraction of the work done, or null when the amount of work is unknown. */
   progress?: number | null
+  /** What is loading (falls back to the claimed scene, see claimLoaderScene). */
+  scene?: LoaderScene
 }
 
 export interface LoaderHandle {
@@ -32,33 +59,72 @@ export interface LoadActivity {
 }
 
 const MIN_MS = 600
-const FADE_MS = 380
+const FADE_MS = 420
+const IN_MS = 220
+const TIP_MS = 5200
 const IDLE_GRACE_MS = 260
 const STALL_MS = 20000
 const DRAIN_MS = 1500
 const ID = 'ld3'
 
+// Kept in step with the static shell's copy in index.html (first paint, before this module runs).
 const CSS = `
-.ld3{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#05060f;color:#f4f6fb;
-  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;transition:opacity ${FADE_MS}ms ease;
-  --ld3-a:#22d3ee;--ld3-b:#f0abfc}
+.ld3{position:fixed;inset:0;z-index:1000;overflow:hidden;color:#fff;background:#05060f;
+  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --ld3-a:#22d3ee;--ld3-b:#f0abfc;--ld3-gx:clamp(20px,4.4vw,84px);transition:opacity ${FADE_MS}ms ease}
+.ld3::before{content:'';position:absolute;inset:0;background:radial-gradient(110% 90% at 78% 28%,color-mix(in srgb,var(--ld3-a) 20%,transparent),transparent 62%),radial-gradient(80% 70% at 6% 100%,color-mix(in srgb,var(--ld3-b) 14%,transparent),transparent 62%)}
+.ld3.is-pre{opacity:0;transition-duration:${IN_MS}ms}
 .ld3.is-out{opacity:0;pointer-events:none}
-.ld3-box{display:grid;justify-items:center;gap:14px;width:min(360px,80vw)}
-.ld3-stage{position:relative;width:min(280px,60vw);aspect-ratio:1;display:grid;place-items:center}
+.ld3-art{position:absolute;inset:0}
+.ld3-art picture{position:absolute;inset:0}
+.ld3-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:68% 35%;opacity:0;transform:scale(1.07);
+  transition:opacity .8s ease,transform 10s cubic-bezier(.2,.7,.2,1)}
+.ld3-art img.is-in{opacity:1;transform:scale(1)}
+.ld3-art img.ld3-blur{filter:blur(28px) saturate(1.2);transform:scale(1.12);transition:opacity .3s ease}
+.ld3-art img.ld3-blur.is-in{opacity:.85;transform:scale(1.12)}
+.ld3-scrim{position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(3,5,12,.9) 0%,rgba(3,5,12,.66) 28%,rgba(3,5,12,.16) 56%,rgba(3,5,12,0) 70%),
+  linear-gradient(180deg,rgba(3,5,12,.5) 0%,rgba(3,5,12,0) 22%,rgba(3,5,12,0) 44%,rgba(3,5,12,.66) 76%,rgba(3,5,12,.95) 100%)}
+.ld3-ui{position:absolute;left:var(--ld3-gx);right:var(--ld3-gx);bottom:clamp(28px,7vh,80px);display:grid;gap:clamp(22px,3.6vh,40px);max-width:780px}
+.ld3-kicker{display:flex;align-items:center;gap:10px;margin:0;font-size:14px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.86)}
+.ld3-kicker::before{content:'';flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--ld3-a);box-shadow:0 0 14px var(--ld3-a);animation:ld3-pulse 1.6s ease-in-out infinite}
+.ld3-kicker:empty{display:none}
+.ld3-title{margin:12px 0 0;font-size:clamp(40px,5.2vw,96px);font-weight:800;line-height:.98;letter-spacing:-.02em;text-wrap:balance;text-shadow:0 4px 34px rgba(0,0,0,.5)}
+.ld3-title:empty,.ld3-sub:empty{display:none}
+.ld3-sub{margin:14px 0 0;max-width:48ch;font-size:clamp(17px,calc(.5vw + 11px),21px);line-height:1.5;color:rgba(255,255,255,.9);text-shadow:0 2px 14px rgba(0,0,0,.6)}
+.ld3-foot{display:flex;align-items:center;gap:18px;max-width:640px}
+.ld3-stage{position:relative;flex:0 0 auto;width:84px;height:84px;display:grid;place-items:center}
 .ld3-stage canvas{width:100%;height:100%;display:block}
-.ld3-logo{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;font-weight:800;font-size:34px;
-  letter-spacing:.04em;color:#fff;border:1px solid rgba(255,255,255,.14);
-  background:linear-gradient(150deg,rgba(34,211,238,.28),rgba(240,171,252,.22));
-  box-shadow:0 0 44px rgba(34,211,238,.25),inset 0 0 24px rgba(240,171,252,.18)}
-.ld3-text{display:flex;justify-content:space-between;width:100%;font-size:13px;letter-spacing:.08em;
-  text-transform:uppercase;color:rgba(244,246,251,.64)}
-.ld3-pct{font-variant-numeric:tabular-nums;color:#f4f6fb}
-.ld3-bar{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
+.ld3-logo{width:56px;height:56px;display:grid;place-items:center;border-radius:16px;font-weight:800;font-size:20px;letter-spacing:.04em;color:#fff;
+  border:1px solid rgba(255,255,255,.16);background:linear-gradient(150deg,color-mix(in srgb,var(--ld3-a) 30%,transparent),color-mix(in srgb,var(--ld3-b) 24%,transparent));
+  box-shadow:0 0 34px color-mix(in srgb,var(--ld3-a) 28%,transparent)}
+.ld3-meter{flex:1;min-width:0;display:grid;gap:10px}
+.ld3-text{display:flex;justify-content:space-between;gap:12px;font-size:14px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.8)}
+.ld3-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ld3-pct{font-variant-numeric:tabular-nums;color:#fff}
+.ld3-bar{position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.16);overflow:hidden}
 .ld3-bar i{position:absolute;inset:0;width:auto;animation:none;transform-origin:0 50%;transform:scaleX(0);border-radius:4px;
-  background:linear-gradient(90deg,var(--ld3-a),var(--ld3-b));transition:transform .18s ease-out}
+  background:linear-gradient(90deg,var(--ld3-b),var(--ld3-a));transition:transform .18s ease-out}
 .ld3-bar.is-wait i{animation:ld3-wait 1.4s ease-in-out infinite;transform:none;width:40%;left:0}
+.ld3-tip{margin:4px 0 0;min-height:3em;font-size:clamp(15px,calc(.3vw + 11px),17px);line-height:1.5;color:rgba(255,255,255,.86);transition:opacity .35s ease}
+.ld3-tip b{display:inline-block;margin-right:10px;padding:2px 8px;border-radius:5px;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  vertical-align:1px;color:#0b0d14;background:color-mix(in srgb,var(--ld3-a) 70%,#fff)}
+.ld3-tip.is-swap{opacity:0}
+.ld3-tip:empty{display:none}
 @keyframes ld3-wait{0%{left:-40%}100%{left:100%}}
-@media (prefers-reduced-motion:reduce){.ld3{transition:none}.ld3-bar i{transition:none}.ld3-bar.is-wait i{animation:none;left:0;width:100%;opacity:.5}}
+@keyframes ld3-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (max-width:760px){
+  .ld3-scrim{background:linear-gradient(180deg,rgba(3,5,12,.45) 0%,rgba(3,5,12,0) 24%,rgba(3,5,12,.2) 42%,rgba(3,5,12,.86) 66%,rgba(3,5,12,.97) 100%)}
+  .ld3-art img{object-position:72% 40%}
+  .ld3-ui{bottom:calc(24px + env(safe-area-inset-bottom));gap:20px}
+  .ld3-title{font-size:clamp(32px,10vw,46px)}
+  .ld3-sub{font-size:16px}
+  .ld3-stage{width:60px;height:60px}
+  .ld3-logo{width:44px;height:44px;font-size:16px;border-radius:12px}
+  .ld3-tip{font-size:15px}
+}
+@media (prefers-reduced-motion:reduce){.ld3,.ld3-tip{transition:none}.ld3-art img{transition:opacity .2s;transform:none}.ld3-kicker::before{animation:none}
+  .ld3-bar i{transition:none}.ld3-bar.is-wait i{animation:none;left:0;width:100%;opacity:.5}}
 `
 
 /** The overlay element from index.html, if the page ships a static shell (logo + bar) for the first paint. */
@@ -151,16 +217,48 @@ export function loadMonitor() {
   void three()
 }
 
+/* ---------- Scene context ---------- */
+
+let claimed: LoaderScene | null = null
+let fallback: LoaderScene | null = null
+
+/** The scene used by loaders that do not pass one, while `scene` is claimed (a game route, say). */
+export function claimLoaderScene(scene: LoaderScene) {
+  claimed = scene
+  if (overlay && !overlay.fading) applyScene(overlay, scene)
+}
+
+/** Give the claim back (only if it is still this scene's). */
+export function releaseLoaderScene(scene: LoaderScene) {
+  if (claimed === scene) claimed = null
+}
+
+/** The scene of last resort, for loaders shown with nothing claimed (the site's own look). */
+export function setDefaultLoaderScene(scene: LoaderScene | null) {
+  fallback = scene
+}
+
 /* ---------- Overlay ---------- */
 
 interface Overlay {
   root: HTMLElement
   stage: HTMLElement
+  art: HTMLElement
+  kicker: HTMLElement
+  title: HTMLElement
+  sub: HTMLElement
+  tip: HTMLElement
   status: HTMLElement
   pct: HTMLElement
   bar: HTMLElement
   fill: HTMLElement
   scene: Scene | null
+  /** The scene on screen. */
+  shown3: LoaderScene | null
+  artSrc: string
+  tips: string[]
+  tipAt: number
+  tipTimer: number
   shownAt: number
   lastFrame: number
   target: number | null
@@ -173,6 +271,22 @@ interface Overlay {
 let overlay: Overlay | null = null
 let holders = 0
 
+const MARKUP =
+  '<div class="ld3-art" aria-hidden="true"></div><div class="ld3-scrim" aria-hidden="true"></div>' +
+  '<div class="ld3-ui"><div class="ld3-copy"><p class="ld3-kicker"></p><h2 class="ld3-title"></h2><p class="ld3-sub"></p></div>' +
+  '<div class="ld3-foot"><div class="ld3-stage" aria-hidden="true"></div><div class="ld3-meter">' +
+  '<div class="ld3-text"><span class="ld3-status"></span><span class="ld3-pct"></span></div>' +
+  '<div class="ld3-bar is-wait"><i></i></div><p class="ld3-tip"></p></div></div></div>'
+
+const mark = () => document.documentElement.dataset.loaderMark || 'SS'
+
+function logo(stage: HTMLElement) {
+  const el = document.createElement('div')
+  el.className = 'ld3-logo'
+  el.textContent = mark()
+  stage.appendChild(el)
+}
+
 function build(): Overlay {
   if (!document.getElementById(ID + '-style')) {
     const style = document.createElement('style')
@@ -181,27 +295,39 @@ function build(): Overlay {
     document.head.appendChild(style)
   }
   let root = adoptShell()
+  const adopted = !!root
   if (!root) {
     root = document.createElement('div')
     root.id = ID
-    root.className = 'ld3'
+    root.className = 'ld3 is-pre'
     root.setAttribute('role', 'status')
     root.setAttribute('aria-live', 'polite')
     document.body.appendChild(root)
+    // Fade in over whatever was on screen (two frames, so the starting opacity is painted first).
+    const el = root
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('is-pre')))
   }
-  root.innerHTML =
-    '<div class="ld3-box"><div class="ld3-stage"></div>' +
-    '<div class="ld3-text"><span class="ld3-status"></span><span class="ld3-pct"></span></div>' +
-    '<div class="ld3-bar is-wait"><i></i></div></div>'
+  // The static shell from index.html already has this markup (and its art loading): keep it, so nothing flashes.
+  if (!root.querySelector('.ld3-ui')) root.innerHTML = MARKUP
   const q = (c: string) => root.querySelector<HTMLElement>('.' + c)!
   const o: Overlay = {
     root,
     stage: q('ld3-stage'),
+    art: q('ld3-art'),
+    kicker: q('ld3-kicker'),
+    title: q('ld3-title'),
+    sub: q('ld3-sub'),
+    tip: q('ld3-tip'),
     status: q('ld3-status'),
     pct: q('ld3-pct'),
     bar: q('ld3-bar'),
     fill: q('ld3-bar i'),
     scene: null,
+    shown3: null,
+    artSrc: adopted ? (root.dataset.art ?? '') : '',
+    tips: [],
+    tipAt: 0,
+    tipTimer: 0,
     shownAt: performance.now(),
     lastFrame: performance.now(),
     target: null,
@@ -210,13 +336,10 @@ function build(): Overlay {
     hideTimer: 0,
     fading: false,
   }
-  o.status.textContent = 'Loading…'
-  if (reducedMotion()) {
-    const logo = document.createElement('div')
-    logo.className = 'ld3-logo'
-    logo.textContent = document.documentElement.dataset.loaderMark || 'SS'
-    o.stage.appendChild(logo)
-  } else {
+  o.stage.textContent = ''
+  if (!o.status.textContent) o.status.textContent = 'Loading…'
+  if (reducedMotion()) logo(o.stage)
+  else {
     const canvas = document.createElement('canvas')
     o.stage.appendChild(canvas)
     three()
@@ -225,10 +348,7 @@ function build(): Overlay {
         o.scene = makeScene(THREE, canvas)
         if (!o.scene) {
           canvas.remove()
-          const logo = document.createElement('div')
-          logo.className = 'ld3-logo'
-          logo.textContent = document.documentElement.dataset.loaderMark || 'SS'
-          o.stage.appendChild(logo)
+          logo(o.stage)
         }
       })
       .catch(() => {})
@@ -245,7 +365,103 @@ function build(): Overlay {
   return o
 }
 
+/** Cross-fade to a new full-bleed image; older ones go once it has landed. */
+function setArt(o: Overlay, src: string | undefined, set: string | undefined, avif: string | undefined, thumb?: string) {
+  if ((src ?? '') === o.artSrc) return
+  o.artSrc = src ?? ''
+  o.root.dataset.art = o.artSrc
+  const old = [...o.art.children] as HTMLElement[]
+  const hideOld = () => old.forEach((i) => (i.tagName === 'IMG' ? i : i.querySelector('img'))?.classList.remove('is-in'))
+  if (!src) {
+    hideOld()
+    return
+  }
+  let blur: HTMLImageElement | null = null
+  if (thumb) {
+    blur = document.createElement('img')
+    blur.alt = ''
+    blur.className = 'ld3-blur'
+    const b = blur
+    b.onload = () => b.classList.add('is-in')
+    b.src = thumb
+    o.art.appendChild(b)
+  }
+  const img = document.createElement('img')
+  img.alt = ''
+  img.decoding = 'async'
+  img.setAttribute('fetchpriority', 'high')
+  if (set) {
+    img.srcset = set
+    img.sizes = '(orientation: portrait) 178vh, 100vw'
+  }
+  img.src = src
+  const land = () => {
+    img.classList.add('is-in')
+    window.setTimeout(() => {
+      old.forEach((i) => i.remove())
+      blur?.remove()
+    }, 900)
+  }
+  img.onload = () => {
+    if (img.decode) img.decode().then(land, land)
+    else land()
+  }
+  img.onerror = () => {
+    holder.remove()
+    hideOld()
+  }
+  let holder: HTMLElement = img
+  if (avif) {
+    holder = document.createElement('picture')
+    const source = document.createElement('source')
+    source.type = 'image/avif'
+    source.srcset = avif
+    source.sizes = img.sizes
+    holder.append(source, img)
+  }
+  o.art.appendChild(holder)
+}
+
+function showTip(o: Overlay, fade: boolean) {
+  if (!o.tips.length) {
+    o.tip.textContent = ''
+    return
+  }
+  const text = o.tips[o.tipAt % o.tips.length]
+  const put = () => {
+    o.tip.innerHTML = '<b>Tip</b>'
+    o.tip.appendChild(document.createTextNode(text))
+    o.tip.classList.remove('is-swap')
+  }
+  if (!fade || reducedMotion()) return put()
+  o.tip.classList.add('is-swap')
+  window.setTimeout(put, 350)
+}
+
+function applyScene(o: Overlay, sc: LoaderScene | null) {
+  if (sc === o.shown3) return
+  o.shown3 = sc
+  o.kicker.textContent = sc?.kicker ?? ''
+  o.title.textContent = sc?.title ?? ''
+  o.sub.textContent = sc?.sub ?? ''
+  if (sc?.accent) {
+    o.root.style.setProperty('--ld3-a', sc.accent[0])
+    o.root.style.setProperty('--ld3-b', sc.accent[1])
+  }
+  setArt(o, sc?.art, sc?.artSet, sc?.artAvif, sc?.artThumb)
+  window.clearInterval(o.tipTimer)
+  o.tips = sc?.tips ?? []
+  o.tipAt = 0
+  showTip(o, false)
+  if (o.tips.length > 1)
+    o.tipTimer = window.setInterval(() => {
+      o.tipAt++
+      showTip(o, true)
+    }, TIP_MS)
+}
+
 function apply(o: Overlay, s: LoaderState) {
+  if (s.scene) applyScene(o, s.scene)
   if (s.status !== undefined) o.status.textContent = s.status
   if (s.progress !== undefined) {
     if (s.progress === null) {
@@ -266,6 +482,7 @@ function apply(o: Overlay, s: LoaderState) {
 
 function teardown(o: Overlay) {
   cancelAnimationFrame(o.raf)
+  window.clearInterval(o.tipTimer)
   o.scene?.dispose()
   o.root.remove()
 }
@@ -291,6 +508,11 @@ export function showLoader(state: LoaderState = {}): LoaderHandle {
   }
   window.clearTimeout(overlay.hideTimer)
   const o = overlay
+  // Without a scene of its own, a loader shows the claimed one (the latest context wins), or the site's default.
+  if (!state.scene) {
+    if (claimed) applyScene(o, claimed)
+    else if (!o.shown3) applyScene(o, fallback)
+  }
   apply(o, state)
   let released = false
   return {

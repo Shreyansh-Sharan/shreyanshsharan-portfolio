@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Briefcase,
+  ChevronRight,
+  Compass,
   Ellipsis,
   Gamepad2,
   LayoutGrid,
@@ -23,7 +25,7 @@ import { GAME_INFO, HOME_TABS, homeTabFor, missionsDone, previewCards, readProgr
 import { useActions, type Action } from '../lib/input'
 import { isMuted, play, setMuted } from '../lib/sound'
 import { isLowGraphics, setLowGraphics } from '../lib/graphics'
-import { setPrefs, usePrefs } from '../lib/prefs'
+import { setPrefs, usePrefs, type Backdrop } from '../lib/prefs'
 import { navigate } from '../lib/router'
 import { openGame } from '../data/gameLinks'
 import { accentVars } from '../lib/style'
@@ -31,6 +33,7 @@ import { world } from '../world/store'
 import { TileRow } from './home/TileRow'
 import { HeroBackdrop } from './home/HeroBackdrop'
 import { preloadHeroes } from '../lib/art'
+import { districtForTile } from '../lib/loading'
 import { tileActions, type HomeAction } from './home/actions'
 import { HintBar } from './HintBar'
 import './home/home.css'
@@ -38,8 +41,9 @@ import './home/home.css'
 type Zone = 'top' | 'tiles' | 'actions' | 'cards'
 
 const TAB_ICONS: Record<HomeTab, LucideIcon> = { games: Gamepad2, career: Briefcase, showcase: Sparkles, profile: User }
-// Top bar items after the tabs.
-const TOP_EXTRA = ['search', 'settings', 'avatar'] as const
+// Tiles whose backdrop is the live open world by default (the rest show their key art).
+const LIVE_TILES = new Set(['profile', 'resume', 'trophies', 'skill-tree'])
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
 function useClock() {
   const [now, setNow] = useState(() => new Date())
@@ -64,13 +68,17 @@ export function Home({
   initialTile,
   onAccent,
   canExplore,
+  liveWorld = false,
 }: {
   initialTile?: string
   onAccent: (a: [string, string], emblem: string) => void
   canExplore: boolean
+  /** The open world is running and has rendered (so it can be the backdrop). */
+  liveWorld?: boolean
 }) {
   const start = tiles.find((t) => t.id === initialTile)
-  const [tab, setTab] = useState<HomeTab>(() => (start ? homeTabFor(start.id) : 'games'))
+  // With no tile asked for, the home screen opens on the Player Profile.
+  const [tab, setTab] = useState<HomeTab>(() => (start ? homeTabFor(start.id) : 'profile'))
   const [indexByTab, setIndexByTab] = useState<Record<HomeTab, number>>(() => {
     const out = { games: 0, career: 0, showcase: 0, profile: 0 }
     if (start) out[homeTabFor(start.id)] = Math.max(0, tilesForTab(homeTabFor(start.id)).findIndex((t) => t.id === start.id))
@@ -94,6 +102,27 @@ export function Home({
   const list = useMemo(() => (searching ? searchTiles(query!) : tilesForTab(tab)), [searching, query, tab])
   const index = Math.max(0, Math.min(searching ? searchIndex : indexByTab[tab], list.length - 1))
   const tile: Tile | undefined = list[index]
+
+  // The live open world shows behind the profile (or everywhere, by setting) once it has rendered; low graphics
+  // and reduced motion keep the key art.
+  const liveAllowed = canExplore && liveWorld && !prefs.reduceMotion && !isLowGraphics()
+  const live = !!tile && liveAllowed && (prefs.backdrop === 'world' || (prefs.backdrop === 'auto' && LIVE_TILES.has(tile.id)))
+  const place = tile ? districtForTile(tile.id).name : ''
+
+  // First visit: point at the Open World entry once the world is up (dismissed for good with either button).
+  const [coachDue, setCoachDue] = useState(false)
+  const coachReady = liveAllowed && !prefs.coachSeen
+  useEffect(() => {
+    if (!coachReady) return
+    const id = window.setTimeout(() => setCoachDue(true), 1400)
+    return () => window.clearTimeout(id)
+  }, [coachReady])
+  const coach = coachReady && coachDue && !searching && !settingsOpen && !artView
+  const dismissCoach = () => setPrefs({ coachSeen: true })
+  const enterWorld = () => {
+    if (!explore) return
+    explore('profile')
+  }
 
   const topRefs = useRef<(HTMLElement | null)[]>([])
   const tileRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -146,6 +175,7 @@ export function Home({
   const explore = canExplore
     ? (tileId: string) => {
         play('select')
+        if (!prefs.coachSeen) setPrefs({ coachSeen: true })
         world.set({ arrive: tileId, requestPlay: true })
       }
     : undefined
@@ -224,10 +254,19 @@ export function Home({
     return () => el?.removeEventListener('ps-step', on)
   }, [])
 
-  const topCount = HOME_TABS.length + TOP_EXTRA.length
+  // Top bar order: the tabs, the Open World entry (when the world can run), search, settings, the avatar.
+  const I_WORLD = canExplore ? HOME_TABS.length : -1
+  const I_SEARCH = HOME_TABS.length + (canExplore ? 1 : 0)
+  const I_SETTINGS = I_SEARCH + 1
+  const I_AVATAR = I_SEARCH + 2
+  const topCount = I_AVATAR + 1
   const clamp = (n: number, len: number) => Math.max(0, Math.min(len - 1, n))
 
   useActions((action: Action) => {
+    if (coach && action === 'back') {
+      dismissCoach()
+      return true
+    }
     if (action === 'prevTab' || action === 'nextTab') {
       const i = HOME_TABS.findIndex((t) => t.id === tab)
       switchTab(HOME_TABS[clamp(i + (action === 'nextTab' ? 1 : -1), HOME_TABS.length)].id)
@@ -250,7 +289,7 @@ export function Home({
       case 'tiles':
         if (horizontal) select(clamp(index + dir, list.length))
         else if (action === 'up') {
-          setTopIdx(searching ? HOME_TABS.length : Math.max(0, HOME_TABS.findIndex((t) => t.id === tab)))
+          setTopIdx(searching ? I_SEARCH : Math.max(0, HOME_TABS.findIndex((t) => t.id === tab)))
           setZone('top')
         } else if (action === 'down' && tile) setZone('actions')
         else if (action === 'confirm') actionRefs.current[0]?.click()
@@ -278,7 +317,7 @@ export function Home({
     play('select')
     setQuery((q) => q ?? '')
     setSearchIndex(0)
-    setTopIdx(HOME_TABS.length)
+    setTopIdx(I_SEARCH)
     setZone('top')
   }
 
@@ -351,10 +390,10 @@ export function Home({
   return (
     <div
       ref={rootRef}
-      className={`ps-home kind-${kind} ${launching ? 'is-launching' : ''} ${artView ? 'is-art-view' : ''} ${searching ? 'is-searching' : ''}`}
+      className={`ps-home kind-${kind} ${live ? 'is-live' : ''} ${launching ? 'is-launching' : ''} ${artView ? 'is-art-view' : ''} ${searching ? 'is-searching' : ''}`}
       style={tile ? accentVars(tile.accent) : undefined}
     >
-      {tile && <HeroBackdrop tile={tile} hidden={prefs.backdrop === 'world'} />}
+      {tile && <HeroBackdrop tile={tile} hidden={live} />}
       <div className="ps-scrim" aria-hidden="true" />
 
       <header className="ps-top">
@@ -366,12 +405,69 @@ export function Home({
           {searching && <span className="ps-tab is-active ps-tab-results">Results</span>}
         </nav>
         <div className="ps-top-right">
+          {canExplore && (
+            <div className="ps-world-wrap">
+              <button
+                ref={(el) => {
+                  topRefs.current[I_WORLD] = el
+                }}
+                className={`ps-world-btn ${zone === 'top' && topIdx === I_WORLD ? 'is-focused' : ''}`}
+                aria-label="Open World: explore the live 3D island"
+                aria-describedby={coach ? 'ps-coach' : undefined}
+                onFocus={() => {
+                  setZone('top')
+                  setTopIdx(I_WORLD)
+                }}
+                onClick={enterWorld}
+              >
+                <Compass size={18} aria-hidden="true" />
+                <span className="ps-world-label">Open World</span>
+                <span className="ps-live" aria-hidden="true">
+                  <i /> Live
+                </span>
+              </button>
+              {coach && (
+                <div
+                  className="ps-coach"
+                  id="ps-coach"
+                  role="dialog"
+                  aria-label="The open world"
+                  ref={(el) => {
+                    // On phones the card spans the screen; its arrow still points at the button.
+                    const at = el && topRefs.current[I_WORLD]?.getBoundingClientRect()
+                    if (el && at) el.style.setProperty('--ps-coach-arrow', `${Math.round(window.innerWidth - (at.left + at.width / 2) - 23)}px`)
+                  }}
+                >
+                  <p className="ps-coach-title">
+                    <Sparkles size={16} aria-hidden="true" /> There is a whole island to explore
+                  </p>
+                  <p className="ps-coach-body">
+                    The world behind this screen is live. Walk, fly and drive around it, and find every chapter of the career as a mission.
+                  </p>
+                  <div className="ps-coach-actions">
+                    <button
+                      className="ps-coach-go"
+                      onClick={() => {
+                        dismissCoach()
+                        enterWorld()
+                      }}
+                    >
+                      Explore now
+                    </button>
+                    <button className="ps-coach-skip" onClick={dismissCoach}>
+                      Got it
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {query !== null ? (
             <div className="ps-search">
               <Search size={18} aria-hidden="true" />
               <input
                 ref={(el) => {
-                  topRefs.current[HOME_TABS.length] = el
+                  topRefs.current[I_SEARCH] = el
                 }}
                 type="search"
                 value={query}
@@ -384,7 +480,7 @@ export function Home({
                 }}
                 onFocus={() => {
                   setZone('top')
-                  setTopIdx(HOME_TABS.length)
+                  setTopIdx(I_SEARCH)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
@@ -412,13 +508,13 @@ export function Home({
           ) : (
             <button
               ref={(el) => {
-                topRefs.current[HOME_TABS.length] = el
+                topRefs.current[I_SEARCH] = el
               }}
-              className={`ps-icon-btn ${zone === 'top' && topIdx === HOME_TABS.length ? 'is-focused' : ''}`}
+              className={`ps-icon-btn ${zone === 'top' && topIdx === I_SEARCH ? 'is-focused' : ''}`}
               aria-label="Search"
               onFocus={() => {
                 setZone('top')
-                setTopIdx(HOME_TABS.length)
+                setTopIdx(I_SEARCH)
               }}
               onClick={openSearch}
             >
@@ -427,14 +523,14 @@ export function Home({
           )}
           <button
             ref={(el) => {
-              topRefs.current[HOME_TABS.length + 1] = el
+              topRefs.current[I_SETTINGS] = el
             }}
-            className={`ps-icon-btn ${zone === 'top' && topIdx === HOME_TABS.length + 1 ? 'is-focused' : ''}`}
+            className={`ps-icon-btn ${zone === 'top' && topIdx === I_SETTINGS ? 'is-focused' : ''}`}
             aria-label="Settings"
             aria-expanded={settingsOpen}
             onFocus={() => {
               setZone('top')
-              setTopIdx(HOME_TABS.length + 1)
+              setTopIdx(I_SETTINGS)
             }}
             onClick={() => {
               play('select')
@@ -445,13 +541,13 @@ export function Home({
           </button>
           <button
             ref={(el) => {
-              topRefs.current[HOME_TABS.length + 2] = el
+              topRefs.current[I_AVATAR] = el
             }}
-            className={`ps-avatar ${zone === 'top' && topIdx === HOME_TABS.length + 2 ? 'is-focused' : ''}`}
+            className={`ps-avatar ${zone === 'top' && topIdx === I_AVATAR ? 'is-focused' : ''}`}
             aria-label={`${profile.name}: open the player profile`}
             onFocus={() => {
               setZone('top')
-              setTopIdx(HOME_TABS.length + 2)
+              setTopIdx(I_AVATAR)
             }}
             onClick={() => go('#/profile')}
           >
@@ -485,6 +581,29 @@ export function Home({
         </div>
       )}
 
+      {tile && live && explore && !coach && (
+        <button className="ps-here" onClick={() => explore(tile.id)} aria-label={`Live open world. You are here: ${place}. Step in to explore.`}>
+          <span className="ps-here-top">
+            <span className="ps-live">
+              <i /> Live
+            </span>
+            <span>
+              You are here: <strong>{place}</strong>
+            </span>
+          </span>
+          <span className="ps-here-hint">
+            {matchMedia('(pointer: coarse)').matches ? (
+              'Tap to step in and explore'
+            ) : (
+              <>
+                Press <kbd>{IS_MAC ? '⌘' : 'Ctrl'}</kbd>
+                <kbd>K</kbd> or click to step in
+              </>
+            )}
+            <ChevronRight size={16} aria-hidden="true" />
+          </span>
+        </button>
+      )}
       {tile && acts && (
         <section className="ps-info" key={tile.id} aria-labelledby="ps-title">
           <p className="ps-meta">
@@ -576,7 +695,7 @@ export function Home({
           onClose={() => {
             setSettingsOpen(false)
             setZone('top')
-            setTopIdx(HOME_TABS.length + 1)
+            setTopIdx(I_SETTINGS)
           }}
         />
       )}
@@ -598,6 +717,7 @@ export function Home({
           ['↑ ↓', 'Menus'],
           ['Enter', acts?.primary.label ?? 'Open'],
           ['Q / E', 'Tabs'],
+          ...(canExplore ? [[IS_MAC ? '⌘K' : 'Ctrl K', 'Open world'] as [string, string]] : []),
         ]}
       />
     </div>
@@ -805,6 +925,8 @@ function ActionMenu({ items, onClose }: { items: HomeAction[]; onClose: () => vo
   )
 }
 
+const BACKDROPS: Backdrop[] = ['auto', 'art', 'world']
+
 /** Graphics, sound, motion and backdrop settings. */
 function SettingsPanel({ onClose }: { onClose: () => void }) {
   const prefs = usePrefs()
@@ -813,7 +935,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [row, setRow] = useState(0)
   const refs = useRef<(HTMLElement | null)[]>([])
 
-  const rows: { id: string; label: string; note?: string; options: [string, string]; value: 0 | 1; set: (v: 0 | 1) => void }[] = [
+  const rows: { id: string; label: string; note?: string; options: string[]; value: number; set: (v: number) => void }[] = [
     {
       id: 'gfx',
       label: 'Graphics',
@@ -847,10 +969,10 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
     {
       id: 'backdrop',
       label: 'Backdrop',
-      note: 'Show the key art, or the live open-world fly-over.',
-      options: ['Key art', 'Live world'],
-      value: prefs.backdrop === 'world' ? 1 : 0,
-      set: (v) => setPrefs({ backdrop: v === 1 ? 'world' : 'art' }),
+      note: 'Auto shows the live open world behind the profile and key art for games and career chapters.',
+      options: ['Auto', 'Key art', 'Live world'],
+      value: BACKDROPS.indexOf(prefs.backdrop),
+      set: (v) => setPrefs({ backdrop: BACKDROPS[v] ?? 'auto' }),
     },
   ]
 
@@ -864,7 +986,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
       play('move')
     } else if ((a === 'left' || a === 'right' || a === 'confirm') && row < rows.length) {
       const r = rows[row]
-      r.set(a === 'confirm' ? (r.value === 1 ? 0 : 1) : a === 'right' ? 1 : 0)
+      const n = r.options.length
+      r.set(a === 'confirm' ? (r.value + 1) % n : Math.max(0, Math.min(n - 1, r.value + (a === 'right' ? 1 : -1))))
       play('move')
     } else if (a === 'confirm') onClose()
     else if (a === 'back') {
@@ -905,7 +1028,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                   className={r.value === v ? 'is-on' : ''}
                   onClick={() => {
                     setRow(k)
-                    r.set(v as 0 | 1)
+                    r.set(v)
                   }}
                 >
                   {o}

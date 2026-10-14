@@ -1,18 +1,18 @@
 // React bindings for the shared 3D loader (lib/loader3d.ts). The overlay itself is plain DOM + three.js; these
 // components only decide when it shows and what it reports.
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { showLoader, subscribeLoading, trackManager, type LoaderHandle } from '../lib/loader3d'
+import { claimLoaderScene, releaseLoaderScene, showLoader, subscribeLoading, trackManager, type LoaderHandle, type LoaderScene } from '../lib/loader3d'
 
 /**
  * Shows the overlay while mounted. `progress` is 0..1, `null` for "unknown amount of work", or left out to follow
  * three's default loading manager (every GLTF/texture load that is not given its own manager).
  */
-export function Loader3D({ status, progress }: { status: string; progress?: number | null }) {
+export function Loader3D({ status, progress, scene }: { status: string; progress?: number | null; scene?: LoaderScene }) {
   const handle = useRef<LoaderHandle | null>(null)
   const follow = progress === undefined
 
   useEffect(() => {
-    const h = showLoader({ status, progress: follow ? null : progress })
+    const h = showLoader({ status, progress: follow ? null : progress, scene })
     handle.current = h
     const off = follow ? subscribeLoading((a) => h.update({ progress: a.active && a.total ? a.loaded / a.total : null })) : undefined
     return () => {
@@ -39,12 +39,12 @@ export function Loader3D({ status, progress }: { status: string; progress?: numb
  * Shows the overlay until the loading manager has been idle for a moment (so the burst of model and texture loads
  * a screen starts on mount has finished), then calls onDone and renders nothing.
  */
-export function LoadingGate({ status, onDone }: { status: string; onDone?: () => void }) {
+export function LoadingGate({ status, onDone, scene }: { status: string; onDone?: () => void; scene?: LoaderScene }) {
   const finish = useRef(onDone)
   finish.current = onDone
 
   useEffect(() => {
-    const h = showLoader({ status, progress: null })
+    const h = showLoader({ status, progress: null, scene })
     const ctrl = new AbortController()
     // Give the screen a frame to kick off its loads before deciding nothing is happening.
     const id = window.setTimeout(() => {
@@ -67,15 +67,36 @@ export function LoadingGate({ status, onDone }: { status: string; onDone?: () =>
 }
 
 /**
- * Route shell for a lazy game page: the loader covers the chunk download (unknown size) and then the game's own
- * asset burst (real progress from the loading manager), so the page never shows black or half-built.
+ * While mounted, every loader that does not name its own scene shows this one (claimed on the first render, so
+ * the children's loaders, whose effects run first, already see it; later changes are claimed by the effect).
  */
-export function GameRoute({ title, children }: { title: string; children: ReactNode }) {
+function useLoaderScene(scene: LoaderScene | undefined) {
+  useState(() => scene && claimLoaderScene(scene))
+  useEffect(() => {
+    if (!scene) return
+    claimLoaderScene(scene)
+    return () => releaseLoaderScene(scene)
+  }, [scene])
+}
+
+/**
+ * Route shell for a lazy game page: the loader covers the chunk download (unknown size) and then the game's own
+ * asset burst (real progress from the loading manager), so the page never shows black or half-built. With a
+ * `scene`, every loader inside (the game's own included) shows that game's key art, title and tips.
+ */
+export function GameRoute({ title, scene, children }: { title: string; scene?: LoaderScene; children: ReactNode }) {
   const [settled, setSettled] = useState(false)
+  useLoaderScene(scene)
   return (
     <Suspense fallback={<Loader3D status={`Fetching ${title}…`} progress={null} />}>
       {children}
       {!settled && <LoadingGate status={`Loading ${title}…`} onDone={() => setSettled(true)} />}
     </Suspense>
   )
+}
+
+/** Claims `scene` for every loader shown inside (for screens that are not wrapped in a GameRoute). */
+export function WithLoaderScene({ scene, children }: { scene: LoaderScene; children: ReactNode }) {
+  useLoaderScene(scene)
+  return <>{children}</>
 }

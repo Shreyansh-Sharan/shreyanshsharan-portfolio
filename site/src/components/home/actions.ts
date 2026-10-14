@@ -2,7 +2,7 @@
 // chapters View Details and Explore, the showcase and profile tiles their own equivalents; the "..." menu adds
 // details, sharing, the key art viewer and contact links.
 import type { LucideIcon } from 'lucide-react'
-import { Download, ExternalLink, FileText, Gamepad2, Image as ImageIcon, Info, Briefcase, Mail, Map as MapIcon, Play, Share2 } from 'lucide-react'
+import { Download, ExternalLink, FileText, Gamepad2, Image as ImageIcon, Info, Briefcase, Compass, Mail, Map as MapIcon, Play, Share2 } from 'lucide-react'
 import { profile, type Tile } from '../../data/content'
 import { tileKind } from '../../data/home'
 import { externalGameUrl } from '../../data/gameLinks'
@@ -104,8 +104,16 @@ export function tileActions(tile: Tile, ctx: ActionContext): TileActions {
   // Pages with their own route (the profile, trophies, the skill tree).
   const to = tile.action.kind === 'route' ? tile.action.to : `#/game/${tile.id}`
   const label = tile.action.kind === 'route' ? tile.action.label : 'Open'
+  const open: HomeAction = { id: 'open', label: label.replace(/^\w/, (c) => c.toUpperCase()), icon: tile.id === 'profile' ? Gamepad2 : Play, run: () => ctx.go(to, true) }
+  // The profile is the landing view, so its first offer is the open world itself (when the device can run it).
+  if (tile.id === 'profile' && explore)
+    return {
+      primary: { ...explore, label: 'Explore the Open World', icon: Compass },
+      secondary: open,
+      menu: [resumeLink, linkedin, email, quick, share, art],
+    }
   return {
-    primary: { id: 'open', label: label.replace(/^\w/, (c) => c.toUpperCase()), icon: tile.id === 'profile' ? Gamepad2 : Play, run: () => ctx.go(to, true) },
+    primary: open,
     secondary: explore,
     menu: tile.id === 'profile' ? [resumeLink, linkedin, email, quick, share, art] : [resumeLink, share, art],
   }

@@ -155,6 +155,15 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
       cz = 0
       cy = 10
       s.angle += dt * 0.035
+    } else if (regionForTile(focus).shot) {
+      const r = regionForTile(focus)
+      const sh = r.shot!
+      cx = r.center[0] + sh.at[0]
+      cz = r.center[1] + sh.at[1]
+      cy = heightAt(cx, cz) + sh.lift
+      radius = sh.radius
+      height = sh.height
+      s.angle += dt * 0.05
     } else {
       const r = regionForTile(focus)
       radius = r.orbit.radius
@@ -172,6 +181,11 @@ export function CameraRig({ playing, mode }: { playing: boolean; mode: 'boot' | 
     // Low, near-horizontal orbit so the sky and the far side of the island frame each landmark.
     tmpPos.set(cx - Math.cos(a) * radius, cy + height * 0.45, cz - Math.sin(a) * radius)
     if (mode === 'boot') tmpPos.set(Math.cos(s.angle) * radius, height, Math.sin(s.angle) * radius)
+    const shot = mode !== 'boot' ? regionForTile(focus).shot : undefined
+    if (shot) {
+      const yaw = shot.yaw + Math.sin(s.angle) * shot.sway
+      tmpPos.set(cx + Math.sin(yaw) * radius, cy + height, cz + Math.cos(yaw) * radius)
+    }
 
     if (!s.init) {
       s.target.copy(tmpTarget)

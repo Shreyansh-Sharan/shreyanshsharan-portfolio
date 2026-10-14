@@ -436,7 +436,19 @@ createRoot(document.getElementById('root')!).render(
 function indexHtml(game, tile) {
   const siteHtml = read(join(SITE, 'index.html'))
   const shellStyle = siteHtml.match(/<style>[\s\S]*?<\/style>/)[0]
-  const shell = siteHtml.match(/<div id="ld3"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/)[0].replace('>SS<', `>${initials(game.title)}<`).replace('Starting up…', `Starting ${game.title}…`)
+  // The portfolio's shell shows the island; a game's own site shows its key art, title and tagline instead.
+  const hero = tile.hero ?? ''
+  const stem = hero.replace(/\.webp$/, '')
+  const shell = siteHtml
+    .match(/<div id="ld3"[\s\S]*?<!-- \/ld3 -->/)[0]
+    .replace('>SS<', `>${initials(game.title)}<`)
+    .replace('Starting up…', `Starting ${game.title}…`)
+    .replace(/home\/hero\/profile/g, stem)
+    .replace(/style="--ld3-a:[^"]*"/, `style="--ld3-a:${tile.accent[1]};--ld3-b:${tile.accent[0]}"`)
+    .replace(/<p class="ld3-kicker">[^<]*<\/p>/, '<p class="ld3-kicker">Now loading · Game</p>')
+    .replace(/<h2 class="ld3-title">[^<]*<\/h2>/, `<h2 class="ld3-title">${game.title}</h2>`)
+    .replace(/<p class="ld3-sub">[^<]*<\/p>/, `<p class="ld3-sub">${tile.tagline}</p>`)
+    .replace(/<p class="ld3-tip">[\s\S]*?<\/p>/, '<p class="ld3-tip"></p>')
   const description = tile.blurb.replace(/"/g, '&quot;')
   return `<!doctype html>
 <html lang="en">

@@ -14,8 +14,9 @@ import { Embed } from './components/Embed'
 import { QuickView } from './components/QuickView'
 import { Arena } from './components/Arena'
 import { GameLaunch } from './components/GameLaunch'
-import { GameRoute, Loader3D, LoadingGate } from './components/Loader3D'
-import { endBoot } from './lib/loader3d'
+import { GameRoute, Loader3D, LoadingGate, WithLoaderScene } from './components/Loader3D'
+import { endBoot, showLoader, trackManager, type LoaderScene } from './lib/loader3d'
+import { districtAt, districtForTile, districtScene, gameScene } from './lib/loading'
 import { ROUTE_TILE, externalGameUrl } from './data/gameLinks'
 import { world, useWorld } from './world/store'
 import { attachControls } from './world/controls'
@@ -61,7 +62,8 @@ export default function App() {
   // Loader phases: the boot overlay (until the world's first frames), its asset burst, and entering explore mode.
   const [bootStuck, setBootStuck] = useState(false)
   const [worldSettled, setWorldSettled] = useState(false)
-  const [entering, setEntering] = useState(false)
+  // The loading screen for stepping into the world: the district the explorer lands in.
+  const [entering, setEntering] = useState<LoaderScene | null>(null)
 
   // The boot overlay stays up until the first screen is really there: with the world on, its first rendered frames.
   useEffect(() => {
@@ -103,7 +105,7 @@ export default function App() {
       if (next && (!use3D || !ready3D)) return
       play(next ? 'boot' : 'back')
       // The world streams its characters and props in as the explorer appears; the loader covers that burst.
-      if (next) setEntering(true)
+      if (next) setEntering(districtScene(districtForTile(world.get().arrive ?? world.get().focus), 'Entering the open world'))
       world.set({ playing: next, open: null, near: null, scene: 'world' })
     },
     [use3D, ready3D],
@@ -132,6 +134,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [route.name, setPlaying])
 
+  // Fast travel (the minimap, the arcade, a mission) gets the destination district's loading screen while the
+  // spot streams in.
+  useEffect(() => {
+    let last = world.get().teleport?.n ?? 0
+    const off = world.subscribe(() => {
+      const tp = world.get().teleport
+      if (!tp || tp.n === last) return
+      last = tp.n
+      if (!world.get().playing) return
+      const h = showLoader({ status: 'Fast travelling…', progress: null, scene: districtScene(districtAt(tp.x, tp.z), 'Fast travel') })
+      window.setTimeout(() => {
+        trackManager(h, undefined, 8000).then(() => {
+          h.update({ progress: 1 })
+          window.setTimeout(() => h.release(), 500)
+        })
+      }, 200)
+    })
+    return () => {
+      off()
+    }
+  }, [])
+
   useEffect(() => {
     setInputSuspended(playing)
     document.documentElement.classList.toggle('is-playing', playing)
@@ -156,7 +180,7 @@ export default function App() {
       screen = <Boot onAccent={setAccent} canExplore={use3D} />
       break
     case 'home':
-      screen = <Home key={route.tile ?? ''} initialTile={route.tile} onAccent={setAccent} canExplore={use3D} />
+      screen = <Home key={route.tile ?? ''} initialTile={route.tile} onAccent={setAccent} canExplore={use3D} liveWorld={use3D && ready3D && worldSettled} />
       break
     case 'game':
       screen = <GameHub id={route.id} onAccent={setAccent} />
@@ -177,53 +201,57 @@ export default function App() {
       screen = <QuickView onAccent={setAccent} />
       break
     case 'arena':
-      screen = <Arena key={route.join ?? ''} join={route.join} onAccent={setAccent} />
+      screen = (
+        <WithLoaderScene scene={gameScene('arena')}>
+          <Arena key={route.join ?? ''} join={route.join} onAccent={setAccent} />
+        </WithLoaderScene>
+      )
       break
     case 'cricket':
       screen = (
-        <GameRoute title="Cricket Arena">
+        <GameRoute title="Cricket Arena" scene={gameScene('cricket')}>
           <Cricket key={(route.join ?? '') + (route.auto ? '-auto' : '')} join={route.join} auto={route.auto} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'racer':
       screen = (
-        <GameRoute title="VOLT RIOT">
+        <GameRoute title="VOLT RIOT" scene={gameScene('volt-riot')}>
           <Racer key={route.auto ?? route.join ?? 'menu'} auto={route.auto} join={route.join} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'golf':
       screen = (
-        <GameRoute title="BOGEY BRAWL">
+        <GameRoute title="BOGEY BRAWL" scene={gameScene('bogey-brawl')}>
           <Golf auto={route.auto} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'sports':
       screen = (
-        <GameRoute title="SPORTS COMPLEX">
+        <GameRoute title="SPORTS COMPLEX" scene={gameScene('sports-complex')}>
           <Sports auto={route.auto} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'plush':
       screen = (
-        <GameRoute title="PLUSH PANIC">
+        <GameRoute title="PLUSH PANIC" scene={gameScene('plush-panic')}>
           <Plush key={route.join ?? route.auto ?? 'menu'} auto={route.auto} level={route.level} join={route.join} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'siege':
       screen = (
-        <GameRoute title="NEON SIEGE">
+        <GameRoute title="NEON SIEGE" scene={gameScene('neon-siege')}>
           <Siege key={route.join ?? route.auto ?? 'menu'} auto={route.auto} map={route.map} join={route.join} onAccent={setAccent} />
         </GameRoute>
       )
       break
     case 'lawn':
       screen = (
-        <GameRoute title="LAWN WARS">
+        <GameRoute title="LAWN WARS" scene={gameScene('lawn-wars')}>
           <Lawn key={route.join ?? route.auto ?? 'menu'} auto={route.auto} map={route.map} join={route.join} onAccent={setAccent} />
         </GameRoute>
       )
@@ -234,7 +262,7 @@ export default function App() {
     <>
       {use3D && !ready3D && !bootStuck && <Loader3D status="Loading the island…" />}
       {use3D && ready3D && !worldSettled && <LoadingGate status="Loading the island…" onDone={() => setWorldSettled(true)} />}
-      {entering && <LoadingGate status="Entering the open world…" onDone={() => setEntering(false)} />}
+      {entering && <LoadingGate status="Entering the open world…" scene={entering} onDone={() => setEntering(null)} />}
       {!hide2D && <Background accent={accent} />}
       {use3D && scene === 'world' && (
         <CanvasErrorBoundary>
@@ -245,10 +273,10 @@ export default function App() {
           </Suspense>
         </CanvasErrorBoundary>
       )}
-      {use3D && scene === 'world' && returning && playing && <LoadingGate status="Back to the island…" onDone={() => setReturning(false)} />}
+      {use3D && scene === 'world' && returning && playing && <LoadingGate status="Back to the island…" scene={districtScene(districtForTile('sports-complex'), 'Back to the island')} onDone={() => setReturning(false)} />}
       {use3D && scene === 'sports' && playing && (
         <div className="scene-layer is-ready sports-scene">
-          <GameRoute title="SPORTS COMPLEX">
+          <GameRoute title="SPORTS COMPLEX" scene={gameScene('sports-complex')}>
             <Sports auto onAccent={setAccent} onExit={() => world.set({ scene: 'world' })} />
           </GameRoute>
           <button className="pill sports-gate-out" onClick={() => world.set({ scene: 'world' })}>

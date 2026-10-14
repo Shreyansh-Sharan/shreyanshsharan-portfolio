@@ -12,6 +12,7 @@ import { heightAt } from './terrain'
 import { scatterLayout, type ScatterName } from './layout'
 import { boxCollider, circleCollider, groundAt, landmarkKey, setLandmarkCollider, setLandmarkFloor, setScatterFactor, type Collider } from './colliders'
 import { showLoader, trackManager } from '../lib/loader3d'
+import { districtScene } from '../lib/loading'
 import { useWorld, world } from './store'
 
 export const modelUrl = (name: string) => `${import.meta.env.BASE_URL}world/models/${name}.glb`
@@ -700,7 +701,7 @@ function District({ region }: { region: Region }) {
     // (a teleport, the airship); walking up to it, the buildings stream in silently over the placeholders.
     const me = world.get().player
     if (Math.hypot(me.x - region.center[0], me.z - region.center[1]) > region.radius * 1.1) return
-    const h = showLoader({ status: `Entering ${region.name}…`, progress: null })
+    const h = showLoader({ status: `Entering ${region.name}…`, progress: null, scene: districtScene(region) })
     const ctrl = new AbortController()
     const id = window.setTimeout(() => {
       trackManager(h, ctrl.signal, 12000).then(() => {

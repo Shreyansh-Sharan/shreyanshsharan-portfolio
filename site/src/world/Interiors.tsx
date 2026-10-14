@@ -15,6 +15,7 @@ import { heightAt } from './terrain'
 import { player } from './Characters'
 import { world } from './store'
 import { showLoader, trackManager } from '../lib/loader3d'
+import { roomScene } from '../lib/loading'
 
 const texCache = new Map<string, { tex: THREE.Texture; copies: THREE.Texture[]; ready: boolean }>()
 /**
@@ -357,7 +358,7 @@ function RoomMount({ room }: { room: Room }) {
     if (!near) return
     // The door already put the loader up (so the first frame inside is never the empty sky); otherwise, on a first
     // visit, show it now.
-    const h = takeRoomLoader(room.id) ?? (!loaded.has(room.id) && world.get().playing ? showLoader({ status: `Entering ${room.name}…`, progress: null }) : null)
+    const h = takeRoomLoader(room.id) ?? (!loaded.has(room.id) && world.get().playing ? showLoader({ status: `Entering ${room.name}…`, progress: null, scene: roomScene(room.id) }) : null)
     loaded.add(room.id)
     if (!h) return
     const ctrl = new AbortController()

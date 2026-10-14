@@ -4,8 +4,8 @@
 .ps-home {
   --ps-gx: clamp(20px, 4.4vw, 84px);
   --ps-ease: cubic-bezier(0.22, 0.8, 0.2, 1);
-  --ps-panel: rgba(14, 16, 24, 0.74);
-  --ps-line: rgba(255, 255, 255, 0.12);
+  --ps-panel: rgba(10, 12, 20, 0.84);
+  --ps-line: rgba(255, 255, 255, 0.14);
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -60,6 +60,13 @@
   background:
     linear-gradient(90deg, rgba(3, 5, 12, 0.86) 0%, rgba(3, 5, 12, 0.6) 26%, rgba(3, 5, 12, 0.12) 52%, rgba(3, 5, 12, 0) 66%),
     linear-gradient(180deg, rgba(3, 5, 12, 0.72) 0%, rgba(3, 5, 12, 0.16) 22%, rgba(3, 5, 12, 0) 48%, rgba(3, 5, 12, 0.45) 76%, rgba(3, 5, 12, 0.88) 100%);
+}
+
+/* Over the live world (brighter and busier than the key art), the scrim is a little firmer behind the text. */
+.ps-home.is-live .ps-scrim {
+  background:
+    linear-gradient(90deg, rgba(3, 5, 12, 0.9) 0%, rgba(3, 5, 12, 0.7) 28%, rgba(3, 5, 12, 0.22) 52%, rgba(3, 5, 12, 0) 66%),
+    linear-gradient(180deg, rgba(3, 5, 12, 0.7) 0%, rgba(3, 5, 12, 0.12) 20%, rgba(3, 5, 12, 0) 44%, rgba(3, 5, 12, 0.5) 74%, rgba(3, 5, 12, 0.9) 100%);
 }
 
 /* Top bar */
@@ -339,7 +346,7 @@
 .ps-info {
   grid-row: 4;
   align-self: end;
-  max-width: min(660px, 48vw);
+  max-width: min(860px, 56vw);
   padding-bottom: 26px;
   animation: ps-info-in 0.5s var(--ps-ease) backwards;
 }
@@ -349,11 +356,11 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .ps-chip {
@@ -383,23 +390,20 @@
 
 .ps-tagline {
   margin-top: 12px;
-  font-size: clamp(16px, 1.35vw, 23px);
+  font-size: clamp(18px, 1.35vw, 24px);
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.92);
+  color: #fff;
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
 }
 
 .ps-blurb {
-  margin-top: 10px;
-  font-size: 15px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.72);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+  margin-top: 12px;
+  max-width: 62ch;
+  font-size: clamp(17px, calc(0.5vw + 11px), 20px);
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+  text-wrap: pretty;
 }
 
 .ps-actions {
@@ -510,14 +514,17 @@
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 236px;
-  height: 132px;
-  padding: 14px 16px;
-  border-radius: 14px;
+  gap: 8px;
+  width: clamp(270px, 17vw, 340px);
+  min-height: 150px;
+  padding: 16px 20px 18px;
+  border-radius: 16px;
   text-align: left;
   background: var(--ps-panel);
   border: 1px solid var(--ps-line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   overflow: hidden;
   animation: ps-card-in 0.45s var(--ps-ease) backwards;
   transition:
@@ -527,11 +534,11 @@
 }
 
 .ps-card.is-wide {
-  width: 330px;
+  width: clamp(360px, 25vw, 480px);
 }
 
 .ps-card:hover {
-  background: rgba(24, 27, 38, 0.86);
+  background: rgba(22, 25, 36, 0.92);
 }
 
 .ps-card.is-focused {
@@ -542,12 +549,12 @@
 .ps-card-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .ps-card-head svg {
@@ -555,23 +562,23 @@
 }
 
 .ps-card-value {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   line-height: 1.1;
 }
 
 .ps-card-value.is-small {
-  font-size: 17px;
-  line-height: 1.25;
+  font-size: 19px;
+  line-height: 1.3;
 }
 
 .ps-card-detail {
-  font-size: 13.5px;
-  line-height: 1.42;
-  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(16px, calc(0.3vw + 11px), 17px);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.9);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -589,10 +596,10 @@
 
 .ps-card-list {
   margin: 0;
-  padding-left: 16px;
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.86);
+  padding-left: 18px;
+  font-size: clamp(16px, calc(0.3vw + 11px), 17px);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .ps-card-list li {
@@ -613,9 +620,9 @@
 }
 
 .ps-skill {
-  padding: 3px 9px;
+  padding: 4px 11px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   background: rgba(255, 255, 255, 0.09);
   border: 1px solid rgba(255, 255, 255, 0.14);
   white-space: nowrap;
@@ -639,7 +646,7 @@
 
 .ps-card-foot {
   margin-top: auto;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .ps-card-foot.is-done {
@@ -883,11 +890,31 @@
   animation: none !important;
 }
 
+/* Shorter screens: a long description shows four lines until the title area is hovered or focused. */
+@media (max-height: 1000px) and (min-width: 761px) {
+  .ps-blurb {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .ps-info:is(:hover, :focus-within) .ps-blurb {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+  }
+}
+
 /* Smaller desktops (1280x720 and the like) */
 
 @media (max-height: 820px) and (min-width: 761px) {
   .ps-top {
     height: 66px;
+  }
+
+  .ps-here {
+    top: 78px;
   }
 
   .ps-row {
@@ -902,8 +929,8 @@
   }
 
   .ps-blurb {
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
+    font-size: 17px;
+    line-height: 1.5;
   }
 
   .ps-actions {
@@ -924,12 +951,14 @@
   }
 
   .ps-card {
-    height: 118px;
-    padding: 12px 14px;
+    min-height: 0;
+    padding: 12px 16px 14px;
   }
 
   .ps-card-detail {
-    font-size: 13px;
+    font-size: 16px;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
 
   .ps-cards {
@@ -943,6 +972,9 @@
   .ps-home {
     --ps-gx: 16px;
     padding-bottom: calc(66px + env(safe-area-inset-bottom));
+    /* Full descriptions can outgrow a short phone: let the screen scroll rather than clip. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .ps-top {
@@ -1022,7 +1054,9 @@
   }
 
   .ps-blurb {
-    display: none;
+    font-size: 16px;
+    line-height: 1.55;
+    margin-top: 8px;
   }
 
   .ps-actions {
@@ -1069,10 +1103,15 @@
 
   .ps-card,
   .ps-card.is-wide {
-    width: min(270px, 74vw);
-    height: 112px;
-    padding: 12px 14px;
+    width: min(310px, 82vw);
+    min-height: 0;
+    padding: 14px 16px;
     scroll-snap-align: start;
+  }
+
+  .ps-card-detail,
+  .ps-card-list {
+    font-size: 16px;
   }
 
   .ps-card-value {
@@ -1323,8 +1362,8 @@
 /* Details page facts (GameHub) */
 
 .hub-fact {
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 17px;
+  line-height: 1.55;
 }
 
 .stat-label svg {
@@ -1356,4 +1395,357 @@
 
 .ps-btn svg {
   flex-shrink: 0;
+}
+
+/* ---------- The open world: top bar entry, first-visit coach mark, "you are here" caption ---------- */
+
+.ps-world-wrap {
+  position: relative;
+}
+
+.ps-world-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 8px 0 15px;
+  border-radius: 21px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(14, 16, 24, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s var(--ps-ease);
+}
+
+.ps-world-btn:hover,
+.ps-world-btn.is-focused {
+  background: #fff;
+  color: #0b0d14;
+}
+
+.ps-world-btn.is-focused {
+  transform: scale(1.05);
+}
+
+.ps-world-btn:focus-visible {
+  outline: none;
+}
+
+.ps-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(239, 68, 68, 0.9);
+}
+
+.ps-live i {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.ps-live i::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  opacity: 0;
+  animation: ps-live-ping 2s ease-out infinite;
+}
+
+@keyframes ps-live-ping {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.6);
+  }
+  80%,
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+.ps-coach {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 50%;
+  z-index: 12;
+  width: min(340px, calc(100vw - 32px));
+  padding: 16px 18px;
+  border-radius: 16px;
+  color: #0b0d14;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  transform: translateX(-50%);
+  animation: ps-coach-in 0.45s var(--ps-ease) both;
+}
+
+.ps-coach::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 3px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.ps-coach-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ps-coach-title svg {
+  color: #d97706;
+}
+
+.ps-coach-body {
+  margin-top: 6px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: #2a2f3c;
+}
+
+.ps-coach-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ps-coach-actions button {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.ps-coach-go {
+  color: #fff;
+  background: #0b0d14;
+}
+
+.ps-coach-skip {
+  color: #0b0d14;
+  background: rgba(11, 13, 20, 0.08);
+}
+
+.ps-coach-actions button:hover {
+  filter: brightness(1.15);
+}
+
+.ps-coach-actions button:focus-visible {
+  outline: 2px solid #0b0d14;
+  outline-offset: 2px;
+}
+
+@keyframes ps-coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+/* "You are here": over the live world, top right under the bar on wide screens (in the flow above the title on phones). */
+.ps-here {
+  position: fixed;
+  right: var(--ps-gx);
+  top: 96px;
+  z-index: 2;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  text-align: right;
+  color: #fff;
+  background: rgba(8, 10, 18, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: ps-fade-in 0.6s ease both;
+  transition: background-color 0.2s ease;
+}
+
+.ps-here:hover {
+  background: rgba(8, 10, 18, 0.75);
+}
+
+.ps-here:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.ps-here-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.ps-here-top strong {
+  font-weight: 700;
+}
+
+.ps-here-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14.5px;
+  color: rgba(255, 255, 255, 0.85);
+  animation: ps-hint-breathe 2.8s ease-in-out infinite;
+}
+
+.ps-here-hint kbd {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.ps-here-hint svg {
+  animation: ps-hint-nudge 1.4s ease-in-out infinite;
+}
+
+@keyframes ps-hint-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ps-hint-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+.ps-home.is-art-view .ps-here,
+.ps-home.is-launching .ps-here {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .ps-world-btn {
+    height: 36px;
+    gap: 6px;
+    padding: 0 6px 0 10px;
+    font-size: 14px;
+  }
+
+  .ps-world-label,
+  .ps-world-btn .ps-live {
+    font-size: 0;
+    gap: 0;
+    padding: 5px;
+  }
+
+  .ps-world-label {
+    display: none;
+  }
+
+  .ps-clock {
+    white-space: nowrap;
+  }
+
+  .ps-coach {
+    position: fixed;
+    top: calc(64px + env(safe-area-inset-top));
+    left: 16px;
+    right: 16px;
+    width: auto;
+    transform: none;
+    animation-name: ps-fade-in;
+  }
+
+  /* The arrow sits under the Open World button (the clock, avatar, settings and search are to its right). */
+  .ps-coach::before {
+    left: auto;
+    right: var(--ps-coach-arrow, 196px);
+    transform: rotate(45deg);
+  }
+
+  /* The caption gets a row of its own between the tiles and the title. */
+  .ps-home:has(> .ps-here) {
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+  }
+
+  .ps-home:has(> .ps-here) .ps-info {
+    grid-row: 5;
+  }
+
+  .ps-home:has(> .ps-here) .ps-cards {
+    grid-row: 6;
+  }
+
+  .ps-here {
+    position: static;
+    grid-row: 4;
+    align-self: end;
+    justify-self: start;
+    justify-items: start;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    text-align: left;
+    gap: 4px;
+  }
+
+  .ps-here-top {
+    font-size: 14.5px;
+  }
+
+  .ps-here-hint {
+    font-size: 13.5px;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .ps-here {
+    display: none;
+  }
+}
+
+/* Narrow phones: the Open World entry takes the clock's place in the top bar. */
+@media (max-width: 420px) {
+  .ps-clock {
+    display: none;
+  }
 }
